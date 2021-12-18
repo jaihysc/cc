@@ -1,2 +1,8 @@
 
 out/
+test/__pycache__
+test/imm1
+test/imm2
+test/imm3
+test/imm4
+test/a.out

@@ -11,7 +11,7 @@ Symbols with prefix `__` are predefined, the following characters until the next
 ```
 <fundamental-type><*(optional)>
 ```
-- * denotes pointer, similar to C, chain them together for pointer to pointer, e.g., i8\*\*
+- \* denotes pointer, similar to C, chain them together for pointer to pointer, e.g., i8\*\*
 
 | Type   | Summary                                                                                                                                            |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -35,19 +35,19 @@ Symbols with prefix `__` are predefined, the following characters until the next
 | Instruction | Args | Summary                                                                                                                                     |
 | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | #           |      | Comment, rest of line ignored                                                                                                               |
-| mov         |    2 | Perform move from <arg1>si into <arg0>s                                                                                                     |
-| func        |   2+ | Start function scope, name <arg0>s, return type <arg1>t, parameters <arg2+>st type0 name0, type1 name1, ...                                 |
-| ret         |  0,1 | Return <arg0> from function (if required by function signature), otherwise just returns from function                                       |
+| mov         |    2 | Perform move from `<arg1>si` into `<arg0>s`                                                                                                 |
+| func        |   2+ | Start function scope, name `<arg0>s`, return type `<arg1>t`, parameters `<arg2+>st` type0 name0, type1 name1, ...                           |
+| ret         |  0,1 | Return `<arg0>` from function (if required by function signature), otherwise just returns from function                                     |
 | asm         |      | Start of assembly scope, contents is passed onto the assembler                                                                              |
-| call        |  1+n | Call function with name <arg0>s, arguments for call <arg1+>si                                                                               |
+| call        |  1+n | Call function with name `<arg0>s`, arguments for call `<arg1+>si`                                                                           |
 
 - `0,1` Means 0 or 1
 - `+` Means variable number of arguments
 - `2+` Means 2 required arguments plus variable number afterwards
 
-- `s` after <arg#> means symbol
-- `i` after <arg#> means immediate (e.g., 0x55, 51, 0b11, 01123)
-- `t` after <arg#> means type
+- `s` after `<arg#>` means symbol
+- `i` after `<arg#>` means immediate (e.g., 0x55, 51, 0b11, 01123)
+- `t` after `<arg#>` means type
 
 ### func
 
@@ -64,7 +64,7 @@ func main, int, int, char** {
 
 ```
 # Make a system call to print string and return
-func print, void, const char* msg   <-- Declare print with 1 parameter
+func print, void, const char* msg { <-- Declare print with 1 parameter
     asm {                           <-- Section of assembly
         mov rax, rdi                <-- Assembly block passed onto the assembler
     }                               <-- End section of assembly

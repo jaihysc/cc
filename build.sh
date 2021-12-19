@@ -7,7 +7,7 @@ if [ ! -d "out" ]; then
   mkdir out || exit 2
 fi
 
-cc_flags="-Wall -Wextra -Wshadow -pedantic -Wpointer-arith -Wcast-qual -Wswitch-default\
+cc_flags="-Wall -Wextra -Wshadow -pedantic -Wmissing-prototypes -Wpointer-arith -Wcast-qual -Wswitch-default\
     -Wswitch-enum -Wbad-function-cast -Wlogical-op -Wredundant-decls -Wsign-conversion -Wdouble-promotion -Wmisleading-indentation\
     -Wduplicated-cond -Wduplicated-branches\
     -Wno-unused-parameter"

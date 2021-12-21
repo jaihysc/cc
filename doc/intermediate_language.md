@@ -11,7 +11,7 @@ Symbols with prefix `__` are predefined, the following characters until the next
 ```
 <fundamental-type><*(optional)>
 ```
-- \* denotes pointer, similar to C, chain them together for pointer to pointer, e.g., i8\*\*
+\* denotes pointer, similar to C, chain them together for pointer to pointer, e.g., i8\*\*
 
 | Type   | Summary                                                                                                                                            |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -51,13 +51,13 @@ Symbols with prefix `__` are predefined, the following characters until the next
 
 ### func
 
-The signature `func main int int char**` is recognized as the entry point of the program
+The signature `int main(int, char**)` is recognized as the entry point of the program
 
 ## Examples
 
 ```
 # Return 5 from main, main's signature is a special function which is recognized as the entry point
-func main, int, int, char** {
+func main,int,int,char** {
     ret 5
 }
 ```

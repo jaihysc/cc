@@ -10,7 +10,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     // Output something for now so the compilation can be tested
-    fprintf(f, "%s\n", "func main, i32, i32 argc, u8** argv");
+    fprintf(f, "%s\n", "func main,i32,i32 argc,u8** argv");
     fclose(f);
     return 0;
 }

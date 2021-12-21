@@ -4,8 +4,6 @@
 */
 
 /*
- Generate a label with f@func_name
- Recognize the name main and generate special output
  Discard the curly braces at the very end
  Create a stack for the scopes, do something on scope end
  Create a context struct (current context (scope, etc))
@@ -13,6 +11,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdarg.h>
 
 #define LOG(msg__) printf("%s", msg__);
 #define LOGF(...) printf(__VA_ARGS__);
@@ -58,7 +57,9 @@ typedef enum {
     ec_scopelenexceed,
     ec_invalidins,
     ec_invalidinsop,
-    ec_badmain
+    ec_badargs,
+    ec_badmain,
+    ec_writefailed
 } errcode;
 
 typedef enum {
@@ -118,7 +119,7 @@ typedef struct {
 } parser;
 
 /* Sets up a new symbol scope*/
-/* Error code returned via ecode pointer argument */
+/* Error code returned via ecode pointer argument, otherwise ecode is unaffected */
 static void parser_new_scope(parser* p, errcode* ecode) {
     if (p->i_scope + 1 >= MAX_SCOPE_DEPTH) {
         *ecode = ec_scopedepexceed;
@@ -129,7 +130,8 @@ static void parser_new_scope(parser* p, errcode* ecode) {
 }
 
 /* Acquires and returns memory for new symbol of current scope, contents of returned memory undefined */
-/* Error code returned via ecode pointer argument, if an error occurred returned pointer is NULL */
+/* Error code returned via ecode pointer argument, otherwise ecode is unaffected */
+/* if an error occurred returned pointer is NULL */
 static il_symbol* parser_sym_alloc(parser* p, errcode* ecode) {
     int i_scope = p->i_scope;
     if (p->i_symbol[i_scope] + 1 >= MAX_SCOPE_LEN) {
@@ -140,6 +142,16 @@ static il_symbol* parser_sym_alloc(parser* p, errcode* ecode) {
 }
 
 
+/* Writes provided assembly using format string and va_args into output */
+/* Error code returned via ecode pointer argument, otherwise ecode is unaffected */
+static void parser_output_asm(parser* p, errcode* ecode, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    if (vfprintf(p->of, fmt, args) < 0) {
+        *ecode = ec_writefailed;
+    }
+    va_end(args);
+}
 /* Extracts the type and the name from <arg>ts stored in cstr */
 /* Ensure out_name is of sufficient size to hold all names which can be contained in arguments */
 /* Currently only extracts the name */
@@ -190,12 +202,15 @@ typedef errcode(*instruction_handler) (parser*, char**, int);
 #define INSTRUCTION_HANDLER(name__) errcode handler_ ## name__ (parser* p, char** pparg, int arg_count)
 
 static INSTRUCTION_HANDLER(func) {
-    errcode ecode = ec_noerr;
-
     LOG("func\n");
     for (int i = 0; i < arg_count; ++i) {
         LOGF("%s\n", pparg[i]);
     }
+
+    if (arg_count < 2) {
+        return ec_badargs;
+    }
+    errcode ecode = ec_noerr;
 
     /* Special handling of main function */
     if (strequ(pparg[0], "main")) {
@@ -220,6 +235,28 @@ static INSTRUCTION_HANDLER(func) {
         /* TODO set registers */
         extract_type_name(pparg[2], argc_sym->name);
         extract_type_name(pparg[3], argv_sym->name);
+
+        /* Generate a _start function which calls main */
+        parser_output_asm(p, &ecode, "%s"
+            "\n"
+            "    global _start\n"
+            "_start:\n"
+            "    mov             rdi, QWORD [rsp]\n" /* argc */
+            "    mov             rsi, QWORD [rsp+8]\n" /* argv */
+            "    call            f@main\n"
+            "    mov             rdi, rax\n" /* exit call */
+            "    mov             rax, 60\n"
+            "    syscall\n"
+        );
+        if (ecode != ec_noerr) {
+            return ecode;
+        }
+    }
+
+    /* Function labels always with prefix f@ */
+    parser_output_asm(p, &ecode, "f@%s:\n", pparg[0]);
+    if (ecode != ec_noerr) {
+        return ecode;
     }
 
     return ecode;
@@ -365,15 +402,8 @@ int main(int argc, char** argv) {
         goto cleanup;
     }
 
-    /* Output something for now so the compilation can be tested */
-    fprintf(p.of, "%s\n", "global _start");
-    fprintf(p.of, "%s\n", "_start:");
-    fprintf(p.of, "%s\n", "mov rax, 60");
-    fprintf(p.of, "%s\n", "xor rdi, rdi");
-    fprintf(p.of, "%s\n", "syscall");
-
     /* Global scope */
-    errcode ecode;
+    errcode ecode = ec_noerr;
     parser_new_scope(&p, &ecode);
     if (ecode != ec_noerr) {
         goto handle_ecode;

@@ -68,7 +68,8 @@ class Program:
             r = ProgramResult()
             v = Validator()
 
-            run_cmd = f'./a.out {",".join(args)}'
+            arg_str = ' '.join(f'"{arg}"' for arg in args)
+            run_cmd = f'./a.out {arg_str}'
             log(run_cmd)
             run_result = os.system(run_cmd)
             # This is Linux only

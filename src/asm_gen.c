@@ -12,20 +12,53 @@
 */
 
 #include <stdio.h>
+#include <stdint.h>
 
 #define LOG(msg__) printf("%s", msg__);
 #define LOGF(...) printf(__VA_ARGS__);
 
 #define MAX_INSTRUCTION_LEN 256
-#define MAX_ARG_LEN 2048
+#define MAX_ARG_LEN 2048   /* Excludes null terminator */
 #define MAX_ARGS 256
+#define MAX_SCOPE_DEPTH 16 /* Max number of scopes */
+#define MAX_SCOPE_LEN 50   /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
+
+
+/* Own implementation of library functions */
+/* The plan is to not have to use external headers when self compiling */
+
+/* Return 1 if strings are equal, 0 if not */
+static int strequ(const char* s1, const char* s2) {
+    int i = 0;
+    char c;
+    while ((c = s1[i]) != '\0') {
+        if (s1[i] != s2[i]) {
+            return 0;
+        }
+        ++i;
+    }
+    /* Ensure both strings terminated */
+    if (s2[i] == '\0') {
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+
+/* Compiler specific */
+
 
 typedef enum {
     ec_noerr = 0,
     ec_insbufexceed,
     ec_argbufexceed,
+    ec_scopedepexceed,
+    ec_scopelenexceed,
     ec_invalidins,
-    ec_invalidinsop
+    ec_invalidinsop,
+    ec_badmain
 } errcode;
 
 typedef enum {
@@ -33,28 +66,163 @@ typedef enum {
     ps_rdarg
 } pstate;
 
+/* Data for parser */
+
+/* All the registers in x86-64 (just 8 byte ones for now) */
+typedef enum {
+    rax = 0,
+    rbc,
+    rcx,
+    rdx,
+    rsi,
+    rdi,
+    rbp,
+    rsp,
+    r8,
+    r9,
+    r10,
+    r11,
+    r12,
+    r13,
+    r14,
+    r15
+} asm_register;
+
+/* Location of symbol */
+typedef struct {
+    asm_register reg;
+    int isptr; /* Register holds value if 0, register points to value if 1 and offset may be used*/
+    uint64_t offset; /* Offset applied to register if reg is pointer */
+} il_symloc;
+
+typedef struct {
+    char name[MAX_ARG_LEN + 1]; /* +1 for null terminator */
+    il_symloc loc;
+} il_symbol;
+
+typedef struct {
+    FILE* rf; /* Input file */
+    FILE* of; /* Generated code goes in this file */
+
+    /* [Array of scopes][Array of symbols in each scope] */
+    /* First scope element is highest scope (most global) */
+    /* First symbol element is earliest in occurrence */
+    il_symbol symbol[MAX_SCOPE_DEPTH][MAX_SCOPE_LEN];
+
+    /*
+     Point to last so createing new scope,symbol is one function, then caller code, otherwise if pointed one past:
+        create new -> caller code to initialize new -> increment index
+    */
+    int i_scope; /* Index of latest(deepest) scope. */
+    int i_symbol[MAX_SCOPE_DEPTH]; /* Index of latest symbol for each scope */
+} parser;
+
+/* Sets up a new symbol scope*/
+/* Error code returned via ecode pointer argument */
+static void parser_new_scope(parser* p, errcode* ecode) {
+    if (p->i_scope + 1 >= MAX_SCOPE_DEPTH) {
+        *ecode = ec_scopedepexceed;
+        return;
+    }
+    /* Scope may have been previously used, reset index for symbol */
+    p->i_symbol[++p->i_scope] = -1;
+}
+
+/* Acquires and returns memory for new symbol of current scope, contents of returned memory undefined */
+/* Error code returned via ecode pointer argument, if an error occurred returned pointer is NULL */
+static il_symbol* parser_sym_alloc(parser* p, errcode* ecode) {
+    int i_scope = p->i_scope;
+    if (p->i_symbol[i_scope] + 1 >= MAX_SCOPE_LEN) {
+        *ecode = ec_scopelenexceed;
+        return NULL;
+    }
+    return &p->symbol[i_scope][++p->i_symbol[i_scope]];
+}
+
+
+/* Extracts the type and the name from <arg>ts stored in cstr */
+/* Ensure out_name is of sufficient size to hold all names which can be contained in arguments */
+/* Currently only extracts the name */
+static void extract_type_name(const char* arg, char* out_name) {
+    char c;
+    int i = 0;
+    /* Extract type */
+    while ((c = arg[i]) != ' ' && c != '\0') {
+        ++i;
+    }
+    if (c == '\0') { /* No name provided */
+        out_name[0] = '\0';
+        return;
+    }
+    /* Extract name */
+    ++i; /* Skip the space which was encountered */
+    int i_out = 0;
+    while ((c = arg[i]) != '\0') {
+        out_name[i_out] = arg[i];
+        ++i;
+        ++i_out;
+    }
+    out_name[i_out] = '\0';
+}
+
+/* Dumps contents stored in parser */
+static void debug_dump(parser* p) {
+    LOGF("Scopes: [%d]\n", p->i_scope + 1);
+    for (int i = 0; i <= p->i_scope; ++i) {
+        LOGF("  [%d]\n", p->i_symbol[i] + 1);
+        for (int j = 0; j <= p->i_symbol[i]; ++j) {
+            LOGF("    %s\n", p->symbol[i][j].name);
+        }
+    }
+}
+
+
+/* Instruction handlers */
+
+
 /* Alphabetical, short to long (important!) */
 #define INSTRUCTIONS  \
     INSTRUCTION(func) \
     INSTRUCTION(mov)  \
     INSTRUCTION(ret)
-typedef errcode(*instruction_handler) (char**, int);
+typedef errcode(*instruction_handler) (parser*, char**, int);
 /* pparg is pointer to array of size, each element is pointer to null terminated argument string */
-#define INSTRUCTION_HANDLER(name__) errcode handler_ ## name__ (char** pparg, int arg_count)
-
-/* Data for parser */
-typedef struct {
-    FILE* rf; /* Input file */
-    FILE* of; /* Generated code goes in this file */
-} parser;
+#define INSTRUCTION_HANDLER(name__) errcode handler_ ## name__ (parser* p, char** pparg, int arg_count)
 
 static INSTRUCTION_HANDLER(func) {
-    LOG("func\n");
+    errcode ecode = ec_noerr;
 
+    LOG("func\n");
     for (int i = 0; i < arg_count; ++i) {
         LOGF("%s\n", pparg[i]);
     }
-    return ec_noerr;
+
+    /* Special handling of main function */
+    if (strequ(pparg[0], "main")) {
+        if (arg_count != 4) {
+            return ec_badmain;
+        }
+
+        /* Load symbols argc argv*/
+        parser_new_scope(p, &ecode);
+        if (ecode != ec_noerr) {
+            return ecode;
+        }
+        il_symbol* argc_sym = parser_sym_alloc(p, &ecode);
+        if (ecode != ec_noerr) {
+            return ecode;
+        }
+        il_symbol* argv_sym = parser_sym_alloc(p, &ecode);
+        if (ecode != ec_noerr) {
+            return ecode;
+        }
+
+        /* TODO set registers */
+        extract_type_name(pparg[2], argc_sym->name);
+        extract_type_name(pparg[3], argv_sym->name);
+    }
+
+    return ecode;
 }
 static INSTRUCTION_HANDLER(mov) {
     LOG("mov\n");
@@ -74,7 +242,7 @@ const instruction_handler instruction_handler_table[] = {INSTRUCTIONS};
 #undef INSTRUCTION
 #define INSTRUCTION_COUNT (int)(sizeof(instruction_handler_index) / sizeof(instruction_handler_index[0]))
 
-static errcode handle_instruction(char* ins, int ins_len, char** arg, int arg_count) {
+static errcode handle_instruction(parser* p, char* ins, int ins_len, char** arg, int arg_count) {
     int front = 0; /* Inclusive */
     int rear = INSTRUCTION_COUNT; /* Exclusive */
     /* Binary search for instruction */
@@ -107,8 +275,7 @@ static errcode handle_instruction(char* ins, int ins_len, char** arg, int arg_co
         if (match) {
             LOGF("matched IL instruction %s\n", found);
 
-            instruction_handler_table[ins_i](arg, arg_count);
-            return ec_noerr;
+            return instruction_handler_table[ins_i](p, arg, arg_count);
         }
         LOGF("%d %d %d\n", front, rear, ins_i);
     }
@@ -161,7 +328,7 @@ static errcode parse(parser* p) {
                     while (i < i_arg);
                     arg[i] = '\0';
                 }
-                rt_code = handle_instruction(ins, i_ins, arg_table, arg_count);
+                rt_code = handle_instruction(p, ins, i_ins, arg_table, arg_count);
 
                 /* Prepare for reading new instruction again */
                 i_ins = 0;
@@ -184,7 +351,7 @@ static errcode parse(parser* p) {
 int main(int argc, char** argv) {
     int exitcode = 0;
 
-    parser p = {.rf = NULL, .of = NULL};
+    parser p = {.rf = NULL, .of = NULL, .i_scope = -1}; /* Initially have no active scope */
     p.rf = fopen("imm2", "r");
     if (p.rf == NULL) {
         printf("Failed to open input file\n");
@@ -205,21 +372,20 @@ int main(int argc, char** argv) {
     fprintf(p.of, "%s\n", "xor rdi, rdi");
     fprintf(p.of, "%s\n", "syscall");
 
-    errcode rt_code = parse(&p);
-    /* Indicate to the user cause for exiting if errored during parsing */
-    switch (rt_code) {
-        case ec_noerr:
-            break;
-        case ec_insbufexceed:
-            LOG("Parse instruction buffer exceeded\n");
-            break;
-        case ec_invalidins:
-            LOG("Invalid IL instruction encountered\n");
-            break;
-        default:
-            LOG("Error during parsing\n");
-            break;
+    /* Global scope */
+    errcode ecode;
+    parser_new_scope(&p, &ecode);
+    if (ecode != ec_noerr) {
+        goto handle_ecode;
     }
+    ecode = parse(&p);
+
+handle_ecode:
+    /* Indicate to the user cause for exiting if errored during parsing */
+    if (ecode != ec_noerr) {
+        LOGF("Error during parsing: %d\n", ecode);
+    }
+    debug_dump(&p);
 
 cleanup:
     if (p.rf != NULL) {

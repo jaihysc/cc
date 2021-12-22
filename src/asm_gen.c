@@ -59,7 +59,8 @@ typedef enum {
     ec_invalidinsop,
     ec_badargs,
     ec_badmain,
-    ec_writefailed
+    ec_writefailed,
+    ec_unknownsym
 } errcode;
 
 typedef enum {
@@ -70,24 +71,35 @@ typedef enum {
 /* Data for parser */
 
 /* All the registers in x86-64 (just 8 byte ones for now) */
-typedef enum {
-    rax = 0,
-    rbc,
-    rcx,
-    rdx,
-    rsi,
-    rdi,
-    rbp,
-    rsp,
-    r8,
-    r9,
-    r10,
-    r11,
-    r12,
-    r13,
-    r14,
-    r15
-} asm_register;
+#define X86_REGISTERS \
+    X86_REGISTER(rax) \
+    X86_REGISTER(rbx) \
+    X86_REGISTER(rcx) \
+    X86_REGISTER(rdx) \
+    X86_REGISTER(rsi) \
+    X86_REGISTER(rdi) \
+    X86_REGISTER(rbp) \
+    X86_REGISTER(rsp) \
+    X86_REGISTER(r8)  \
+    X86_REGISTER(r9)  \
+    X86_REGISTER(r10) \
+    X86_REGISTER(r11) \
+    X86_REGISTER(r12) \
+    X86_REGISTER(r13) \
+    X86_REGISTER(r14) \
+    X86_REGISTER(r15)
+
+#define X86_REGISTER(reg__) asm_ ## reg__,
+typedef enum {X86_REGISTERS} asm_register;
+#undef X86_REGISTER
+#define X86_REGISTER(reg__) #reg__ ,
+const char* asm_register_strings[] = {X86_REGISTERS};
+#undef X86_REGISTER
+
+/* Converts given asm_register into its corresponding cstr*/
+static const char* asm_register_str(asm_register reg) {
+    return asm_register_strings[reg];
+}
 
 /* Location of symbol */
 typedef struct {
@@ -139,6 +151,20 @@ static il_symbol* parser_sym_alloc(parser* p, errcode* ecode) {
         return NULL;
     }
     return &p->symbol[i_scope][++p->i_symbol[i_scope]];
+}
+
+/* Looks for symbol with given cstr name from deepest scope first*/
+/* Return NULL if not found */
+static il_symbol* parser_sym_lookup(parser* p, const char* name) {
+    for (int i_scope = p->i_scope; i_scope >= 0; --i_scope) {
+        for (int i_sym = 0; i_sym <= p->i_symbol[i_scope]; ++i_sym) {
+            il_symbol* sym = &p->symbol[i_scope][i_sym];
+            if (strequ(sym->name, name)) {
+                return sym;
+            }
+        }
+    }
+    return NULL;
 }
 
 
@@ -232,9 +258,12 @@ static INSTRUCTION_HANDLER(func) {
             return ecode;
         }
 
-        /* TODO set registers */
         extract_type_name(pparg[2], argc_sym->name);
         extract_type_name(pparg[3], argv_sym->name);
+
+        argc_sym->loc.reg = asm_rdi;
+        argv_sym->loc.reg = asm_rsi;
+        argv_sym->loc.isptr = 1;
 
         /* Generate a _start function which calls main */
         parser_output_asm(p, &ecode, "%s"
@@ -267,7 +296,21 @@ static INSTRUCTION_HANDLER(mov) {
 }
 static INSTRUCTION_HANDLER(ret) {
     LOG("ret\n");
-    return 0;
+    if (arg_count != 1) {
+        return ec_badargs;
+    }
+
+    il_symbol* sym = parser_sym_lookup(p, pparg[0]);
+    if (sym == NULL) {
+        return ec_unknownsym;
+    }
+    errcode ecode = ec_noerr;
+    parser_output_asm(p, &ecode,
+        "    mov             rax, %s\n" /* Return integer types in rax */
+        "    ret\n",
+        asm_register_str(sym->loc.reg)
+    );
+    return ecode;
 }
 
 /* Index of string is instruction handler index */

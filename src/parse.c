@@ -1,17 +1,148 @@
-// Preprocessed c file parser
-// Generated output is imm2
+/* Preprocessed c file parser */
+/* Generated output is imm2 */
 
 #include <stdio.h>
+#include "common.h"
+
+#define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
+
+/* Should always be initialized to ec_noerr */
+/* Since functions will only sets if error occurred */
+typedef enum {
+    ec_noerr,
+    ec_tokbufexceed
+} errcode;
+
+typedef struct {
+    FILE* rf; /* Input file */
+    FILE* of; /* Output file */
+
+    /* Read buffer, used by read_token to hold extra characters read */
+    /* Since in order to determine the end of a token, it must read 1 past */
+    char rf_buf[1];
+    int i_rf_buf; /* Index 1 past end in rf_buf */
+} parser;
+
+/* Returns 1 is considered whitespace */
+static int iswhitespace(char c) {
+    switch (c) {
+        case ' ':
+        case '\t':
+        case '\n':
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* Reads a null terminated token into buf */
+/* ecode is set if error occurred, otherwise ecode unmodified */
+/* Returns 0 if EOF, 1 otherwise */
+static int read_token(parser* p, errcode* ecode, char* buf) {
+    int i = 0;
+    int seen_token = 0;
+    char c;
+    while (1) {
+        if (i >= MAX_TOKEN_LEN) {
+            *ecode = ec_tokbufexceed;
+            break; /* Since MAX_TOKEN_LEN does no include null terminator, we can break and add null terminator */
+        }
+        /* Read character out of buffer first from previous read_token calls */
+        if (p->i_rf_buf > 0) {
+            --p->i_rf_buf;
+            c = p->rf_buf[p->i_rf_buf];
+        }
+        else {
+            c = getc(p->rf);
+        }
+        if (c == EOF) {
+            break;
+        }
+
+        if (iswhitespace(c)) {
+            if (seen_token) {
+                break;
+            }
+            /* Skip leading whitespace */
+            continue;
+        }
+        /* TODO incomplete list of token chars */
+        switch (c) {
+            case '(':
+            case ')':
+            case '{':
+            case '&':
+            case '*':
+            case ',':
+            case ';':
+                /* Return final character read since it is token, for next call */
+                if (seen_token) {
+                    p->rf_buf[0] = c; /* We only need to hold 1 character for now */
+                    p->i_rf_buf++;
+                    goto while_exit; /* Break the while */
+                }
+                else {
+                    /* A token char itself is a token */
+                    buf[i] = c;
+                    ++i;
+                    goto while_exit;
+                }
+            default:
+                break;
+        }
+        seen_token = 1;
+        buf[i] = c;
+        ++i;
+    }
+while_exit:
+    buf[i] = '\0';
+    return c != EOF;
+}
+
+/* ecode is set if error occurred, otherwise ecode unmodified */
+static void parse(parser* p, errcode* ecode) {
+    char tok_buf[MAX_TOKEN_LEN + 1]; /* This buffer is null terminated */
+    while (read_token(p, ecode, tok_buf)) {
+        if (*ecode != ec_noerr) {
+            return;
+        }
+        LOGF("%s\n", tok_buf);
+    }
+}
 
 int main(int argc, char** argv) {
-    FILE *f = fopen("imm2", "w");
-    if (f == NULL) {
-        printf("Failed to open output file\n");
-        return 1;
+    int rt_code = 0;
+    parser p = {.rf = NULL, .of = NULL, .i_rf_buf = 0};
+
+    p.rf = fopen("imm1", "r");
+    if (p.rf == NULL) {
+        LOG("Failed to open input file\n");
+        rt_code = 1;
+        goto cleanup;
     }
+    p.of = fopen("imm2", "w");
+    if (p.of == NULL) {
+        LOG("Failed to open output file\n");
+        rt_code = 1;
+        goto cleanup;
+    }
+
     // Output something for now so the compilation can be tested
-    fprintf(f, "%s\n", "func main,i32,i32 argc,u8** argv");
-    fclose(f);
-    return 0;
+    fprintf(p.of, "%s\n", "func main,i32,i32 argc,u8** argv");
+
+    errcode ecode = ec_noerr;
+    parse(&p, &ecode);
+    if (ecode != ec_noerr) {
+        LOGF("Error during parsing: %d\n", ecode);
+    }
+
+cleanup:
+    if (p.rf != NULL) {
+        fclose(p.rf);
+    }
+    if (p.of != NULL) {
+        fclose(p.of);
+    }
+    return rt_code;
 }
 

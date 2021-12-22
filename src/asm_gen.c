@@ -12,9 +12,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdarg.h>
-
-#define LOG(msg__) printf("%s", msg__);
-#define LOGF(...) printf(__VA_ARGS__);
+#include "common.h"
 
 #define MAX_INSTRUCTION_LEN 256
 #define MAX_ARG_LEN 2048   /* Excludes null terminator */

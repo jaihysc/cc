@@ -10,8 +10,21 @@
 /* Since functions will only sets if error occurred */
 typedef enum {
     ec_noerr,
-    ec_tokbufexceed
+    ec_tokbufexceed,
+    ec_syntaxerr
 } errcode;
+
+/* Indicates what parser currently reading */
+typedef enum {
+    ps_declspec, /* Reading any declaration specifier */
+    ps_declspec_type, /* Type specifiers in declaration-specifiers */
+    ps_declarator,
+    ps_fdecllist, /* Function declaration list */
+    ps_fdecllist_type,
+    ps_fdecllist_declarator,
+    ps_fdecllist_term, /* Declaration list ended, expect ; or } */
+    ps_fbody, /* Function body */
+} pstate;
 
 typedef struct {
     FILE* rf; /* Input file */
@@ -33,6 +46,67 @@ static int iswhitespace(char c) {
         default:
             return 0;
     }
+}
+
+
+/* C keyword handling */
+
+const char* token_storage_class_keyword[] = {
+    /* See strbinfind for ordering requirements */
+    "auto",
+    "extern",
+    "register",
+    "static",
+    "typedef"
+};
+/* Returns 1 if token c string is a storage class keyword, 0 otherwise */
+static int tok_isstoreclass(const char* str) {
+    return strbinfind(
+            str,
+            strlength(str),
+            token_storage_class_keyword,
+            ARRAY_SIZE(token_storage_class_keyword)) >= 0;
+}
+
+const char* token_type_keyword[] = {
+    /* See strbinfind for ordering requirements */
+    "char",
+    "double",
+    "float",
+    "int",
+    "long",
+    "short",
+    "signed",
+    "unsigned",
+    "void",
+};
+/* Returns 1 if token c string is a type keyword, 0 otherwise */
+static int tok_istype(const char* str) {
+    return strbinfind(
+            str,
+            strlength(str),
+            token_type_keyword,
+            ARRAY_SIZE(token_type_keyword)) >= 0;
+}
+
+const char* token_type_qualifier_keyword[] = {
+    /* See strbinfind for ordering requirements */
+    "const",
+    "restrict",
+    "volatile"
+};
+/* Returns 1 if token c string is a type qualifier keyword, 0 otherwise */
+static int tok_istypequal(const char* str) {
+    return strbinfind(
+            str,
+            strlength(str),
+            token_type_qualifier_keyword,
+            ARRAY_SIZE(token_type_qualifier_keyword)) >= 0;
+}
+
+/* Returns 1 if token c string is a function specifier keyword, 0 otherwise */
+static int tok_isfuncspec(const char* str) {
+    return strequ(str, "inline");
 }
 
 /* Reads a null terminated token into buf */
@@ -101,12 +175,49 @@ while_exit:
 
 /* ecode is set if error occurred, otherwise ecode unmodified */
 static void parse(parser* p, errcode* ecode) {
+    pstate state = ps_declspec;
     char tok_buf[MAX_TOKEN_LEN + 1]; /* This buffer is null terminated */
     while (read_token(p, ecode, tok_buf)) {
         if (*ecode != ec_noerr) {
             return;
         }
+
+        if (state == ps_declspec) {
+            int sc = tok_isstoreclass(tok_buf);
+            int type = tok_istype(tok_buf);
+            int type_qual = tok_istypequal(tok_buf);
+            int func_spec = tok_isfuncspec(tok_buf);
+            if (sc) {
+                LOG("storage class!\n");
+            }
+            else if (type) {
+                LOG("type!\n");
+                state = ps_declspec_type;
+            }
+            else if (type_qual) {
+                LOG("type qualifier!\n");
+            }
+            else if (func_spec) {
+                LOG("function specifier!\n");
+            }
+            else {
+                *ecode = ec_syntaxerr;
+            }
+        }
+        else if (state == ps_declspec_type) {
+            if (tok_istype(tok_buf)) {
+                LOG("another type!\n");
+            }
+            else {
+                state = ps_declspec;
+            }
+        }
+
         LOGF("%s\n", tok_buf);
+        /* Error may have occurred during parsing */
+        if (*ecode != ec_noerr) {
+            return;
+        }
     }
 }
 

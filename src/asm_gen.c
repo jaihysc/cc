@@ -20,33 +20,6 @@
 #define MAX_SCOPE_DEPTH 16 /* Max number of scopes */
 #define MAX_SCOPE_LEN 50   /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
 
-
-/* Own implementation of library functions */
-/* The plan is to not have to use external headers when self compiling */
-
-/* Return 1 if strings are equal, 0 if not */
-static int strequ(const char* s1, const char* s2) {
-    int i = 0;
-    char c;
-    while ((c = s1[i]) != '\0') {
-        if (s1[i] != s2[i]) {
-            return 0;
-        }
-        ++i;
-    }
-    /* Ensure both strings terminated */
-    if (s2[i] == '\0') {
-        return 1;
-    }
-    else {
-        return 0;
-    }
-}
-
-
-/* Compiler specific */
-
-
 typedef enum {
     ec_noerr = 0,
     ec_insbufexceed,
@@ -216,7 +189,7 @@ static void debug_dump(parser* p) {
 /* Instruction handlers */
 
 
-/* Alphabetical, short to long (important!) */
+/* See strbinfind for ordering requirements */
 #define INSTRUCTIONS  \
     INSTRUCTION(func) \
     INSTRUCTION(mov)  \
@@ -318,48 +291,7 @@ const char* instruction_handler_index[] = {INSTRUCTIONS};
 #define INSTRUCTION(name__) &handler_ ## name__,
 const instruction_handler instruction_handler_table[] = {INSTRUCTIONS};
 #undef INSTRUCTION
-#define INSTRUCTION_COUNT (int)(sizeof(instruction_handler_index) / sizeof(instruction_handler_index[0]))
 
-static errcode handle_instruction(parser* p, char* ins, int ins_len, char** arg, int arg_count) {
-    int front = 0; /* Inclusive */
-    int rear = INSTRUCTION_COUNT; /* Exclusive */
-    /* Binary search for instruction */
-    while (front != rear && rear != 0 && front < INSTRUCTION_COUNT) {
-        int ins_i = (front+rear) / 2;
-        const char* found = instruction_handler_index[ins_i];
-        int match = 1;
-        for (int i = 0; i < ins_len; ++i) {
-            if (found[i] == '\0') {
-                front = ins_i + 1;
-                match = 0;
-                break;
-            }
-            if (ins[i] < found[i]) {
-                rear = ins_i;
-                match = 0;
-                break;
-            }
-            else if (ins[i] > found[i]) {
-                front = ins_i + 1;
-                match = 0;
-                break;
-            }
-        }
-        /* Ensure that the found instruction is same length (not just the prefix which matches) */
-        if (match && found[ins_len] != '\0') {
-            match = 0;
-            rear = ins_i;
-        }
-        if (match) {
-            LOGF("matched IL instruction %s\n", found);
-
-            return instruction_handler_table[ins_i](p, arg, arg_count);
-        }
-        LOGF("%d %d %d\n", front, rear, ins_i);
-    }
-
-    return ec_invalidins;
-}
 
 static errcode parse(parser* p) {
     errcode rt_code = ec_noerr;
@@ -406,7 +338,15 @@ static errcode parse(parser* p) {
                     while (i < i_arg);
                     arg[i] = '\0';
                 }
-                rt_code = handle_instruction(p, ins, i_ins, arg_table, arg_count);
+
+                /* Run handler for instruction */
+                int i_handler = strbinfind(ins, i_ins, instruction_handler_index, ARRAY_SIZE(instruction_handler_index));
+                if (i_handler < 0) {
+                    rt_code = ec_invalidins;
+                }
+                else {
+                    rt_code = instruction_handler_table[i_handler](p, arg_table, arg_count);
+                }
 
                 /* Prepare for reading new instruction again */
                 i_ins = 0;

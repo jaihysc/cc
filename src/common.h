@@ -6,6 +6,9 @@
 
 #define LOG(msg__) printf("%s", msg__);
 #define LOGF(...) printf(__VA_ARGS__);
+/* For error/diagnostic messages */
+#define ERRMSG(msg__) printf("\033[1;31m%s\033[0m", msg__);
+#define ERRMSGF(fmt__, ...) printf("\033[1;31m" fmt__ "\033[0m", __VA_ARGS__);
 
 #define ARRAY_SIZE(array__) (int)(sizeof(array__) / sizeof(array__[0]))
 

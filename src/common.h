@@ -4,11 +4,28 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include <stdlib.h>
+
 #define LOG(msg__) printf("%s", msg__);
 #define LOGF(...) printf(__VA_ARGS__);
 /* For error/diagnostic messages */
 #define ERRMSG(msg__) printf("\033[1;31m%s\033[0m", msg__);
 #define ERRMSGF(fmt__, ...) printf("\033[1;31m" fmt__ "\033[0m", __VA_ARGS__);
+
+#define ASSERT(expr__, msg__)              \
+    if (!(expr__)) {                       \
+        ERRMSG("ICE: " msg__);             \
+        ERRMSGF("  Line: %d\n", __LINE__); \
+        exit(1);                           \
+    } do {} while (0)
+#define ASSERTF(expr__, fmt__, ...)          \
+    if (!(expr__)) {                         \
+        ERRMSGF("ICE: " fmt__, __VA_ARGS__); \
+        ERRMSGF("  Line: %d\n", __LINE__);   \
+        exit(1);                             \
+    } do {} while (0)
+
+
 
 #define ARRAY_SIZE(array__) (int)(sizeof(array__) / sizeof(array__[0]))
 

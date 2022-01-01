@@ -32,9 +32,12 @@ typedef enum {
 /* The text buffers of the parser */
 /* Holds text until enough information is known to generate an il instruction */
 typedef enum {
+    /* Reuse buffers if they will never be both used at the same time*/
     pb_declspec_type = 0,
-    pb_declarator_id,
-    pb_paramtypelist,
+    pb_declarator_id = 1,
+    pb_paramtypelist = 2,
+    pb_op1 = 1, /* Expression first operand and result */
+    pb_op2 = 2,
     pb_count /* Count of entries in enum */
 } pbuffer;
 
@@ -52,6 +55,8 @@ typedef struct {
     char buf[pb_count][MAX_PARSER_BUFFER_LEN + 1];
     int i_buf[pb_count]; /* Index 1 past end in buf */
 } parser;
+
+static void debug_parser_buf_dump(parser* p);
 
 /* Reads contents of parser buffer specified by target */
 /* Read is null terminated string */
@@ -90,6 +95,7 @@ static void parser_buf_clear(parser* p) {
 /* Writes provided IL using format string and va_args into output */
 /* ecode is set if error occurred, otherwise ecode unmodified */
 static void parser_output_il(parser* p, errcode* ecode, const char* fmt, ...) {
+    debug_parser_buf_dump(p);
     va_list args;
     va_start(args, fmt);
     if (vfprintf(p->of, fmt, args) < 0) {
@@ -345,6 +351,8 @@ int debug_parse_func_recursion_depth = 0;
     }                                                            \
     LOG("<==\n")
 
+static void parse_primaryexpr(parser* p, errcode* ecode);
+static void parse_expr(parser* p, errcode* ecode);
 static void parse_declspec(parser* p, errcode* ecode);
 static void parse_declarator(parser* p, errcode* ecode);
 static void parse_dirdeclarator(parser* p, errcode* ecode);
@@ -352,7 +360,41 @@ static void parse_pointer(parser* p, errcode* ecode);
 static void parse_paramtypelist(parser* p, errcode* ecode);
 static void parse_paramlist(parser* p, errcode* ecode);
 static void parse_paramdecl(parser* p, errcode* ecode);
+static void parse_stat(parser* p, errcode* ecode);
 static void parse_compoundstat(parser* p, errcode* ecode);
+static void parse_blockitemlist(parser* p, errcode* ecode);
+static void parse_blockitem(parser* p, errcode* ecode);
+static void parse_jumpstat(parser* p, errcode* ecode);
+/* Helpers */
+static int parse_semicolon(parser *p, errcode* ecode);
+
+/* primary-expression */
+/* ecode is set if error occurred, otherwise ecode unmodified */
+static void parse_primaryexpr(parser* p, errcode* ecode) {
+    DEBUG_PARSE_FUNC_START(primary-expression);
+    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
+    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+        goto exit;
+    }
+
+    if (tok_isidentifier(token)) {
+        parser_buf_push(p, ecode, pb_op1, token);
+    }
+    else {
+        return_token(p, ecode, token);
+    }
+
+exit:
+    DEBUG_PARSE_FUNC_END();
+}
+
+/* expression */
+/* ecode is set if error occurred, otherwise ecode unmodified */
+static void parse_expr(parser* p, errcode* ecode) {
+    DEBUG_PARSE_FUNC_START(expression);
+    parse_primaryexpr(p, ecode);
+    DEBUG_PARSE_FUNC_END();
+}
 
 /* declaration-specifiers */
 /* ecode is set if error occurred, otherwise ecode unmodified */
@@ -550,6 +592,14 @@ exit:
     DEBUG_PARSE_FUNC_END();
 }
 
+/* statement */
+/* ecode is set if error occurred, otherwise ecode unmodified */
+static void parse_stat(parser* p, errcode* ecode) {
+    DEBUG_PARSE_FUNC_START(statement);
+    parse_jumpstat(p, ecode);
+    DEBUG_PARSE_FUNC_END();
+}
+
 /* compound statement */
 /* ecode is set if error occurred, otherwise ecode unmodified */
 static void parse_compoundstat(parser* p, errcode* ecode) {
@@ -567,6 +617,10 @@ static void parse_compoundstat(parser* p, errcode* ecode) {
             parser_buf_rd(p, pb_paramtypelist)
         );
         parser_buf_clear(p);
+        if (*ecode != ec_noerr) {
+            goto exit;
+        }
+        parse_blockitemlist(p, ecode);
     }
     else {
         return_token(p, ecode, token);
@@ -574,6 +628,71 @@ static void parse_compoundstat(parser* p, errcode* ecode) {
 
 exit:
     DEBUG_PARSE_FUNC_END();
+}
+
+/* block-item-list */
+/* ecode is set if error occurred, otherwise ecode unmodified */
+static void parse_blockitemlist(parser* p, errcode* ecode) {
+    DEBUG_PARSE_FUNC_START(block-item-list);
+    /* TODO block-item-list terminates when no more block item cannot be parsed */
+    parse_blockitem(p, ecode);
+    DEBUG_PARSE_FUNC_END();
+}
+
+/* block-item */
+/* ecode is set if error occurred, otherwise ecode unmodified */
+static void parse_blockitem(parser* p, errcode* ecode) {
+    DEBUG_PARSE_FUNC_START(block-item);
+    parse_stat(p, ecode);
+    DEBUG_PARSE_FUNC_END();
+}
+
+/* jump-statement */
+/* ecode is set if error occurred, otherwise ecode unmodified */
+static void parse_jumpstat(parser* p, errcode* ecode) {
+    DEBUG_PARSE_FUNC_START(jump-statement);
+    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
+    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+        goto exit;
+    }
+
+    if (strequ(token, "return")) {
+        parse_expr(p, ecode);
+        if (!parse_semicolon(p, ecode) || *ecode != ec_noerr) {
+            ERRMSG("Expected semicolon after return expression\n");
+            *ecode = ec_syntaxerr;
+        }
+
+        parser_output_il(p, ecode,
+            "ret %s\n",
+            parser_buf_rd(p, pb_op1)
+        );
+        parser_buf_clear(p);
+    }
+    else {
+        return_token(p, ecode, token);
+    }
+
+exit:
+    DEBUG_PARSE_FUNC_END();
+}
+
+/* Return 1 if next token is semicolon, 0 otherwise */
+/* The semicolon is not added back to token cache */
+/* ecode is set if error occurred, otherwise ecode unmodified */
+static int parse_semicolon(parser *p, errcode* ecode) {
+    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
+    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+        return 0;
+    }
+
+    if (strequ(token, ";")) {
+        return 1;
+    }
+    else {
+        return_token(p, ecode, token);
+        return 0;
+    }
 }
 
 /* ecode is set if error occurred, otherwise ecode unmodified */
@@ -584,17 +703,14 @@ static void parse(parser* p, errcode* ecode) {
     if (*ecode != ec_noerr) {
         return;
     }
-    debug_parser_buf_dump(p);
     parse_declarator(p, ecode);
     if (*ecode != ec_noerr) {
         return;
     }
-    debug_parser_buf_dump(p);
     parse_compoundstat(p, ecode);
     if (*ecode != ec_noerr) {
         return;
     }
-    debug_parser_buf_dump(p);
 }
 
 int main(int argc, char** argv) {

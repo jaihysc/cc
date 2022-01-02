@@ -109,7 +109,7 @@ def run_py_file(c_file, py_file):
     try:
         with open(py_file) as f:
             if not f.readable:
-                log(f"Unable to read {py_name}", Color.ERR)
+                log(f"Unable to read {py_file}", Color.ERR)
 
             prog = Program(c_file)
             if prog.compile():
@@ -122,7 +122,10 @@ def run_py_file(c_file, py_file):
                     log(f'Exception during py file execution:', Color.ERR)
                     traceback.print_exc()
     except FileNotFoundError:
-        log(f'No matching py file found: {py_name}', Color.ERR)
+        log(f'No matching py file found: {py_file}', Color.ERR)
+    except Exception:
+        log(f'Failed to open file {py_file}', Color.ERR)
+        traceback.print_exc()
 
 def main():
     if len(sys.argv) < 2:

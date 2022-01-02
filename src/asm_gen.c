@@ -374,6 +374,12 @@ static int handle_cli_arg(parser* p, int argc, char** argv) {
     /* Skip first argv since it is path */
     for (int i = 1; i < argc; ++i) {
         if (strequ(argv[i], "-o")) {
+            if (p->of != NULL) {
+                ERRMSG("Only one output file can be specified\n");
+                rt_code = 1;
+                break;
+            }
+
             ++i;
             if (i >= argc) {
                 ERRMSG("Expected output file path after -o\n");

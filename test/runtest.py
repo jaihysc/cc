@@ -38,6 +38,7 @@ class Program:
 
         Return True if compilation succeeded, False otherwise
         '''
+        self.exe_path = f'{os.path.dirname(self.c_path)}/a.out'
         shell_cmd = f"{compiler_path} {self.c_path}"
         log(shell_cmd)
         result = os.system(shell_cmd)
@@ -48,7 +49,7 @@ class Program:
         if exit_code != 0:
             log(f'Compiler exited non zero {exit_code}', Color.ERR)
             return False
-        elif not os.path.isfile('a.out'):
+        elif not os.path.isfile(self.exe_path):
             log('No executable generated', Color.ERR)
             return False
 
@@ -69,7 +70,7 @@ class Program:
             v = Validator()
 
             arg_str = ' '.join(f'"{arg}"' for arg in args)
-            run_cmd = f'./a.out {arg_str}'
+            run_cmd = f'{self.exe_path} {arg_str}'
             log(run_cmd)
             run_result = os.system(run_cmd)
             # This is Linux only
@@ -79,6 +80,7 @@ class Program:
         return True
 
     has_exe = False
+    exe_path = '#' # Treat shell command with path as comment if no path set
 
 class ProgramResult:
     '''
@@ -135,12 +137,15 @@ def main():
         log('Bad compiler path', Color.ERR)
         return
 
-    with os.scandir() as it:
+    # Tests are located where the python file is
+    test_dir = os.path.dirname(sys.argv[0])
+    log(f'Test directory: {test_dir}')
+    with os.scandir(test_dir) as it:
         for entry in it:
             if entry.name.endswith('.c'):
                 # Look for matching python file
                 py_name = entry.name.removesuffix('.c') + '.py'
-                run_py_file(entry.name, py_name)
+                run_py_file(f'{test_dir}/{entry.name}', f'{test_dir}/{py_name}')
 
 if __name__ == '__main__':
     main()

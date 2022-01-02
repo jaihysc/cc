@@ -9,8 +9,6 @@
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
 #define MAX_PARSER_BUFFER_TOKENS 2 /* Number of tokens the buffer can hold */
 
-#define TOKEN_COLOR "\033[1;97m" /* Color for tokens when printed */
-
 /* Should always be initialized to ec_noerr */
 /* Since functions will only sets if error occurred */
 typedef enum {
@@ -713,21 +711,66 @@ static void parse(parser* p, errcode* ecode) {
     }
 }
 
+/* Parses cli args and processes them */
+/* NOTE: will not clean up file handles at exit */
+/* Returns non zero if error */
+static int handle_cli_arg(parser* p, int argc, char** argv) {
+    int rt_code = 0;
+    /* Skip first argv since it is path */
+    for (int i = 1; i < argc; ++i) {
+        if (strequ(argv[i], "-o")) {
+            ++i;
+            if (i >= argc) {
+                ERRMSG("Expected output file path after -o\n");
+                rt_code = 1;
+                break;
+            }
+            p->of = fopen(argv[i], "w");
+            if (p->of == NULL) {
+                ERRMSGF("Failed to open output file" TOKEN_COLOR " %s\n", argv[i]);
+                rt_code = 1;
+                break;
+            }
+        }
+        else {
+            if (p->rf != NULL) {
+                /* Incorrect flag */
+                ERRMSGF("Unrecognized argument" TOKEN_COLOR " %s\n", argv[i]);
+                rt_code = 1;
+                break;
+            }
+            p->rf = fopen(argv[i], "r");
+            if (p->rf == NULL) {
+                ERRMSGF("Failed to open input file" TOKEN_COLOR " %s\n", argv[i]);
+                rt_code = 1;
+                break;
+            }
+        }
+    }
+
+    return rt_code;
+}
+
 int main(int argc, char** argv) {
     int rt_code = 0;
     parser p = {.rf = NULL, .of = NULL};
 
-    p.rf = fopen("imm1", "r");
-    if (p.rf == NULL) {
-        LOG("Failed to open input file\n");
-        rt_code = 1;
+    rt_code = handle_cli_arg(&p, argc, argv);
+    if (rt_code != 0) {
         goto cleanup;
     }
-    p.of = fopen("imm2", "w");
-    if (p.of == NULL) {
-        LOG("Failed to open output file\n");
-        rt_code = 1;
+    if (p.rf == NULL) {
+        ERRMSG("No input file\n");
         goto cleanup;
+    }
+    if (p.of == NULL) {
+        /* Default to opening imm2 */
+        p.of = fopen("imm2", "w");
+        if (p.of == NULL) {
+            ERRMSG("Failed to open output file\n");
+            rt_code = 1;
+            goto cleanup;
+        }
     }
 
     errcode ecode = ec_noerr;

@@ -25,7 +25,7 @@
         exit(1);                             \
     } do {} while (0)
 
-
+#define TOKEN_COLOR "\033[1;97m" /* Color for tokens when printed */
 
 #define ARRAY_SIZE(array__) (int)(sizeof(array__) / sizeof(array__[0]))
 

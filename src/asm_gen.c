@@ -366,21 +366,68 @@ static errcode parse(parser* p) {
     return rt_code;
 }
 
+/* Parses cli args and processes them */
+/* NOTE: will not clean up file handles at exit */
+/* Returns non zero if error */
+static int handle_cli_arg(parser* p, int argc, char** argv) {
+    int rt_code = 0;
+    /* Skip first argv since it is path */
+    for (int i = 1; i < argc; ++i) {
+        if (strequ(argv[i], "-o")) {
+            ++i;
+            if (i >= argc) {
+                ERRMSG("Expected output file path after -o\n");
+                rt_code = 1;
+                break;
+            }
+            p->of = fopen(argv[i], "w");
+            if (p->of == NULL) {
+                ERRMSGF("Failed to open output file" TOKEN_COLOR " %s\n", argv[i]);
+                rt_code = 1;
+                break;
+            }
+        }
+        else {
+            if (p->rf != NULL) {
+                /* Maybe user meant for additional arg to go with flag */
+                ERRMSGF("Unrecognized argument" TOKEN_COLOR " %s\n", argv[i]);
+                rt_code = 1;
+                break;
+            }
+            p->rf = fopen(argv[i], "r");
+            if (p->rf == NULL) {
+                ERRMSGF("Failed to open input file" TOKEN_COLOR " %s\n", argv[i]);
+                rt_code = 1;
+                break;
+            }
+        }
+    }
+
+    return rt_code;
+}
+
+
 int main(int argc, char** argv) {
     int exitcode = 0;
 
     parser p = {.rf = NULL, .of = NULL, .i_scope = -1}; /* Initially have no active scope */
-    p.rf = fopen("imm2", "r");
-    if (p.rf == NULL) {
-        printf("Failed to open input file\n");
-        exitcode = 1;
+
+    exitcode = handle_cli_arg(&p, argc, argv);
+    if (exitcode != 0) {
         goto cleanup;
     }
-    p.of = fopen("imm3", "w");
-    if (p.of == NULL) {
-        printf("Failed to open output file\n");
-        exitcode = 1;
+    if (p.rf == NULL) {
+        ERRMSG("No input file\n");
         goto cleanup;
+    }
+    if (p.of == NULL) {
+        /* Default to opening imm3 */
+        p.of = fopen("imm3", "w");
+        if (p.of == NULL) {
+            ERRMSG("Failed to open output file\n");
+            exitcode = 1;
+            goto cleanup;
+        }
     }
 
     /* Global scope */

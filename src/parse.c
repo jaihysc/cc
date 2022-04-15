@@ -7,7 +7,6 @@
 
 #define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
-#define MAX_PARSER_BUFFER_TOKENS 2 /* Number of tokens the buffer can hold */
 
 /* ============================================================ */
 /* Parser data structure + functions */
@@ -20,7 +19,6 @@ typedef enum {
     ec_pbufexceed, /* Parser buffer exceeded */
     ec_syntaxerr,
     ec_writefailed,
-    ec_tokencountexceed
 } errcode;
 
 /* Indicates what parser currently reading,
@@ -51,10 +49,13 @@ typedef struct {
     /* By default this is set as ec_noerr */
     errcode ecode;
 
-    /* Token read buffer, used by read_token to cache tokens read + returned */
-    /* Since in order to determine the end of a token, it must read token extra */
-    char tok_buf[MAX_PARSER_BUFFER_TOKENS][MAX_TOKEN_LEN + 1];
-    int i_tok_buf[MAX_PARSER_BUFFER_TOKENS]; /* Index 1 past end in tok_buf*/
+    /* Token read buffer, used by read_token to store token read */
+    /* The read token is kept here, subsequent calls to read_token()
+       will return this.
+       When consume_token() is called, the next call to read_token()
+       will fill this buffer with a new token
+       */
+    char tok_buf[MAX_TOKEN_LEN + 1];
 
     char buf[pb_count][MAX_PARSER_BUFFER_LEN + 1];
     int i_buf[pb_count]; /* Index 1 past end in buf */
@@ -123,10 +124,8 @@ static void debug_parser_buf_dump(parser* p) {
         LOGF("%d | %s\n", i, p->buf[i]);
     }
 
-    LOG("Token buffer: Index (1 past end), contents\n");
-    for (int i = 0; i < MAX_PARSER_BUFFER_TOKENS; ++i) {
-        LOGF("  %d | %s\n", p->i_tok_buf[i], p->tok_buf[i]);
-    }
+    LOG("Token buffer: contents\n");
+    LOGF("%s\n", p->tok_buf);
 }
 
 /* ============================================================ */
@@ -144,6 +143,16 @@ static int iswhitespace(char c) {
     }
 }
 
+/* If character is considered as its own token */
+static int istokenchar(char c) {
+    switch (c) {
+        /* TODO incomplete list of token chars */
+        case '(': case ')': case '{': case '&': case '*': case ',': case ';':
+            return 1;
+        default:
+            return 0;
+    }
+}
 
 /* C keyword handling */
 
@@ -248,49 +257,26 @@ static int tok_isidentifier(const char* str) {
     return 1;
 }
 
-/* Caches null terminated token, returned on future read_token */
-static void return_token(parser* p, const char* token) {
-    for (int i_tok = 0; i_tok < MAX_PARSER_BUFFER_TOKENS; ++i_tok) {
-        if (p->i_tok_buf[i_tok] == 0) { /* Unused slot in buffer */
-            char c;
-            int i = p->i_tok_buf[i_tok];
-            while ((c = token[i]) != '\0') {
-                ASSERT(i < MAX_TOKEN_LEN, "Caching token, max token length exceeded");
-                p->tok_buf[i_tok][i] = c;
-                ++i;
-            }
-            p->i_tok_buf[i_tok] = i;
-            return;
-        }
-    }
-    parser_set_error(p, ec_tokencountexceed);
+/* Indicates the pointed to token is no longer in use */
+static void consume_token(char* token) {
+    token[0] = '\0';
 }
 
-/* Reads a null terminated token into buf */
-/* Returns 0 if EOF, 1 otherwise */
-static int read_token(parser* p, char* buf) {
-    /* Used cached token first */
-    for (int i_tok = MAX_PARSER_BUFFER_TOKENS - 1; i_tok >= 0; --i_tok) {
-        if (p->i_tok_buf[i_tok] != 0) { /* Used slot in buffer */
-            int i = p->i_tok_buf[i_tok];
-            buf[i] = '\0';
-            while (i > 0) {
-                --i;
-                buf[i] = p->tok_buf[i_tok][i];
-            }
-            p->i_tok_buf[i_tok] = 0; /* Indicate cached token used */
-            LOGF("%s\n", buf);
-            return 1;
-        }
+/* Reads a null terminated token */
+/* Returns pointer to the token, NULL if EOF or errored */
+static char* read_token(parser* p) {
+    if (p->tok_buf[0] != '\0') {
+        LOGF("%s ^Cached\n", p->tok_buf);
+        return p->tok_buf;
     }
 
-    int i = 0;
+    int i = 0; /* Index into buf */
     int seen_token = 0;
     char c;
     while ((c = getc(p->rf)) != EOF) {
         if (i >= MAX_TOKEN_LEN) {
             parser_set_error(p, ec_tokbufexceed);
-            break; /* Since MAX_TOKEN_LEN does no include null terminator, we can break and add null terminator */
+            break; /* Since MAX_TOKEN_LEN excludes null terminator, we can break and add null terminator */
         }
 
         if (iswhitespace(c)) {
@@ -300,46 +286,32 @@ static int read_token(parser* p, char* buf) {
             /* Skip leading whitespace */
             continue;
         }
-        /* TODO incomplete list of token chars */
-        switch (c) {
-            case '(':
-            case ')':
-            case '{':
-            case '&':
-            case '*':
-            case ',':
-            case ';':
-                /* Return final character read since it is token, for next call */
-                if (seen_token) {
-                    for (int i_tok = 0; i_tok < MAX_PARSER_BUFFER_TOKENS; ++i_tok) {
-                        if (p->i_tok_buf[i_tok] == 0) { /* Unused slot in buffer */
-                            p->tok_buf[i_tok][0] = c;
-                            p->i_tok_buf[i_tok] = 1;
-                            goto while_exit; /* Break the while */
-                        }
-                    }
-
-                    parser_set_error(p, ec_tokencountexceed);
-                    goto while_exit;
-                }
-                else {
-                    /* A token char itself is a token */
-                    ASSERT(i == 0, "Expected token char to occupy index 0");
-                    buf[i] = c;
-                    ++i;
-                    goto while_exit;
-                }
-            default:
+        if (istokenchar(c)) {
+            /* Token char is a separate token, save it to be read again */
+            if (seen_token) {
+                fseek(p->rf, -1, SEEK_CUR);
                 break;
+            }
+            else {
+                /* A token char itself is a token */
+                ASSERT(i == 0, "Expected token char to occupy index 0");
+                p->tok_buf[i] = c;
+                ++i;
+                break;
+            }
         }
         seen_token = 1;
-        buf[i] = c;
+        p->tok_buf[i] = c;
         ++i;
     }
-while_exit:
-    buf[i] = '\0';
-    LOGF("%s\n", buf);
-    return c != EOF;
+
+    p->tok_buf[i] = '\0';
+    LOGF("%s\n", p->tok_buf);
+
+    if (c == EOF) {
+        return NULL;
+    }
+    return p->tok_buf;
 }
 
 
@@ -385,16 +357,14 @@ static int parse_semicolon(parser *p);
 /* primary-expression */
 static void parse_primaryexpr(parser* p) {
     DEBUG_PARSE_FUNC_START(primary-expression);
-    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
     if (tok_isidentifier(token)) {
         parser_buf_push(p, pb_op1, token);
-    }
-    else {
-        return_token(p, token);
+        consume_token(token);
     }
 
 exit:
@@ -411,8 +381,8 @@ static void parse_expr(parser* p) {
 /* declaration-specifiers */
 static void parse_declspec(parser* p) {
     DEBUG_PARSE_FUNC_START(declspec);
-    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
@@ -421,14 +391,17 @@ static void parse_declspec(parser* p) {
     int type_qual = tok_istypequal(token);
     int func_spec = tok_isfuncspec(token);
     if (store_class) {
+        consume_token(token);
         parse_declspec(p);
     }
     else if (type_spec) {
         if (p->state == ps_fdecl) {
             parser_buf_push(p, pb_declspec_type, token);
+            consume_token(token);
         }
         else if (p->state == ps_paramtypelist) {
             parser_buf_push(p, pb_paramtypelist, token);
+            consume_token(token);
         }
         else {
             ASSERTF(
@@ -440,13 +413,12 @@ static void parse_declspec(parser* p) {
         parse_declspec(p);
     }
     else if (type_qual) {
+        consume_token(token);
         parse_declspec(p);
     }
     else if (func_spec) {
+        consume_token(token);
         parse_declspec(p);
-    }
-    else {
-        return_token(p, token);
     }
 
 exit:
@@ -469,8 +441,8 @@ exit:
 /* direct-declarator */
 static void parse_dirdeclarator(parser* p) {
     DEBUG_PARSE_FUNC_START(direct-declarator);
-    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
     if (tok_isidentifier(token)) {
@@ -489,16 +461,20 @@ static void parse_dirdeclarator(parser* p) {
             goto exit;
         }
 
+        consume_token(token);
         /* Parse parameter-type-list, identifier-list, ... if it exists */
-        if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+        if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
             goto exit;
         }
         if (strequ(token, "(") || strequ(token, "[")) {
-            parse_paramtypelist(p);
-
             /* Should have same closing bracket */
             char end_bracket = token[0] == '(' ? ')' : ']';
-            if (!read_token(p, token) || parser_get_error(p)!= ec_noerr) {
+            consume_token(token);
+
+            parse_paramtypelist(p);
+
+            /* Match closing bracket */
+            if ((token = read_token(p)) == NULL || parser_get_error(p)!= ec_noerr) {
                 ERRMSGF("Expected closing bracket in direct-declarator " TOKEN_COLOR "%c\n", end_bracket);
                 parser_set_error(p, ec_syntaxerr);
                 goto exit;
@@ -507,14 +483,10 @@ static void parse_dirdeclarator(parser* p) {
                 ERRMSGF("Mismatched brackets in direct-declarator. Expected: " TOKEN_COLOR "%c", end_bracket);
                 ERRMSGF(" Got: " TOKEN_COLOR "%s\n", token);
                 parser_set_error(p, ec_syntaxerr);
+                goto exit;
             }
+            consume_token(token);
         }
-        else {
-            return_token(p, token);
-        }
-    }
-    else {
-        return_token(p, token);
     }
 
 exit:
@@ -524,8 +496,8 @@ exit:
 /* pointer */
 static void parse_pointer(parser* p) {
     DEBUG_PARSE_FUNC_START(pointer);
-    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
@@ -546,11 +518,11 @@ static void parse_pointer(parser* p) {
             goto exit;
         }
 
-        if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+        consume_token(token);
+        if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
             goto exit;
         }
     }
-    return_token(p, token);
 
 exit:
     DEBUG_PARSE_FUNC_END();
@@ -573,15 +545,15 @@ static void parse_paramlist(parser* p) {
     while (1) {
         parse_paramdecl(p);
 
-        char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-        if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+        char* token;
+        if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
             break;
         }
         if (!strequ(token, ",")) {
-            return_token(p, token);
             break;
         }
         parser_buf_push(p, pb_paramtypelist, ",");
+        consume_token(token);
     }
     DEBUG_PARSE_FUNC_END();
 }
@@ -610,12 +582,13 @@ static void parse_stat(parser* p) {
 /* compound statement */
 static void parse_compoundstat(parser* p) {
     DEBUG_PARSE_FUNC_START(compound-statement);
-    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
     if (token[0] == '{') {
+        consume_token(token);
         parser_output_il(p,
             "func %s,%s,%s\n",
             parser_buf_rd(p, pb_declarator_id),
@@ -627,9 +600,6 @@ static void parse_compoundstat(parser* p) {
             goto exit;
         }
         parse_blockitemlist(p);
-    }
-    else {
-        return_token(p, token);
     }
 
 exit:
@@ -654,12 +624,13 @@ static void parse_blockitem(parser* p) {
 /* jump-statement */
 static void parse_jumpstat(parser* p) {
     DEBUG_PARSE_FUNC_START(jump-statement);
-    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
     if (strequ(token, "return")) {
+        consume_token(token);
         parse_expr(p);
         if (!parse_semicolon(p) || parser_get_error(p) != ec_noerr) {
             ERRMSG("Expected semicolon after return expression\n");
@@ -672,9 +643,6 @@ static void parse_jumpstat(parser* p) {
         );
         parser_buf_clear(p);
     }
-    else {
-        return_token(p, token);
-    }
 
 exit:
     DEBUG_PARSE_FUNC_END();
@@ -683,18 +651,16 @@ exit:
 /* Return 1 if next token is semicolon, 0 otherwise */
 /* The semicolon is not added back to token cache */
 static int parse_semicolon(parser *p) {
-    char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         return 0;
     }
 
     if (strequ(token, ";")) {
+        consume_token(token);
         return 1;
     }
-    else {
-        return_token(p, token);
-        return 0;
-    }
+    return 0;
 }
 
 static void parse(parser* p) {

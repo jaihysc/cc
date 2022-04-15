@@ -9,6 +9,9 @@
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
 #define MAX_PARSER_BUFFER_TOKENS 2 /* Number of tokens the buffer can hold */
 
+/* ============================================================ */
+/* Parser data structure + functions */
+
 /* Should always be initialized to ec_noerr */
 /* Since functions will only sets if error occurred */
 typedef enum {
@@ -44,6 +47,9 @@ typedef struct {
     FILE* of; /* Output file */
 
     pstate state;
+    /* Functions set error code only if an error occurred */
+    /* By default this is set as ec_noerr */
+    errcode ecode;
 
     /* Token read buffer, used by read_token to cache tokens read + returned */
     /* Since in order to determine the end of a token, it must read token extra */
@@ -56,6 +62,16 @@ typedef struct {
 
 static void debug_parser_buf_dump(parser* p);
 
+/* Sets error code in parser */
+static void parser_set_error(parser* p, errcode ecode) {
+    p->ecode = ecode;
+}
+
+/* Returns error code in parser */
+static errcode parser_get_error(parser* p) {
+    return p->ecode;
+}
+
 /* Reads contents of parser buffer specified by target */
 /* Read is null terminated string */
 static char* parser_buf_rd(parser* p, pbuffer target) {
@@ -64,14 +80,13 @@ static char* parser_buf_rd(parser* p, pbuffer target) {
 
 /* Adds null terminated string into buffer specified by target */
 /* The null terminator is not included */
-/* ecode is set if error occurred, otherwise ecode unmodified */
 /* Can be called again even if error occurred previously */
-static void parser_buf_push(parser* p, errcode* ecode, pbuffer target, const char* str) {
+static void parser_buf_push(parser* p, pbuffer target, const char* str) {
     int i = 0;
     char c;
     while ((c = str[i]) != '\0') {
         if (p->i_buf[target] >= MAX_PARSER_BUFFER_LEN) {
-            *ecode = ec_pbufexceed;
+            parser_set_error(p, ec_pbufexceed);
             break;
         }
         p->buf[target][p->i_buf[target]] = c;
@@ -91,13 +106,12 @@ static void parser_buf_clear(parser* p) {
 }
 
 /* Writes provided IL using format string and va_args into output */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parser_output_il(parser* p, errcode* ecode, const char* fmt, ...) {
+static void parser_output_il(parser* p, const char* fmt, ...) {
     debug_parser_buf_dump(p);
     va_list args;
     va_start(args, fmt);
     if (vfprintf(p->of, fmt, args) < 0) {
-        *ecode = ec_writefailed;
+        parser_set_error(p, ec_writefailed);
     }
     va_end(args);
 }
@@ -115,6 +129,8 @@ static void debug_parser_buf_dump(parser* p) {
     }
 }
 
+/* ============================================================ */
+/* Token handling */
 
 /* Returns 1 is considered whitespace */
 static int iswhitespace(char c) {
@@ -233,8 +249,7 @@ static int tok_isidentifier(const char* str) {
 }
 
 /* Caches null terminated token, returned on future read_token */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void return_token(parser* p, errcode* ecode, const char* token) {
+static void return_token(parser* p, const char* token) {
     for (int i_tok = 0; i_tok < MAX_PARSER_BUFFER_TOKENS; ++i_tok) {
         if (p->i_tok_buf[i_tok] == 0) { /* Unused slot in buffer */
             char c;
@@ -248,13 +263,12 @@ static void return_token(parser* p, errcode* ecode, const char* token) {
             return;
         }
     }
-    *ecode = ec_tokencountexceed;
+    parser_set_error(p, ec_tokencountexceed);
 }
 
 /* Reads a null terminated token into buf */
-/* ecode is set if error occurred, otherwise ecode unmodified */
 /* Returns 0 if EOF, 1 otherwise */
-static int read_token(parser* p, errcode* ecode, char* buf) {
+static int read_token(parser* p, char* buf) {
     /* Used cached token first */
     for (int i_tok = MAX_PARSER_BUFFER_TOKENS - 1; i_tok >= 0; --i_tok) {
         if (p->i_tok_buf[i_tok] != 0) { /* Used slot in buffer */
@@ -275,7 +289,7 @@ static int read_token(parser* p, errcode* ecode, char* buf) {
     char c;
     while ((c = getc(p->rf)) != EOF) {
         if (i >= MAX_TOKEN_LEN) {
-            *ecode = ec_tokbufexceed;
+            parser_set_error(p, ec_tokbufexceed);
             break; /* Since MAX_TOKEN_LEN does no include null terminator, we can break and add null terminator */
         }
 
@@ -304,7 +318,8 @@ static int read_token(parser* p, errcode* ecode, char* buf) {
                             goto while_exit; /* Break the while */
                         }
                     }
-                    *ecode = ec_tokencountexceed;
+
+                    parser_set_error(p, ec_tokencountexceed);
                     goto while_exit;
                 }
                 else {
@@ -328,6 +343,7 @@ while_exit:
 }
 
 
+/* ============================================================ */
 /* C source parsing functions */
 
 /* Source parsing debug logging functions */
@@ -349,37 +365,36 @@ int debug_parse_func_recursion_depth = 0;
     }                                                            \
     LOG("<==\n")
 
-static void parse_primaryexpr(parser* p, errcode* ecode);
-static void parse_expr(parser* p, errcode* ecode);
-static void parse_declspec(parser* p, errcode* ecode);
-static void parse_declarator(parser* p, errcode* ecode);
-static void parse_dirdeclarator(parser* p, errcode* ecode);
-static void parse_pointer(parser* p, errcode* ecode);
-static void parse_paramtypelist(parser* p, errcode* ecode);
-static void parse_paramlist(parser* p, errcode* ecode);
-static void parse_paramdecl(parser* p, errcode* ecode);
-static void parse_stat(parser* p, errcode* ecode);
-static void parse_compoundstat(parser* p, errcode* ecode);
-static void parse_blockitemlist(parser* p, errcode* ecode);
-static void parse_blockitem(parser* p, errcode* ecode);
-static void parse_jumpstat(parser* p, errcode* ecode);
+static void parse_primaryexpr(parser* p);
+static void parse_expr(parser* p);
+static void parse_declspec(parser* p);
+static void parse_declarator(parser* p);
+static void parse_dirdeclarator(parser* p);
+static void parse_pointer(parser* p);
+static void parse_paramtypelist(parser* p);
+static void parse_paramlist(parser* p);
+static void parse_paramdecl(parser* p);
+static void parse_stat(parser* p);
+static void parse_compoundstat(parser* p);
+static void parse_blockitemlist(parser* p);
+static void parse_blockitem(parser* p);
+static void parse_jumpstat(parser* p);
 /* Helpers */
-static int parse_semicolon(parser *p, errcode* ecode);
+static int parse_semicolon(parser *p);
 
 /* primary-expression */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_primaryexpr(parser* p, errcode* ecode) {
+static void parse_primaryexpr(parser* p) {
     DEBUG_PARSE_FUNC_START(primary-expression);
     char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
     if (tok_isidentifier(token)) {
-        parser_buf_push(p, ecode, pb_op1, token);
+        parser_buf_push(p, pb_op1, token);
     }
     else {
-        return_token(p, ecode, token);
+        return_token(p, token);
     }
 
 exit:
@@ -387,19 +402,17 @@ exit:
 }
 
 /* expression */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_expr(parser* p, errcode* ecode) {
+static void parse_expr(parser* p) {
     DEBUG_PARSE_FUNC_START(expression);
-    parse_primaryexpr(p, ecode);
+    parse_primaryexpr(p);
     DEBUG_PARSE_FUNC_END();
 }
 
 /* declaration-specifiers */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_declspec(parser* p, errcode* ecode) {
+static void parse_declspec(parser* p) {
     DEBUG_PARSE_FUNC_START(declspec);
     char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
@@ -408,14 +421,14 @@ static void parse_declspec(parser* p, errcode* ecode) {
     int type_qual = tok_istypequal(token);
     int func_spec = tok_isfuncspec(token);
     if (store_class) {
-        parse_declspec(p, ecode);
+        parse_declspec(p);
     }
     else if (type_spec) {
         if (p->state == ps_fdecl) {
-            parser_buf_push(p, ecode, pb_declspec_type, token);
+            parser_buf_push(p, pb_declspec_type, token);
         }
         else if (p->state == ps_paramtypelist) {
-            parser_buf_push(p, ecode, pb_paramtypelist, token);
+            parser_buf_push(p, pb_paramtypelist, token);
         }
         else {
             ASSERTF(
@@ -424,16 +437,16 @@ static void parse_declspec(parser* p, errcode* ecode) {
             );
             goto exit;
         }
-        parse_declspec(p, ecode);
+        parse_declspec(p);
     }
     else if (type_qual) {
-        parse_declspec(p, ecode);
+        parse_declspec(p);
     }
     else if (func_spec) {
-        parse_declspec(p, ecode);
+        parse_declspec(p);
     }
     else {
-        return_token(p, ecode, token);
+        return_token(p, token);
     }
 
 exit:
@@ -441,34 +454,32 @@ exit:
 }
 
 /* declarator */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_declarator(parser* p, errcode* ecode) {
+static void parse_declarator(parser* p) {
     DEBUG_PARSE_FUNC_START(declarator);
-    parse_pointer(p, ecode);
-    if (*ecode != ec_noerr) {
+    parse_pointer(p);
+    if (parser_get_error(p) != ec_noerr) {
         goto exit;
     }
-    parse_dirdeclarator(p, ecode);
+    parse_dirdeclarator(p);
 
 exit:
     DEBUG_PARSE_FUNC_END();
 }
 
 /* direct-declarator */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_dirdeclarator(parser* p, errcode* ecode) {
+static void parse_dirdeclarator(parser* p) {
     DEBUG_PARSE_FUNC_START(direct-declarator);
     char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
     if (tok_isidentifier(token)) {
         if (p->state == ps_fdecl) {
-            parser_buf_push(p, ecode, pb_declarator_id, token);
+            parser_buf_push(p, pb_declarator_id, token);
         }
         else if (p->state == ps_paramtypelist) {
-            parser_buf_push(p, ecode, pb_paramtypelist, " ");
-            parser_buf_push(p, ecode, pb_paramtypelist, token);
+            parser_buf_push(p, pb_paramtypelist, " ");
+            parser_buf_push(p, pb_paramtypelist, token);
         }
         else {
             ASSERTF(
@@ -479,31 +490,31 @@ static void parse_dirdeclarator(parser* p, errcode* ecode) {
         }
 
         /* Parse parameter-type-list, identifier-list, ... if it exists */
-        if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+        if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
             goto exit;
         }
         if (strequ(token, "(") || strequ(token, "[")) {
-            parse_paramtypelist(p, ecode);
+            parse_paramtypelist(p);
 
             /* Should have same closing bracket */
             char end_bracket = token[0] == '(' ? ')' : ']';
-            if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+            if (!read_token(p, token) || parser_get_error(p)!= ec_noerr) {
                 ERRMSGF("Expected closing bracket in direct-declarator " TOKEN_COLOR "%c\n", end_bracket);
-                *ecode = ec_syntaxerr;
+                parser_set_error(p, ec_syntaxerr);
                 goto exit;
             }
             if (strlength(token) != 1 || token[0] != end_bracket) {
                 ERRMSGF("Mismatched brackets in direct-declarator. Expected: " TOKEN_COLOR "%c", end_bracket);
                 ERRMSGF(" Got: " TOKEN_COLOR "%s\n", token);
-                *ecode = ec_syntaxerr;
+                parser_set_error(p, ec_syntaxerr);
             }
         }
         else {
-            return_token(p, ecode, token);
+            return_token(p, token);
         }
     }
     else {
-        return_token(p, ecode, token);
+        return_token(p, token);
     }
 
 exit:
@@ -511,21 +522,20 @@ exit:
 }
 
 /* pointer */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_pointer(parser* p, errcode* ecode) {
+static void parse_pointer(parser* p) {
     DEBUG_PARSE_FUNC_START(pointer);
     char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
     while (strequ(token, "*")) {
         if (p->state == ps_fdecl) {
             /* More convenient to just include * as part of type than declarator */
-            parser_buf_push(p, ecode, pb_declspec_type, "*");
+            parser_buf_push(p, pb_declspec_type, "*");
         }
         else if (p->state == ps_paramtypelist) {
-            parser_buf_push(p, ecode, pb_paramtypelist, "*");
+            parser_buf_push(p, pb_paramtypelist, "*");
         }
         else {
             ASSERTF(
@@ -536,92 +546,90 @@ static void parse_pointer(parser* p, errcode* ecode) {
             goto exit;
         }
 
-        if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+        if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
             goto exit;
         }
     }
-    return_token(p, ecode, token);
+    return_token(p, token);
 
 exit:
     DEBUG_PARSE_FUNC_END();
 }
 
 /* parameter-type-list */
-static void parse_paramtypelist(parser* p, errcode* ecode) {
+static void parse_paramtypelist(parser* p) {
     DEBUG_PARSE_FUNC_START(parameter-type-list);
     p->state = ps_paramtypelist;
-    parse_paramlist(p, ecode);
+    parse_paramlist(p);
     p->state = ps_fdecl;
     DEBUG_PARSE_FUNC_END();
 }
 
 /* parameter-list */
-static void parse_paramlist(parser* p, errcode* ecode) {
+static void parse_paramlist(parser* p) {
     DEBUG_PARSE_FUNC_START(parameter-list);
     /* parameter-declaration */
     /* parameter-list , parameter-declaration */
     while (1) {
-        parse_paramdecl(p, ecode);
+        parse_paramdecl(p);
 
         char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-        if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+        if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
             break;
         }
         if (!strequ(token, ",")) {
-            return_token(p, ecode, token);
+            return_token(p, token);
             break;
         }
-        parser_buf_push(p, ecode, pb_paramtypelist, ",");
+        parser_buf_push(p, pb_paramtypelist, ",");
     }
     DEBUG_PARSE_FUNC_END();
 }
 
 /* parameter-declaration */
-static void parse_paramdecl(parser* p, errcode* ecode) {
+static void parse_paramdecl(parser* p) {
     DEBUG_PARSE_FUNC_START(parameter-declaration);
     /* declspec, declarator */
-    parse_declspec(p, ecode);
-    if (*ecode != ec_noerr) {
+    parse_declspec(p);
+    if (parser_get_error(p) != ec_noerr) {
         goto exit;
     }
-    parse_declarator(p, ecode);
+    parse_declarator(p);
 
 exit:
     DEBUG_PARSE_FUNC_END();
 }
 
 /* statement */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_stat(parser* p, errcode* ecode) {
+static void parse_stat(parser* p) {
     DEBUG_PARSE_FUNC_START(statement);
-    parse_jumpstat(p, ecode);
+    parse_jumpstat(p);
     DEBUG_PARSE_FUNC_END();
 }
 
 /* compound statement */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_compoundstat(parser* p, errcode* ecode) {
+static void parse_compoundstat(parser* p) {
     DEBUG_PARSE_FUNC_START(compound-statement);
     char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
     if (token[0] == '{') {
-        parser_output_il(p, ecode,
+        parser_output_il(p,
             "func %s,%s,%s\n",
             parser_buf_rd(p, pb_declarator_id),
             parser_buf_rd(p, pb_declspec_type),
             parser_buf_rd(p, pb_paramtypelist)
         );
         parser_buf_clear(p);
-        if (*ecode != ec_noerr) {
+        if (parser_get_error(p) != ec_noerr) {
             goto exit;
         }
-        parse_blockitemlist(p, ecode);
+        parse_blockitemlist(p);
     }
     else {
-        return_token(p, ecode, token);
+        return_token(p, token);
     }
 
 exit:
@@ -629,46 +637,43 @@ exit:
 }
 
 /* block-item-list */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_blockitemlist(parser* p, errcode* ecode) {
+static void parse_blockitemlist(parser* p) {
     DEBUG_PARSE_FUNC_START(block-item-list);
     /* TODO block-item-list terminates when no more block item cannot be parsed */
-    parse_blockitem(p, ecode);
+    parse_blockitem(p);
     DEBUG_PARSE_FUNC_END();
 }
 
 /* block-item */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_blockitem(parser* p, errcode* ecode) {
+static void parse_blockitem(parser* p) {
     DEBUG_PARSE_FUNC_START(block-item);
-    parse_stat(p, ecode);
+    parse_stat(p);
     DEBUG_PARSE_FUNC_END();
 }
 
 /* jump-statement */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse_jumpstat(parser* p, errcode* ecode) {
+static void parse_jumpstat(parser* p) {
     DEBUG_PARSE_FUNC_START(jump-statement);
     char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
         goto exit;
     }
 
     if (strequ(token, "return")) {
-        parse_expr(p, ecode);
-        if (!parse_semicolon(p, ecode) || *ecode != ec_noerr) {
+        parse_expr(p);
+        if (!parse_semicolon(p) || parser_get_error(p) != ec_noerr) {
             ERRMSG("Expected semicolon after return expression\n");
-            *ecode = ec_syntaxerr;
+            parser_set_error(p, ec_syntaxerr);
         }
 
-        parser_output_il(p, ecode,
+        parser_output_il(p,
             "ret %s\n",
             parser_buf_rd(p, pb_op1)
         );
         parser_buf_clear(p);
     }
     else {
-        return_token(p, ecode, token);
+        return_token(p, token);
     }
 
 exit:
@@ -677,10 +682,9 @@ exit:
 
 /* Return 1 if next token is semicolon, 0 otherwise */
 /* The semicolon is not added back to token cache */
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static int parse_semicolon(parser *p, errcode* ecode) {
+static int parse_semicolon(parser *p) {
     char token[MAX_TOKEN_LEN + 1]; /* Null terminated */
-    if (!read_token(p, ecode, token) || *ecode != ec_noerr) {
+    if (!read_token(p, token) || parser_get_error(p) != ec_noerr) {
         return 0;
     }
 
@@ -688,25 +692,24 @@ static int parse_semicolon(parser *p, errcode* ecode) {
         return 1;
     }
     else {
-        return_token(p, ecode, token);
+        return_token(p, token);
         return 0;
     }
 }
 
-/* ecode is set if error occurred, otherwise ecode unmodified */
-static void parse(parser* p, errcode* ecode) {
+static void parse(parser* p) {
     /* Function definition */
     /* declaration-specifiers declarator declaration-list(opt) compound-statement */
-    parse_declspec(p, ecode);
-    if (*ecode != ec_noerr) {
+    parse_declspec(p);
+    if (parser_get_error(p) != ec_noerr) {
         return;
     }
-    parse_declarator(p, ecode);
-    if (*ecode != ec_noerr) {
+    parse_declarator(p);
+    if (parser_get_error(p) != ec_noerr) {
         return;
     }
-    parse_compoundstat(p, ecode);
-    if (*ecode != ec_noerr) {
+    parse_compoundstat(p);
+    if (parser_get_error(p) != ec_noerr) {
         return;
     }
 }
@@ -760,6 +763,7 @@ static int handle_cli_arg(parser* p, int argc, char** argv) {
 int main(int argc, char** argv) {
     int rt_code = 0;
     parser p = {.rf = NULL, .of = NULL};
+    p.ecode = ec_noerr;
 
     rt_code = handle_cli_arg(&p, argc, argv);
     if (rt_code != 0) {
@@ -779,10 +783,9 @@ int main(int argc, char** argv) {
         }
     }
 
-    errcode ecode = ec_noerr;
-    parse(&p, &ecode);
-    if (ecode != ec_noerr) {
-        LOGF("Error during parsing: %d\n", ecode);
+    parse(&p);
+    if (p.ecode != ec_noerr) {
+        LOGF("Error during parsing: %d\n", p.ecode);
     }
 
 cleanup:

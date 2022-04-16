@@ -2,6 +2,7 @@
 '''
 Args:
     compiler-path, required, e.g., ./out/cc
+    tests-to-run, optional, each test separated by space, e.g., integer-arithmetic floating-arithmetic
 Globals
     _prog: Program, use this to perform testing
 '''
@@ -131,8 +132,8 @@ def main():
     if len(sys.argv) < 2:
         log('Missing compiler path', Color.ERR)
         return
-    if len(sys.argv) > 2:
-        log('Too many arguments, only compiler path needed', Color.ERR)
+    if len(sys.argv) > 3:
+        log('Too many arguments', Color.ERR)
         return
     global compiler_path
     compiler_path = sys.argv[1]
@@ -140,14 +141,24 @@ def main():
         log('Bad compiler path', Color.ERR)
         return
 
+    # Only run tests with provided names if set
+    filter_tests = None
+    if len(sys.argv) == 3:
+        filter_tests = sys.argv[2].split(' ')
+
     # Tests are located where the python file is
     test_dir = os.path.dirname(sys.argv[0])
     log(f'Test directory: {test_dir}')
     with os.scandir(test_dir) as it:
         for entry in it:
             if entry.name.endswith('.c'):
+                name = entry.name.removesuffix('.c')
+
+                if filter_tests and name not in filter_tests:
+                    continue
+
                 # Look for matching python file
-                py_name = entry.name.removesuffix('.c') + '.py'
+                py_name = name + '.py'
                 run_py_file(f'{test_dir}/{entry.name}', f'{test_dir}/{py_name}')
 
 if __name__ == '__main__':

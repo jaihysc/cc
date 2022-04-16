@@ -343,6 +343,9 @@ int debug_parse_func_recursion_depth = 0;
     LOG("<==\n")
 
 /* Sorted by Annex A.2 in C99 standard */
+/* For those returning int: 1 if parsed token is indicated type
+   (e.g., found a return for a jump statement), 0 otherwise
+*/
 
 /* 6.5 Expressions */
 static void parse_primaryexpr(parser* p);
@@ -376,11 +379,11 @@ static void parse_paramlist(parser* p);
 static void parse_paramdecl(parser* p);
 static void parse_initializer(parser* p);
 /* 6.8 Statements and blocks */
-static void parse_stat(parser* p);
+static int parse_stat(parser* p);
 static void parse_compoundstat(parser* p);
 static void parse_blockitemlist(parser* p);
 static void parse_blockitem(parser* p);
-static void parse_jumpstat(parser* p);
+static int parse_jumpstat(parser* p);
 /* Helpers */
 static int parse_expecttoken(parser* p, const char* match_token);
 
@@ -729,10 +732,13 @@ static void parse_initializer(parser* p) {
 }
 
 /* statement */
-static void parse_stat(parser* p) {
+static int parse_stat(parser* p) {
     DEBUG_PARSE_FUNC_START(statement);
-    parse_jumpstat(p);
+
+    int parsed_stat = parse_jumpstat(p);
+
     DEBUG_PARSE_FUNC_END();
+    return parsed_stat;
 }
 
 /* compound statement */
@@ -785,14 +791,16 @@ exit:
 /* block-item */
 static void parse_blockitem(parser* p) {
     DEBUG_PARSE_FUNC_START(block-item);
-    /* TODO declaration OR statement, not both */
-    parse_decl(p);
-    parse_stat(p);
+    /* declaration OR statement, not both */
+    int parsed_stat = parse_stat(p);
+    if (!parsed_stat) {
+        parse_decl(p);
+    }
     DEBUG_PARSE_FUNC_END();
 }
 
 /* jump-statement */
-static void parse_jumpstat(parser* p) {
+static int parse_jumpstat(parser* p) {
     DEBUG_PARSE_FUNC_START(jump-statement);
     char* token;
     if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
@@ -814,10 +822,12 @@ static void parse_jumpstat(parser* p) {
             parser_buf_rd(p, pb_op1)
         );
         parser_buf_clear(p);
+        return 1;
     }
 
 exit:
     DEBUG_PARSE_FUNC_END();
+    return 0;
 }
 
 /* Return 1 if next token read matches provided token, 0 otherwise */

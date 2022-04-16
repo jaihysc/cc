@@ -337,15 +337,40 @@ int debug_parse_func_recursion_depth = 0;
     }                                                            \
     LOG("<==\n")
 
+/* Sorted by Annex A.2 in C99 standard */
+
+/* 6.5 Expressions */
 static void parse_primaryexpr(parser* p);
+static void parse_postfixexpr(parser* p);
+static void parse_argumentexprlist(parser* p);
+static void parse_unaryexpr(parser* p);
+static void parse_castexpr(parser* p);
+static void parse_multiplicativeexpr(parser* p);
+static void parse_additiveexpr(parser* p);
+static void parse_shiftexpr(parser* p);
+static void parse_relationalexpr(parser* p);
+static void parse_equalityexpr(parser* p);
+static void parse_andexpr(parser* p);
+static void parse_exclusiveorexpr(parser* p);
+static void parse_inclusiveorexpr(parser* p);
+static void parse_logicalandexpr(parser* p);
+static void parse_logicalorexpr(parser* p);
+static void parse_conditionalexpr(parser* p);
+static void parse_assignmentexpr(parser* p);
 static void parse_expr(parser* p);
+/* 6.7 Declarators */
+static void parse_decl(parser* p);
 static void parse_declspec(parser* p);
+static void parse_initdeclaratorlist(parser* p);
+static void parse_initdeclarator(parser* p);
 static void parse_declarator(parser* p);
 static void parse_dirdeclarator(parser* p);
 static void parse_pointer(parser* p);
 static void parse_paramtypelist(parser* p);
 static void parse_paramlist(parser* p);
 static void parse_paramdecl(parser* p);
+static void parse_initializer(parser* p);
+/* 6.8 Statements and blocks */
 static void parse_stat(parser* p);
 static void parse_compoundstat(parser* p);
 static void parse_blockitemlist(parser* p);
@@ -371,11 +396,81 @@ exit:
     DEBUG_PARSE_FUNC_END();
 }
 
+/* postfix-expression */
+static void parse_postfixexpr(parser* p) {
+}
+
+/* argument-expression-list */
+static void parse_argumentexprlist(parser* p) {
+}
+
+/* unary-expression */
+static void parse_unaryexpr(parser* p) {
+}
+
+/* cast-expression */
+static void parse_castexpr(parser* p) {
+}
+
+/* multiplicative-expression */
+static void parse_multiplicativeexpr(parser* p) {
+}
+
+/* additive-expression */
+static void parse_additiveexpr(parser* p) {
+}
+
+/* shift-expression */
+static void parse_shiftexpr(parser* p) {
+}
+
+/* relational-expression */
+static void parse_relationalexpr(parser* p) {
+}
+
+/* equality-expression */
+static void parse_equalityexpr(parser* p) {
+}
+
+/* and-expression */
+static void parse_andexpr(parser* p) {
+}
+
+/* exclusive-or-expression */
+static void parse_exclusiveorexpr(parser* p) {
+}
+
+/* inclusive-or-expression */
+static void parse_inclusiveorexpr(parser* p) {
+}
+
+/* logical-and-expression */
+static void parse_logicalandexpr(parser* p) {
+}
+
+/* logical-or-expression */
+static void parse_logicalorexpr(parser* p) {
+}
+
+/* conditional-expression */
+static void parse_conditionalexpr(parser* p) {
+}
+
+/* assignment-expression */
+static void parse_assignmentexpr(parser* p) {
+}
+
 /* expression */
 static void parse_expr(parser* p) {
     DEBUG_PARSE_FUNC_START(expression);
     parse_primaryexpr(p);
     DEBUG_PARSE_FUNC_END();
+}
+
+/* declaration */
+static void parse_decl(parser* p) {
+    parse_declspec(p);
+    parse_initdeclaratorlist(p);
 }
 
 /* declaration-specifiers */
@@ -421,6 +516,46 @@ static void parse_declspec(parser* p) {
         parse_declspec(p);
     }
 
+exit:
+    DEBUG_PARSE_FUNC_END();
+}
+
+/* init-declarator-list */
+static void parse_initdeclaratorlist(parser* p) {
+    DEBUG_PARSE_FUNC_START(initdeclaratorlist);
+    while (1) {
+        parse_initdeclarator(p);
+
+        /* init-declarators separated by commas */
+        char* token;
+        if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
+            goto exit;
+        }
+        if (!strequ(token, ",")) {
+            break;
+        }
+        consume_token(token);
+    }
+
+exit:
+    DEBUG_PARSE_FUNC_END();
+}
+
+/* init-declarator */
+static void parse_initdeclarator(parser* p) {
+    DEBUG_PARSE_FUNC_START(initdeclarator);
+
+    /* declarator OR declarator = initializer */
+    parse_declarator(p);
+
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
+        goto exit;
+    }
+    if (strequ(token, "=")) {
+        consume_token(token);
+        parse_initializer(p);
+    }
 exit:
     DEBUG_PARSE_FUNC_END();
 }
@@ -572,6 +707,15 @@ exit:
     DEBUG_PARSE_FUNC_END();
 }
 
+/* initializer */
+static void parse_initializer(parser* p) {
+    DEBUG_PARSE_FUNC_START(initializer);
+
+    parse_assignmentexpr(p);
+
+    DEBUG_PARSE_FUNC_END();
+}
+
 /* statement */
 static void parse_stat(parser* p) {
     DEBUG_PARSE_FUNC_START(statement);
@@ -609,14 +753,28 @@ exit:
 /* block-item-list */
 static void parse_blockitemlist(parser* p) {
     DEBUG_PARSE_FUNC_START(block-item-list);
-    /* TODO block-item-list terminates when no more block item cannot be parsed */
-    parse_blockitem(p);
+    /* block-item-list ends on } matching original scope reached */
+    while (1) {
+        char* token;
+        if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
+            goto exit;
+        }
+        if (strequ(token, "}")) {
+            consume_token(token);
+            goto exit;
+        }
+        parse_blockitem(p);
+    }
+
+exit:
     DEBUG_PARSE_FUNC_END();
 }
 
 /* block-item */
 static void parse_blockitem(parser* p) {
     DEBUG_PARSE_FUNC_START(block-item);
+    /* TODO declaration OR statement, not both */
+    parse_decl(p);
     parse_stat(p);
     DEBUG_PARSE_FUNC_END();
 }

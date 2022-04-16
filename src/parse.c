@@ -73,6 +73,11 @@ static errcode parser_get_error(parser* p) {
     return p->ecode;
 }
 
+/* Returns 1 if error is set, 0 otherwise */
+static int parser_has_error(parser* p) {
+    return p->ecode != ec_noerr;
+}
+
 /* Reads contents of parser buffer specified by target */
 /* Read is null terminated string */
 static char* parser_buf_rd(parser* p, pbuffer target) {
@@ -377,7 +382,7 @@ static void parse_blockitemlist(parser* p);
 static void parse_blockitem(parser* p);
 static void parse_jumpstat(parser* p);
 /* Helpers */
-static int parse_semicolon(parser *p);
+static int parse_expecttoken(parser* p, const char* match_token);
 
 /* primary-expression */
 static void parse_primaryexpr(parser* p) {
@@ -469,8 +474,20 @@ static void parse_expr(parser* p) {
 
 /* declaration */
 static void parse_decl(parser* p) {
+    DEBUG_PARSE_FUNC_START(declaration);
+
     parse_declspec(p);
     parse_initdeclaratorlist(p);
+
+    int has_semicolon = parse_expecttoken(p, ";");
+    if (parser_has_error(p)) goto exit;
+    if (!has_semicolon) {
+        ERRMSG("Expected semicolon after declaration\n");
+        parser_set_error(p, ec_syntaxerr);
+    }
+
+exit:
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* declaration-specifiers */
@@ -522,19 +539,16 @@ exit:
 
 /* init-declarator-list */
 static void parse_initdeclaratorlist(parser* p) {
-    DEBUG_PARSE_FUNC_START(initdeclaratorlist);
+    DEBUG_PARSE_FUNC_START(init-declarator-list);
     while (1) {
         parse_initdeclarator(p);
 
         /* init-declarators separated by commas */
-        char* token;
-        if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
-            goto exit;
-        }
-        if (!strequ(token, ",")) {
+        int has_token = parse_expecttoken(p, ",");
+        if (parser_has_error(p)) goto exit;
+        if (!has_token) {
             break;
         }
-        consume_token(token);
     }
 
 exit:
@@ -548,14 +562,12 @@ static void parse_initdeclarator(parser* p) {
     /* declarator OR declarator = initializer */
     parse_declarator(p);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
-        goto exit;
-    }
-    if (strequ(token, "=")) {
-        consume_token(token);
+    int has_token = parse_expecttoken(p, "=");
+    if (parser_has_error(p)) goto exit;
+    if (has_token) {
         parse_initializer(p);
     }
+
 exit:
     DEBUG_PARSE_FUNC_END();
 }
@@ -790,7 +802,9 @@ static void parse_jumpstat(parser* p) {
     if (strequ(token, "return")) {
         consume_token(token);
         parse_expr(p);
-        if (!parse_semicolon(p) || parser_get_error(p) != ec_noerr) {
+        int has_semicolon = parse_expecttoken(p, ";");
+        if (parser_has_error(p)) goto exit;
+        if (!has_semicolon) {
             ERRMSG("Expected semicolon after return expression\n");
             parser_set_error(p, ec_syntaxerr);
         }
@@ -806,15 +820,15 @@ exit:
     DEBUG_PARSE_FUNC_END();
 }
 
-/* Return 1 if next token is semicolon, 0 otherwise */
-/* The semicolon is not added back to token cache */
-static int parse_semicolon(parser *p) {
+/* Return 1 if next token read matches provided token, 0 otherwise */
+/* The token is consumed if it matches the provided token */
+static int parse_expecttoken(parser * p, const char* match_token) {
     char* token;
     if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         return 0;
     }
 
-    if (strequ(token, ";")) {
+    if (strequ(token, match_token)) {
         consume_token(token);
         return 1;
     }

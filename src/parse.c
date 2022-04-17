@@ -328,19 +328,19 @@ static char* read_token(parser* p) {
 
 int debug_parse_func_recursion_depth = 0;
 /* Call at beginning on function */
-#define DEBUG_PARSE_FUNC_START(syntactic_category__)             \
-    for (int i = 0; i < debug_parse_func_recursion_depth; ++i) { \
-        LOG("\t");                                               \
-    }                                                            \
-    LOG("==>" #syntactic_category__ "\n");                       \
+#define DEBUG_PARSE_FUNC_START(syntactic_category__)                           \
+    for (int i = 0; i < debug_parse_func_recursion_depth; ++i) {               \
+        LOG("  ");                                                             \
+    }                                                                          \
+    LOGF(">%d " #syntactic_category__ "\n", debug_parse_func_recursion_depth); \
     debug_parse_func_recursion_depth++
 /* Call at end on function */
 #define DEBUG_PARSE_FUNC_END()                                   \
     debug_parse_func_recursion_depth--;                          \
     for (int i = 0; i < debug_parse_func_recursion_depth; ++i) { \
-        LOG("\t");                                               \
+        LOG("  ");                                               \
     }                                                            \
-    LOG("<==\n")
+    LOGF("<%d\n", debug_parse_func_recursion_depth)
 
 /* Sorted by Annex A.2 in C99 standard */
 /* For those returning int: 1 if parsed token is indicated type
@@ -406,6 +406,9 @@ exit:
 
 /* postfix-expression */
 static void parse_postfixexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(postfix-expression);
+    parse_primaryexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* argument-expression-list */
@@ -414,58 +417,144 @@ static void parse_argumentexprlist(parser* p) {
 
 /* unary-expression */
 static void parse_unaryexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(unary-expression);
+    parse_postfixexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* cast-expression */
 static void parse_castexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(cast-expression);
+    parse_unaryexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* multiplicative-expression */
 static void parse_multiplicativeexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(multiplicative-expression);
+
+    while (1) {
+        parse_castexpr(p);
+
+        int has_multiply = parse_expecttoken(p, "*");
+        if (parser_has_error(p)) goto exit;
+        if (has_multiply) {
+            continue;
+        }
+
+        int has_divide = parse_expecttoken(p, "/");
+        if (parser_has_error(p)) goto exit;
+        if (has_divide) {
+            continue;
+        }
+
+        int has_mod = parse_expecttoken(p, "%");
+        if (parser_has_error(p)) goto exit;
+        if (has_mod) {
+            continue;
+        }
+
+        break;
+    }
+
+exit:
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* additive-expression */
 static void parse_additiveexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(additive-expression);
+
+    while (1) {
+        parse_multiplicativeexpr(p);
+
+        int has_add = parse_expecttoken(p, "+");
+        if (parser_has_error(p)) goto exit;
+        if (has_add) {
+            continue;
+        }
+
+        int has_sub = parse_expecttoken(p, "-");
+        if (parser_has_error(p)) goto exit;
+        if (has_sub) {
+            continue;
+        }
+
+        break;
+    }
+
+exit:
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* shift-expression */
 static void parse_shiftexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(shift-expression);
+    parse_additiveexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* relational-expression */
 static void parse_relationalexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(relational-expression);
+    parse_shiftexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* equality-expression */
 static void parse_equalityexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(equality-expression);
+    parse_relationalexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* and-expression */
 static void parse_andexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(and-expression);
+    parse_equalityexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* exclusive-or-expression */
 static void parse_exclusiveorexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(exclusive-or-expression);
+    parse_andexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* inclusive-or-expression */
 static void parse_inclusiveorexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(inclusive-or-expression);
+    parse_exclusiveorexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* logical-and-expression */
 static void parse_logicalandexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(logical-and-expression);
+    parse_inclusiveorexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* logical-or-expression */
 static void parse_logicalorexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(logical-or-expression);
+    parse_logicalandexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* conditional-expression */
 static void parse_conditionalexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(conditional-expression);
+    parse_logicalorexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* assignment-expression */
 static void parse_assignmentexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(assignment-expression);
+    parse_conditionalexpr(p);
+    DEBUG_PARSE_FUNC_END();
 }
 
 /* expression */

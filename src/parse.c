@@ -329,17 +329,17 @@ static char* read_token(parser* p) {
 int debug_parse_func_recursion_depth = 0;
 /* Call at beginning on function */
 #define DEBUG_PARSE_FUNC_START(syntactic_category__)                           \
-    for (int i = 0; i < debug_parse_func_recursion_depth; ++i) {               \
+    for (int i__ = 0; i__ < debug_parse_func_recursion_depth; ++i__) {         \
         LOG("  ");                                                             \
     }                                                                          \
     LOGF(">%d " #syntactic_category__ "\n", debug_parse_func_recursion_depth); \
     debug_parse_func_recursion_depth++
 /* Call at end on function */
-#define DEBUG_PARSE_FUNC_END()                                   \
-    debug_parse_func_recursion_depth--;                          \
-    for (int i = 0; i < debug_parse_func_recursion_depth; ++i) { \
-        LOG("  ");                                               \
-    }                                                            \
+#define DEBUG_PARSE_FUNC_END()                                         \
+    debug_parse_func_recursion_depth--;                                \
+    for (int i__ = 0; i__ < debug_parse_func_recursion_depth; ++i__) { \
+        LOG("  ");                                                     \
+    }                                                                  \
     LOGF("<%d\n", debug_parse_func_recursion_depth)
 
 /* Sorted by Annex A.2 in C99 standard */
@@ -347,6 +347,11 @@ int debug_parse_func_recursion_depth = 0;
    (e.g., found a return for a jump statement), 0 otherwise
 */
 
+/* 6.4 Lexical elements */
+static int parse_identifier(parser* p);
+static int parse_const(parser* p);
+static int parse_integerconst(parser* p);
+static int parse_decimalconst(parser* p);
 /* 6.5 Expressions */
 static void parse_primaryexpr(parser* p);
 static void parse_postfixexpr(parser* p);
@@ -387,9 +392,11 @@ static int parse_jumpstat(parser* p);
 /* Helpers */
 static int parse_expecttoken(parser* p, const char* match_token);
 
-/* primary-expression */
-static void parse_primaryexpr(parser* p) {
-    DEBUG_PARSE_FUNC_START(primary-expression);
+/* identifier */
+static int parse_identifier(parser* p) {
+    DEBUG_PARSE_FUNC_START(identifier);
+    int return_code = 0;
+
     char* token;
     if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         goto exit;
@@ -398,7 +405,77 @@ static void parse_primaryexpr(parser* p) {
     if (tok_isidentifier(token)) {
         parser_buf_push(p, pb_op1, token);
         consume_token(token);
+        return_code = 1;
+        goto exit;
     }
+
+exit:
+    DEBUG_PARSE_FUNC_END();
+    return return_code;
+}
+
+/* constant */
+static int parse_const(parser* p) {
+    DEBUG_PARSE_FUNC_START(constant);
+    int return_code = parse_integerconst(p);
+
+    DEBUG_PARSE_FUNC_END();
+    return return_code;
+}
+
+/* integer-constant */
+static int parse_integerconst(parser* p) {
+    DEBUG_PARSE_FUNC_START(integer-constant);
+
+    int return_code = parse_decimalconst(p);
+
+    DEBUG_PARSE_FUNC_END();
+    return return_code;
+}
+
+/* decimal-constant */
+static int parse_decimalconst(parser* p) {
+    DEBUG_PARSE_FUNC_START(decimal-constant);
+    int return_code = 0;
+
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
+        goto exit;
+    }
+
+    /* First character is nonzero-digit */
+    char c = token[0];
+    if (c <= '0' || c > '9') {
+        goto exit;
+    }
+
+    /* Remaining characters is digit */
+    int i = 0;
+    while (c != '\0') {
+        if (c < '0' || c > '9') {
+            goto exit;
+        }
+
+        ++i;
+        c = token[i];
+    }
+
+    consume_token(token);
+    return_code = 1;
+
+exit:
+    DEBUG_PARSE_FUNC_END();
+    return return_code;
+}
+
+/* primary-expression */
+static void parse_primaryexpr(parser* p) {
+    DEBUG_PARSE_FUNC_START(primary-expression);
+
+    int has_identifier = parse_identifier(p);
+    if (has_identifier) goto exit;
+
+    parse_const(p);
 
 exit:
     DEBUG_PARSE_FUNC_END();
@@ -891,6 +968,8 @@ static void parse_blockitem(parser* p) {
 /* jump-statement */
 static int parse_jumpstat(parser* p) {
     DEBUG_PARSE_FUNC_START(jump-statement);
+    int return_code = 0;
+
     char* token;
     if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
         goto exit;
@@ -911,12 +990,13 @@ static int parse_jumpstat(parser* p) {
             parser_buf_rd(p, pb_op1)
         );
         parser_buf_clear(p);
-        return 1;
+        return_code = 1;
+        goto exit;
     }
 
 exit:
     DEBUG_PARSE_FUNC_END();
-    return 0;
+    return return_code;
 }
 
 /* Return 1 if next token read matches provided token, 0 otherwise */

@@ -473,9 +473,27 @@ static void parse_primaryexpr(parser* p) {
     DEBUG_PARSE_FUNC_START(primary-expression);
 
     int has_identifier = parse_identifier(p);
-    if (has_identifier) goto exit;
+    if (has_identifier || parser_has_error(p)) goto exit;
 
-    parse_const(p);
+    int has_const = parse_const(p);
+    if (has_const || parser_has_error(p)) goto exit;
+
+    /* ( expression ) */
+    int has_bracket = parse_expecttoken(p, "(");
+    if (parser_has_error(p)) goto exit;
+    if (has_bracket) {
+        parse_expr(p);
+        if (parser_has_error(p)) goto exit;
+
+        /* Matching close bracket for expression */
+        int has_close_bracket = parse_expecttoken(p, ")");
+        if (parser_has_error(p)) goto exit;
+        if (!has_close_bracket) {
+            ERRMSG("Expected ) after expression\n");
+            parser_set_error(p, ec_syntaxerr);
+            goto exit;
+        }
+    }
 
 exit:
     DEBUG_PARSE_FUNC_END();
@@ -637,7 +655,7 @@ static void parse_assignmentexpr(parser* p) {
 /* expression */
 static void parse_expr(parser* p) {
     DEBUG_PARSE_FUNC_START(expression);
-    parse_primaryexpr(p);
+    parse_assignmentexpr(p);
     DEBUG_PARSE_FUNC_END();
 }
 

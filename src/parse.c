@@ -7,6 +7,8 @@
 
 #define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
+#define MAX_EXPR_OUTPUT_BUFFER_LEN 100 /* Max elements in expression parser output buffer */
+#define MAX_EXPR_TOKEN_BUFFER_CHAR 512 /* Max characters in expression parser token buffer */
 
 /* ============================================================ */
 /* Parser data structure + functions */
@@ -26,6 +28,7 @@ typedef enum {
 typedef enum {
     ps_fdecl = 0, /* Function declaration */
     ps_paramtypelist,
+    ps_expr
 } pstate;
 
 /* The text buffers of the parser */
@@ -58,7 +61,12 @@ typedef struct {
     char tok_buf[MAX_TOKEN_LEN + 1];
 
     char buf[pb_count][MAX_PARSER_BUFFER_LEN + 1];
-    int i_buf[pb_count]; /* Index 1 past end in buf */
+    int i_buf[pb_count]; /* Points to next available space */
+
+    int expr_output_buf[MAX_EXPR_OUTPUT_BUFFER_LEN];
+    int i_expr_output_buf; /* Points to next available space */
+    char expr_token_buf[MAX_EXPR_TOKEN_BUFFER_CHAR];
+    int i_expr_token_buf; /* Points to next available space */
 } parser;
 
 static void debug_parser_buf_dump(parser* p);
@@ -76,6 +84,17 @@ static errcode parser_get_error(parser* p) {
 /* Returns 1 if error is set, 0 otherwise */
 static int parser_has_error(parser* p) {
     return p->ecode != ec_noerr;
+}
+
+/* Sets state in parser */
+static void parser_set_state(parser* p, pstate state) {
+    LOGF("Parser state change: %d -> %d\n", p->state, state);
+    p->state = state;
+}
+
+/* Returns parser state */
+static pstate parser_state(parser* p) {
+    return p->state;
 }
 
 /* Reads contents of parser buffer specified by target */
@@ -122,6 +141,30 @@ static void parser_output_il(parser* p, const char* fmt, ...) {
     va_end(args);
 }
 
+/* Adds provided token to expression token buffer, with a
+   reference in the expression output buffer */
+static void parser_expr_add_token(parser* p, const char* token) {
+    /* Add token to token buffer */
+    /* + 1 as a null terminator has to be inserted */
+    int token_start = p->i_expr_token_buf;
+    if (p->i_expr_token_buf + strlength(token) + 1 > MAX_EXPR_TOKEN_BUFFER_CHAR) {
+        parser_set_error(p, ec_pbufexceed);
+        return;
+    }
+    int i = 0;
+    while (token[i] != '\0') {
+        p->expr_token_buf[p->i_expr_token_buf++] = token[i++];
+    }
+    p->expr_token_buf[p->i_expr_token_buf++] = '\0';
+
+    /* Add reference in output buffer */
+    if (p->i_expr_output_buf >= MAX_EXPR_OUTPUT_BUFFER_LEN) {
+        parser_set_error(p, ec_pbufexceed);
+        return;
+    }
+    p->expr_output_buf[p->i_expr_output_buf++] = token_start;
+}
+
 /* Prints out contents of parser buffers */
 static void debug_parser_buf_dump(parser* p) {
     LOG("Parser buffer: Count, contents\n");
@@ -129,8 +172,24 @@ static void debug_parser_buf_dump(parser* p) {
         LOGF("%d | %s\n", i, p->buf[i]);
     }
 
-    LOG("Token buffer: contents\n");
+    LOG("Token buffer:\n");
     LOGF("%s\n", p->tok_buf);
+
+    LOG("Expression token buffer:\n");
+    for (int i = 0; i < p->i_expr_token_buf; ++i) {
+        char c = p->expr_token_buf[i];
+        if (c == '\0') {
+            LOG("\n")
+        }
+        else {
+            LOGF("%c", c);
+        }
+    }
+    LOG("Expression output buffer:\n");
+    for (int i = 0; i < p->i_expr_output_buf; ++i) {
+        LOGF("%d ", p->expr_output_buf[i]);
+    }
+    LOG("\n");
 }
 
 /* ============================================================ */
@@ -403,7 +462,12 @@ static int parse_identifier(parser* p) {
     }
 
     if (tok_isidentifier(token)) {
-        parser_buf_push(p, pb_op1, token);
+        if (parser_state(p) == ps_expr) {
+            parser_expr_add_token(p, token);
+        }
+        else {
+            parser_buf_push(p, pb_op1, token);
+        }
         consume_token(token);
         return_code = 1;
         goto exit;
@@ -694,18 +758,18 @@ static void parse_declspec(parser* p) {
         parse_declspec(p);
     }
     else if (type_spec) {
-        if (p->state == ps_fdecl) {
+        if (parser_state(p) == ps_fdecl) {
             parser_buf_push(p, pb_declspec_type, token);
             consume_token(token);
         }
-        else if (p->state == ps_paramtypelist) {
+        else if (parser_state(p) == ps_paramtypelist) {
             parser_buf_push(p, pb_paramtypelist, token);
             consume_token(token);
         }
         else {
             ASSERTF(
                 0,
-                "Invalid parser state in declaration specifier: %d\n", p->state
+                "Invalid parser state in declaration specifier: %d\n", parser_state(p)
             );
             goto exit;
         }
@@ -780,17 +844,17 @@ static void parse_dirdeclarator(parser* p) {
         goto exit;
     }
     if (tok_isidentifier(token)) {
-        if (p->state == ps_fdecl) {
+        if (parser_state(p) == ps_fdecl) {
             parser_buf_push(p, pb_declarator_id, token);
         }
-        else if (p->state == ps_paramtypelist) {
+        else if (parser_state(p) == ps_paramtypelist) {
             parser_buf_push(p, pb_paramtypelist, " ");
             parser_buf_push(p, pb_paramtypelist, token);
         }
         else {
             ASSERTF(
                 0,
-                "Invalid parser state in direct declarator: %d\n", p->state
+                "Invalid parser state in direct declarator: %d\n", parser_state(p)
             );
             goto exit;
         }
@@ -836,18 +900,18 @@ static void parse_pointer(parser* p) {
     }
 
     while (strequ(token, "*")) {
-        if (p->state == ps_fdecl) {
+        if (parser_state(p) == ps_fdecl) {
             /* More convenient to just include * as part of type than declarator */
             parser_buf_push(p, pb_declspec_type, "*");
         }
-        else if (p->state == ps_paramtypelist) {
+        else if (parser_state(p) == ps_paramtypelist) {
             parser_buf_push(p, pb_paramtypelist, "*");
         }
         else {
             ASSERTF(
                 0,
                 "Invalid parser state in pointer: %d\n",
-                p->state
+                parser_state(p)
             );
             goto exit;
         }
@@ -865,9 +929,9 @@ exit:
 /* parameter-type-list */
 static void parse_paramtypelist(parser* p) {
     DEBUG_PARSE_FUNC_START(parameter-type-list);
-    p->state = ps_paramtypelist;
+    parser_set_state(p, ps_paramtypelist);
     parse_paramlist(p);
-    p->state = ps_fdecl;
+    parser_set_state(p, ps_fdecl);
     DEBUG_PARSE_FUNC_END();
 }
 
@@ -910,7 +974,12 @@ exit:
 static void parse_initializer(parser* p) {
     DEBUG_PARSE_FUNC_START(initializer);
 
+    parser_set_state(p, ps_expr);
     parse_assignmentexpr(p);
+    /* TODO remember and return to old state (stack maybe?) */
+    parser_set_state(p, ps_fdecl);
+    /* TODO be more careful about state changes to avoid a mess of
+       state changes in the future */
 
     DEBUG_PARSE_FUNC_END();
 }

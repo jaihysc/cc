@@ -9,6 +9,65 @@
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
 #define MAX_EXPR_OUTPUT_BUFFER_LEN 100 /* Max elements in expression parser output buffer */
 #define MAX_EXPR_TOKEN_BUFFER_CHAR 512 /* Max characters in expression parser token buffer */
+#define MAX_EXPR_NODE_BUFFER_LEN 40 /* Max nodes in expression parser tree node buffer */
+#define MAX_EXPR_OPERATOR_BUFFER_LEN 20 /* Max operators in expression parser operator buffer */
+
+/* ============================================================ */
+/* Tree data structure + functions */
+
+typedef enum {
+    op_add = 0,
+    op_subtract,
+    op_multiply,
+    op_divide,
+    op_modulus
+} operator;
+/* Higher means more important, index by operator's numeric value */
+int operator_precedence[] = {1,1,2,2,2};
+/* Character representation of operator */
+char operator_char[] = {'+', '-', '*', '/', '%'};
+
+typedef struct {
+    void* left;
+    void* right;
+    int left_type;
+    int right_type;
+    operator op;
+} expr_node;
+
+/* Attaches node on left/right side of parent node */
+static void expr_node_l_node(expr_node* parent_node, expr_node* node) {
+    parent_node->left = node;
+    parent_node->left_type = 0;
+}
+static void expr_node_r_node(expr_node* parent_node, expr_node* node) {
+    parent_node->right = node;
+    parent_node->right_type = 0;
+}
+
+/* Attaches token on left/right side of parent node */
+static void expr_node_l_token(expr_node* parent_node, char* token) {
+    parent_node->left = token;
+    parent_node->left_type = 1;
+}
+static void expr_node_r_token(expr_node* parent_node, char* token) {
+    parent_node->right = token;
+    parent_node->right_type = 1;
+}
+
+static int expr_node_l_isnode(expr_node* node) {
+    return node->left_type == 0;
+}
+static int expr_node_r_isnode(expr_node* node) {
+    return node->right_type == 0;
+}
+
+static int expr_node_l_istoken(expr_node* node) {
+    return node->left_type == 1;
+}
+static int expr_node_r_istoken(expr_node* node) {
+    return node->right_type == 1;
+}
 
 /* ============================================================ */
 /* Parser data structure + functions */
@@ -67,9 +126,15 @@ typedef struct {
     int i_expr_output_buf; /* Points to next available space */
     char expr_token_buf[MAX_EXPR_TOKEN_BUFFER_CHAR];
     int i_expr_token_buf; /* Points to next available space */
+    expr_node expr_node_buf[MAX_EXPR_NODE_BUFFER_LEN];
+    int i_expr_node_buf; /* Points to next available space */
+    int expr_operator_buf[MAX_EXPR_OPERATOR_BUFFER_LEN];
+    int i_expr_operator_buf; /* Points to next available space */
 } parser;
 
+static void parser_expr_gen_node(parser* p, const operator op);
 static void debug_parser_buf_dump(parser* p);
+static void debug_expr_node_walk(expr_node* node, int depth, int right_node);
 
 /* Sets error code in parser */
 static void parser_set_error(parser* p, errcode ecode) {
@@ -165,6 +230,85 @@ static void parser_expr_add_token(parser* p, const char* token) {
     p->expr_output_buf[p->i_expr_output_buf++] = token_start;
 }
 
+/* Handles provided operator, generating tree nodes or
+   pushing the operator into a stack when appropriate */
+static void parser_expr_add_operator(parser* p, const operator op) {
+    /* Shunting yard algorithm */
+
+    while (p->i_expr_operator_buf > 0) {
+        /* Top of operator stack */
+        operator last_op = p->expr_operator_buf[p->i_expr_operator_buf - 1];
+        if (operator_precedence[last_op] >= operator_precedence[op]) {
+            parser_expr_gen_node(p, last_op);
+            --p->i_expr_operator_buf;
+        }
+        else {
+            break;
+        }
+    }
+
+    if (p->i_expr_operator_buf >= MAX_EXPR_OPERATOR_BUFFER_LEN) {
+        parser_set_error(p, ec_pbufexceed);
+        return;
+    }
+    p->expr_operator_buf[p->i_expr_operator_buf++] = op;
+}
+
+/* Generates tree nodes using all operators remaining in operator buffer
+   Call when done parsing expression */
+static void parser_expr_flush(parser* p) {
+    while (p->i_expr_operator_buf > 0) {
+        operator op = p->expr_operator_buf[p->i_expr_operator_buf - 1];
+        parser_expr_gen_node(p, op);
+        --p->i_expr_operator_buf;
+    }
+}
+
+/* Clears buffers for expression parsing */
+static void parser_expr_clear(parser* p) {
+    p->i_expr_output_buf = 0;
+    p->i_expr_token_buf = 0;
+    p->i_expr_node_buf = 0;
+    p->i_expr_operator_buf = 0;
+}
+
+/* Generates a tree node using the given operator and operands
+   in expression output buffer */
+static void parser_expr_gen_node(parser* p, const operator op) {
+    if (p->i_expr_node_buf >= MAX_EXPR_NODE_BUFFER_LEN) {
+        parser_set_error(p, ec_pbufexceed);
+        return;
+    }
+    expr_node* node = p->expr_node_buf + p->i_expr_node_buf;
+    ASSERT(p->i_expr_output_buf >= 2,
+           "Insufficient arguments generating expression tree node");
+    /* left and right nodes corresponds to the last 2 elements
+       in the output buffer */
+    int left_index = p->expr_output_buf[p->i_expr_output_buf - 2];
+    if (left_index >= 0) {
+        expr_node_l_token(node, p->expr_token_buf + left_index);
+    }
+    else {
+        expr_node_l_node(node, p->expr_node_buf + (-left_index - 1));
+    }
+    int right_index = p->expr_output_buf[p->i_expr_output_buf - 1];
+    if (right_index >= 0) {
+        expr_node_r_token(node, p->expr_token_buf + right_index);
+    }
+    else {
+        expr_node_r_node(node, p->expr_node_buf + (-right_index - 1));
+    }
+
+    node->op = op;
+
+    /* Leave a reference to the node in output buffer */
+    p->expr_output_buf[p->i_expr_output_buf - 2] = -(p->i_expr_node_buf + 1);
+    /* Used 2 elements in output buffer, added 1 back */
+    --p->i_expr_output_buf;
+    /* Increment this last as the original value is needed */
+    ++p->i_expr_node_buf;
+}
+
 /* Prints out contents of parser buffers */
 static void debug_parser_buf_dump(parser* p) {
     LOG("Parser buffer: Count, contents\n");
@@ -174,6 +318,12 @@ static void debug_parser_buf_dump(parser* p) {
 
     LOG("Token buffer:\n");
     LOGF("%s\n", p->tok_buf);
+
+    LOG("Expression output buffer:\n");
+    for (int i = 0; i < p->i_expr_output_buf; ++i) {
+        LOGF("%d ", p->expr_output_buf[i]);
+    }
+    LOG("\n");
 
     LOG("Expression token buffer:\n");
     for (int i = 0; i < p->i_expr_token_buf; ++i) {
@@ -185,11 +335,64 @@ static void debug_parser_buf_dump(parser* p) {
             LOGF("%c", c);
         }
     }
-    LOG("Expression output buffer:\n");
-    for (int i = 0; i < p->i_expr_output_buf; ++i) {
-        LOGF("%d ", p->expr_output_buf[i]);
+
+    LOG("Expresssion node buffer:\n");
+    /* Draw tree with last node since it is the top node */
+    if (p->i_expr_node_buf > 0) {
+        debug_expr_node_walk(p->expr_node_buf + p->i_expr_node_buf - 1, 0, 0);
+    }
+
+    LOG("Expression operator buffer:\n");
+    for (int i = 0; i < p->i_expr_operator_buf; ++i) {
+        LOGF("%c ", operator_char[p->expr_operator_buf[i]]);
     }
     LOG("\n");
+}
+
+/* Depth is recursion depth, used to draw branches. Start at 0
+   Right node if node being drawn is the right side of its parent, omits one
+   set of branches to make formatting correct */
+static void debug_expr_node_walk(expr_node* node, int depth, int right_node) {
+    /* Character representation for the operator */
+    LOGF("%c\n", operator_char[node->op]);
+
+    if (!right_node) {
+        for (int i = 0; i < depth; ++i) {
+            LOG("| ");
+        }
+    }
+    else {
+        for (int i = 0; i < depth - 1; ++i) {
+            LOG("| ");
+        }
+        LOG("  ");
+    }
+    LOG("├ ");
+    if (expr_node_l_isnode(node)) {
+        debug_expr_node_walk(node->left, depth + 1, 0);
+    }
+    else if (expr_node_l_istoken(node)) {
+        LOGF("%s\n", (char*)node->left);
+    }
+
+    if (!right_node) {
+        for (int i = 0; i < depth; ++i) {
+            LOG("| ");
+        }
+    }
+    else {
+        for (int i = 0; i < depth - 1; ++i) {
+            LOG("| ");
+        }
+        LOG("  ");
+    }
+    LOG("└ ");
+    if (expr_node_r_isnode(node)) {
+        debug_expr_node_walk(node->right, depth + 1, 1);
+    }
+    else if (expr_node_r_istoken(node)) {
+        LOGF("%s\n", (char*)node->right);
+    }
 }
 
 /* ============================================================ */
@@ -524,6 +727,9 @@ static int parse_decimalconst(parser* p) {
         c = token[i];
     }
 
+    if (parser_state(p) == ps_expr) {
+        parser_expr_add_token(p, token);
+    }
     consume_token(token);
     return_code = 1;
 
@@ -598,18 +804,21 @@ static void parse_multiplicativeexpr(parser* p) {
         int has_multiply = parse_expecttoken(p, "*");
         if (parser_has_error(p)) goto exit;
         if (has_multiply) {
+            parser_expr_add_operator(p, op_multiply);
             continue;
         }
 
         int has_divide = parse_expecttoken(p, "/");
         if (parser_has_error(p)) goto exit;
         if (has_divide) {
+            parser_expr_add_operator(p, op_divide);
             continue;
         }
 
         int has_mod = parse_expecttoken(p, "%");
         if (parser_has_error(p)) goto exit;
         if (has_mod) {
+            parser_expr_add_operator(p, op_modulus);
             continue;
         }
 
@@ -630,12 +839,14 @@ static void parse_additiveexpr(parser* p) {
         int has_add = parse_expecttoken(p, "+");
         if (parser_has_error(p)) goto exit;
         if (has_add) {
+            parser_expr_add_operator(p, op_add);
             continue;
         }
 
         int has_sub = parse_expecttoken(p, "-");
         if (parser_has_error(p)) goto exit;
         if (has_sub) {
+            parser_expr_add_operator(p, op_subtract);
             continue;
         }
 
@@ -976,6 +1187,10 @@ static void parse_initializer(parser* p) {
 
     parser_set_state(p, ps_expr);
     parse_assignmentexpr(p);
+    /* TODO This is temporary to test parsing */
+    parser_expr_flush(p);
+    debug_parser_buf_dump(p);
+    parser_expr_clear(p);
     /* TODO remember and return to old state (stack maybe?) */
     parser_set_state(p, ps_fdecl);
     /* TODO be more careful about state changes to avoid a mess of

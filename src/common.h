@@ -107,4 +107,15 @@ static inline int strequ(const char* s1, const char* s2) {
     }
 }
 
+/* Copies string into target, assumes sufficent space exists */
+static inline void strcopy(const char* str, char* target) {
+    int i = 0;
+    char c;
+    while ((c = str[i]) != '\0') {
+        target[i] = c;
+        ++i;
+    }
+    target[i] = '\0';
+}
+
 #endif

@@ -8,6 +8,8 @@
 #define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
 #define MAX_PARSE_TREE_NODE 200 /* Maximum nodes in parser parse tree */
+#define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
+#define MAX_PARSE_TOKEN_BUFFER_CHAR 512 /* Max characters in parse tree token buffer */
 #define MAX_EXPR_OUTPUT_BUFFER_LEN 100 /* Max elements in expression parser output buffer */
 #define MAX_EXPR_TOKEN_BUFFER_CHAR 512 /* Max characters in expression parser token buffer */
 #define MAX_EXPR_NODE_BUFFER_LEN 40 /* Max nodes in expression parser tree node buffer */
@@ -28,65 +30,73 @@ int operator_precedence[] = {1,1,2,2,2};
 /* Character representation of operator */
 char operator_char[] = {'+', '-', '*', '/', '%'};
 
-typedef enum {
-    /* Sorted by Annex A */
-    /* 6.4 Lexical elements */
-    st_identifier,
-    st_constant,
-    st_integer_constant,
-    st_decimal_constant,
-    /* 6.5 Expressions */
-    st_primary_expression,
-    st_postfix_expression,
-    st_argument_expression_list,
-    st_unary_expression,
-    st_cast_expression,
-    st_multiplicative_expression,
-    st_additive_expression,
-    st_shift_expression,
-    st_relational_expression,
-    st_equality_expression,
-    st_and_expression,
-    st_exclusive_or_expression,
-    st_inclusive_or_expression,
-    st_logical_and_expression,
-    st_logical_or_expression,
-    st_conditional_expression,
-    st_assignment_expression,
-    st_expression,
-    /* 6.7 Declarators */
-    st_declaration,
-    st_declaration_specifiers,
-    st_init_declarator_list,
-    st_init_declarator,
-    st_storage_class_specifier,
-    st_type_specifier,
-    st_type_qualifier,
-    st_function_specifier,
-    st_declarator,
-    st_direct_declarator,
-    st_direct_declarator_2, /* Convert left recursion in C standard to right */
-    st_pointer,
-    st_parameter_type_list,
-    st_parameter_list,
-    st_parameter_declaration,
-    st_initializer,
-    /* 6.8 Statements and blocks */
-    st_statement,
-    st_compound_statement,
-    st_block_item_list,
-    st_block_item,
-    st_jump_statement,
-    /* 6.9 External definitions */
-    st_function_definition
-} symbol_type;
+/* Sorted by Annex A */
+/* 6.4 Lexical elements */
+/* 6.5 Expressions */
+/* 6.7 Declarators */
+/* 6.8 Statements and blocks */
+/* 6.9 External definitions */
+#define SYMBOL_TYPES                       \
+    SYMBOL_TYPE(identifier)                \
+    SYMBOL_TYPE(constant)                  \
+    SYMBOL_TYPE(integer_constant)          \
+    SYMBOL_TYPE(decimal_constant)          \
+                                           \
+    SYMBOL_TYPE(primary_expression)        \
+    SYMBOL_TYPE(postfix_expression)        \
+    SYMBOL_TYPE(argument_expression_list)  \
+    SYMBOL_TYPE(unary_expression)          \
+    SYMBOL_TYPE(cast_expression)           \
+    SYMBOL_TYPE(multiplicative_expression) \
+    SYMBOL_TYPE(additive_expression)       \
+    SYMBOL_TYPE(shift_expression)          \
+    SYMBOL_TYPE(relational_expression)     \
+    SYMBOL_TYPE(equality_expression)       \
+    SYMBOL_TYPE(and_expression)            \
+    SYMBOL_TYPE(exclusive_or_expression)   \
+    SYMBOL_TYPE(inclusive_or_expression)   \
+    SYMBOL_TYPE(logical_and_expression)    \
+    SYMBOL_TYPE(logical_or_expression)     \
+    SYMBOL_TYPE(conditional_expression)    \
+    SYMBOL_TYPE(assignment_expression)     \
+    SYMBOL_TYPE(expression)                \
+                                           \
+    SYMBOL_TYPE(declaration)               \
+    SYMBOL_TYPE(declaration_specifiers)    \
+    SYMBOL_TYPE(init_declarator_list)      \
+    SYMBOL_TYPE(init_declarator)           \
+    SYMBOL_TYPE(storage_class_specifier)   \
+    SYMBOL_TYPE(type_specifier)            \
+    SYMBOL_TYPE(type_qualifier)            \
+    SYMBOL_TYPE(function_specifier)        \
+    SYMBOL_TYPE(declarator)                \
+    SYMBOL_TYPE(direct_declarator)         \
+    SYMBOL_TYPE(pointer)                   \
+    SYMBOL_TYPE(parameter_type_list)       \
+    SYMBOL_TYPE(parameter_list)            \
+    SYMBOL_TYPE(parameter_declaration)     \
+    SYMBOL_TYPE(initializer)               \
+                                           \
+    SYMBOL_TYPE(statement)                 \
+    SYMBOL_TYPE(compound_statement)        \
+    SYMBOL_TYPE(block_item_list)           \
+    SYMBOL_TYPE(block_item)                \
+    SYMBOL_TYPE(jump_statement)            \
+                                           \
+    SYMBOL_TYPE(function_definition)
 
-typedef struct {
-    int a; /* temporary placeholder */
-} parse_location;
+#define SYMBOL_TYPE(name__) st_ ## name__,
+/* st_ force compiler to choose data type with negative values
+   as negative values indicate a token is stored */
+typedef enum { st_= -1, SYMBOL_TYPES} symbol_type;
+#undef SYMBOL_TYPE
+/* Maps symbol type to string (index with symbol type) */
+#define SYMBOL_TYPE(name__) #name__,
+const char* symbol_type_str[] = {SYMBOL_TYPES};
+#undef SYMBOL_TYPES
 
 typedef struct parse_node {
-    struct parse_node* child[4];
+    struct parse_node* child[MAX_PARSE_NODE_CHILD];
     symbol_type type;
 } parse_node;
 
@@ -132,6 +142,15 @@ static int expr_node_r_istoken(expr_node* node) {
     return node->right_type == 1;
 }
 
+typedef struct {
+    /* Index of next available space in parse node buffer */
+    int i_node_buf;
+    parse_node* node; /* Node which may be modified */
+    int node_childs; /* Children the node has */
+    long rf_offset; /* Input file offset */
+    char tok_buf[MAX_TOKEN_LEN + 1]; /* Token read buffer */
+} parse_location;
+
 /* ============================================================ */
 /* Parser data structure + functions */
 
@@ -143,6 +162,7 @@ typedef enum {
     ec_pbufexceed, /* Parser buffer exceeded */
     ec_syntaxerr,
     ec_writefailed,
+    ec_fileposfailed /* Change file position indicator failed */
 } errcode;
 
 /* Indicates what parser currently reading,
@@ -187,6 +207,8 @@ typedef struct {
 
     parse_node parse_node_buf[MAX_PARSE_TREE_NODE];
     int i_parse_node_buf; /* Points to next available space */
+    char parse_token_buf[MAX_PARSE_TOKEN_BUFFER_CHAR];
+    int i_parse_token_buf; /* Points to next available space */
 
     int expr_output_buf[MAX_EXPR_OUTPUT_BUFFER_LEN];
     int i_expr_output_buf; /* Points to next available space */
@@ -200,7 +222,9 @@ typedef struct {
 
 static void parser_expr_gen_node(parser* p, const operator op);
 static void debug_parser_buf_dump(parser* p);
-static void debug_expr_node_walk(expr_node* node, int depth, int right_node);
+static void debug_parse_node_walk(
+        parser* p, parse_node* node,
+        char* branch, int i_branch, const int max_branch_len);
 
 /* Sets error code in parser */
 static void parser_set_error(parser* p, errcode ecode) {
@@ -272,26 +296,106 @@ static void parser_output_il(parser* p, const char* fmt, ...) {
     va_end(args);
 }
 
-/* Returns information about the current location in parse tree */
-static parse_location get_parse_location(parser* p) {
-    parse_location location;
+/* Returns information about the current location in parse tree
+   parent_node is the node which may be modified and thus have to rollback */
+static parse_location parser_get_parse_location(parser* p, parse_node* parent_node) {
+    /* Count children of parent node */
+    int node_childs = 0;
+    while (node_childs < MAX_PARSE_NODE_CHILD) {
+        if (parent_node->child[node_childs] == NULL) {
+            break;
+        }
+        ++node_childs;
+    }
+
+    /* Current file position */
+    long offset = ftell(p->rf);
+    if (offset == -1L) {
+        parser_set_error(p, ec_fileposfailed);
+    }
+
+    parse_location location = {
+        .i_node_buf = p->i_parse_node_buf,
+        .node = parent_node,
+        .node_childs = node_childs,
+        .rf_offset = offset
+    };
+
+    /* Copy over token read buffer */
+    strcopy(p->tok_buf, location.tok_buf);
+
     return location;
 }
 
 /* Sets the current location in the parse tree */
-static void set_parse_location(parser* p, parse_location* location) {
+static void parser_set_parse_location(parser* p, parse_location* location) {
+    p->i_parse_node_buf = location->i_node_buf;
+
+    /* Remove excess children */
+    for (int i = location->node_childs; i < MAX_PARSE_NODE_CHILD; ++i) {
+        location->node->child[i] = NULL;
+    }
+
+    /* Return to old file position */
+    if (fseek(p->rf, location->rf_offset, SEEK_SET) != 0) {
+        parser_set_error(p, ec_fileposfailed);
+        return;
+    }
+
+    /* Return to old token read buffer */
+    strcopy(location->tok_buf, p->tok_buf);
 }
 
 /* Attaches a node of type st onto the provided parent node
    Returns the attached node */
 static parse_node* parser_attach_node(parser* p, parse_node* parent_node, symbol_type st) {
-    return NULL;
+    ASSERT(parent_node != NULL, "Parse tree parent node is null");
+
+    if (p->i_parse_node_buf >= MAX_PARSE_TREE_NODE) {
+        parser_set_error(p, ec_pbufexceed);
+        return NULL;
+    }
+
+    parse_node* node = p->parse_node_buf + p->i_parse_node_buf;
+    ++p->i_parse_node_buf;
+    node->type = st;
+
+    /* Link parent node to child */
+    int i = 0;
+    while (1) {
+        if (i >= MAX_PARSE_NODE_CHILD) {
+            parser_set_error(p, ec_pbufexceed);
+            return NULL;
+        }
+        if (parent_node->child[i] == NULL) {
+            parent_node->child[i] = node;
+            break;
+        }
+        ++i;
+    }
+
+    return node;
 }
 
 /* Attaches a token node onto the provided parent node
    Returns the attached node */
 static parse_node* parser_attach_token(parser* p, parse_node* parent_node, const char* token) {
-    return NULL;
+    ASSERT(parent_node != NULL, "Parse tree parent node is null");
+
+    /* Add token to token buffer */
+    /* + 1 as a null terminator has to be inserted */
+    int token_start = p->i_parse_token_buf;
+    if (p->i_parse_token_buf + strlength(token) + 1 > MAX_PARSE_TOKEN_BUFFER_CHAR) {
+        parser_set_error(p, ec_pbufexceed);
+        return NULL;
+    }
+    int i = 0;
+    while (token[i] != '\0') {
+        p->parse_token_buf[p->i_parse_token_buf++] = token[i++];
+    }
+    p->parse_token_buf[p->i_parse_token_buf++] = '\0';
+
+    return parser_attach_node(p, parent_node, -(token_start + 1));
 }
 
 /* Adds provided token to expression token buffer, with a
@@ -407,79 +511,69 @@ static void debug_parser_buf_dump(parser* p) {
     LOG("Token buffer:\n");
     LOGF("%s\n", p->tok_buf);
 
-    LOG("Expression output buffer:\n");
-    for (int i = 0; i < p->i_expr_output_buf; ++i) {
-        LOGF("%d ", p->expr_output_buf[i]);
+    LOG("Parse tree:\n");
+    /* Draw tree with first node since it is the top node */
+    if (p->i_parse_node_buf > 0) {
+        char branch[100];
+        branch[0] = '\0';
+        debug_parse_node_walk(p, p->parse_node_buf, branch, 0, 100);
     }
-    LOG("\n");
-
-    LOG("Expression token buffer:\n");
-    for (int i = 0; i < p->i_expr_token_buf; ++i) {
-        char c = p->expr_token_buf[i];
-        if (c == '\0') {
-            LOG("\n")
-        }
-        else {
-            LOGF("%c", c);
-        }
-    }
-
-    LOG("Expresssion node buffer:\n");
-    /* Draw tree with last node since it is the top node */
-    if (p->i_expr_node_buf > 0) {
-        debug_expr_node_walk(p->expr_node_buf + p->i_expr_node_buf - 1, 0, 0);
-    }
-
-    LOG("Expression operator buffer:\n");
-    for (int i = 0; i < p->i_expr_operator_buf; ++i) {
-        LOGF("%c ", operator_char[p->expr_operator_buf[i]]);
-    }
-    LOG("\n");
 }
 
-/* Depth is recursion depth, used to draw branches. Start at 0
-   Right node if node being drawn is the right side of its parent, omits one
-   set of branches to make formatting correct */
-static void debug_expr_node_walk(expr_node* node, int depth, int right_node) {
-    /* Character representation for the operator */
-    LOGF("%c\n", operator_char[node->op]);
-
-    if (!right_node) {
-        for (int i = 0; i < depth; ++i) {
-            LOG("| ");
-        }
+/* Prints out the parse tree
+   branch stores the branch string, e.g., "| |   | "
+   i_branch is index of null terminator in branch
+   max_branch_len is maximum characters which can be put in branch */
+static void debug_parse_node_walk(
+        parser* p, parse_node* node,
+        char* branch, int i_branch, const int max_branch_len) {
+    if (node->type >= 0) {
+        /* Is symbol type */
+        LOGF("%s\n", symbol_type_str[node->type]);
     }
     else {
-        for (int i = 0; i < depth - 1; ++i) {
-            LOG("| ");
-        }
-        LOG("  ");
-    }
-    LOG("├ ");
-    if (expr_node_l_isnode(node)) {
-        debug_expr_node_walk(node->left, depth + 1, 0);
-    }
-    else if (expr_node_l_istoken(node)) {
-        LOGF("%s\n", (char*)node->left);
+        /* Is token */
+        char* token = p->parse_token_buf + (-node->type - 1);
+        LOGF("\"%s\"\n", token);
     }
 
-    if (!right_node) {
-        for (int i = 0; i < depth; ++i) {
-            LOG("| ");
+    /* iterate through children */
+    int child_count = 0;
+    while (1) {
+        if (child_count >= MAX_PARSE_NODE_CHILD) {
+            break;
         }
-    }
-    else {
-        for (int i = 0; i < depth - 1; ++i) {
-            LOG("| ");
+        if (node->child[child_count] == NULL) {
+            break;
         }
-        LOG("  ");
+        ++child_count;
     }
-    LOG("└ ");
-    if (expr_node_r_isnode(node)) {
-        debug_expr_node_walk(node->right, depth + 1, 1);
-    }
-    else if (expr_node_r_istoken(node)) {
-        LOGF("%s\n", (char*)node->right);
+
+    for (int i = 0; i < child_count; ++i) {
+        LOG(branch);
+
+        /* Extend branch for to include this node */
+        /* Need to add pipe, space, null terminator
+           pipe overwrites existing null terminator */
+        if (i_branch + 2 >= max_branch_len) {
+            LOG("Max depth exceeded\n");
+        }
+        else {
+            if (i == child_count - 1) {
+                LOG("└ ");
+                branch[i_branch] = ' ';
+            }
+            else {
+                LOG("├ ");
+                branch[i_branch] = '|';
+            }
+            branch[i_branch + 1] = ' ';
+            branch[i_branch + 2] = '\0';
+            debug_parse_node_walk(
+                    p, node->child[i], branch, i_branch + 2, max_branch_len);
+        }
+        /* Restore original branch */
+        branch[i_branch] = '\0';
     }
 }
 
@@ -688,7 +782,8 @@ int debug_parse_func_recursion_depth = 0;
     }                                                                   \
     LOGF(">%d " #symbol_type__ "\n", debug_parse_func_recursion_depth); \
     debug_parse_func_recursion_depth++;                                 \
-    parse_location start_location__ = get_parse_location(p);            \
+    parse_location start_location__ =                                   \
+        parser_get_parse_location(p, parent_node);                      \
     parse_node* node__ =                                                \
         parser_attach_node(p, parent_node, st_ ## symbol_type__);       \
     int matched__ = 0
@@ -700,7 +795,7 @@ int debug_parse_func_recursion_depth = 0;
     }                                                                  \
     if (matched__) {LOG("\033[32m");} else {LOG("\033[0;1;31m");}      \
     LOGF("<%d\033[0m\n", debug_parse_func_recursion_depth);            \
-    if (!matched__) {set_parse_location(p, &start_location__);}        \
+    if (!matched__) {parser_set_parse_location(p, &start_location__);} \
     return matched__
 /* Call if a match was made in production rule */
 #define PARSE_MATCHED() matched__ = 1
@@ -1305,7 +1400,9 @@ exit:
 }
 
 static int parse_direct_declarator_2(parser* p, parse_node* parent_node) {
-    PARSE_FUNC_START(direct_declarator_2);
+    /* Use the same symbol type as it was originally one nonterminal
+       split into two */
+    PARSE_FUNC_START(direct_declarator);
 
     if (parse_expect(p, "(")) {
         if (parse_parameter_type_list(p, PARSE_CURRENT_NODE)) {
@@ -1573,8 +1670,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    parse_node node;
-    parse_function_definition(&p, &node);
+    /* Create the top level node in parse node buf */
+    if (MAX_PARSE_TREE_NODE > 0) {
+        p.i_parse_node_buf = 1;
+        parse_function_definition(&p, p.parse_node_buf);
+        debug_parser_buf_dump(&p);
+    }
     if (p.ecode != ec_noerr) {
         LOGF("Error during parsing: %d\n", p.ecode);
     }

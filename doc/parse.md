@@ -19,11 +19,11 @@ token
 
 ## Backtracking
 
-Backtracking is performed by the two functions, `get_parse_location` stores all the state information necessary to backtrack to this point later. `set_parse_location` performs the backtracking.
+Backtracking is performed by the two functions, `parser_get_parse_location` stores all the state information necessary to backtrack to this point later. `parser_set_parse_location` performs the backtracking.
 
 ```
-parse_location get_parse_location()
-void set_parse_location(parse_location*)
+parse_location parser_get_parse_location(parser*, parse_node*)
+void parser_set_parse_location(pareser*, parse_location*)
 ```
 
 Backtracking example:
@@ -69,7 +69,7 @@ Each of the parse functions use the macros `PARSE_FUNC_START` and `PARSE_FUNC_EN
 
 The nodes of the parse tree are linked and stored in a buffer, the buffer grows as nodes are appended to the parse tree. To discard nodes, the nodes to be kept are unlinked from the nodes to be discarded and the integer indicating the end of the buffer is subtracted.
 
-The layout of each parse node (for a nonterminal) is given below. `type` indicates the what terminal/nonterminal is stored at the node. If type is negative, it indicates the current node is a token and -(type+1) yields the index into the token buffer for the token.
+The layout of each parse node (for a nonterminal) is given below. `type` indicates the what terminal/nonterminal is stored at the node. If type is negative, it indicates the current node is a token and -type-1 yields the index into the token buffer for the token.
 
 ```
 parse_node

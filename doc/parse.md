@@ -77,6 +77,14 @@ parse_node
   symbol_type type;
 ```
 
+## Intermediate code generation
+
+Intemediate code generation functions expect a valid parse tree and valid inputs, they are of the below form. `parse_node` contains the information to perform code generation, e.g., a node of type function-definition when performing generation for a function definition.
+
+```
+void cg_<name>(parser*, parse_node*)
+```
+
 ## Expression tree
 
 Expression precedence is handled by converting them to postfix notation using the Shunting yard algorithm, which is converted into a tree.

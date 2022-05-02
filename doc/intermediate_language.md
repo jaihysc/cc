@@ -4,7 +4,12 @@ Specification for the intermediate language used by the compiler
 
 ## Symbols
 
-Symbols with prefix `__` are predefined, the following characters until the next underscore is its group. e.g., (`__str_1` is a predefined symbol with group str)
+The parser will generate additional symbols with prefix `__`, the following characters until the next underscore is its group, the number starts from 0. e.g., (`__str_1` is a symbol with group str)
+
+| Group  | Summary                                                                                                                                            |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| str    | String                                                                                                                                             |
+| local  | Local variables created during intermediate calculations                                                                                           |
 
 ## Types
 
@@ -15,31 +20,50 @@ Symbols with prefix `__` are predefined, the following characters until the next
 
 | Type   | Summary                                                                                                                                            |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| void   | Void                                                                                                                                               |
 | i8     | 8 bit integer                                                                                                                                      |
 | i16    | 16 bit integer                                                                                                                                     |
 | i32    | 32 bit integer                                                                                                                                     |
+| i64    | 64 bit integer                                                                                                                                     |
+| u8     | 8 bit unsigned integer                                                                                                                             |
+| u16    | 16 bit unsigned integer                                                                                                                            |
+| u32    | 32 bit unsigned integer                                                                                                                            |
+| u64    | 64 bit unsigned integer                                                                                                                            |
+| f32    | 32 bit floating-point                                                                                                                              |
+| f64    | 64 bit floating-point                                                                                                                              |
 
 ## Instructions
 
 ```
 <il-instruction> <arg0>,<arg1>,<arg2>,...
-<il-scope-instruction> <arg0>,<arg1>,<arg2>,... {
-    <scope-contents> ...
-}
 ```
 - An instruction and its arguments is listed on one line
-- If the instruction requires contents from its own scope, a { follows at the end of arguments with a } to end the scope
-- Arguments are separated by commas **without** spaces
+- An instruction and its arguments is separated by one space
+- Arguments are separated by commas without spaces
 - Arguments are referenced starting from 0, i.e., arg0, arg1, arg2 ...
 
+Program format instructions
 | Instruction | Args | Summary                                                                                                                                     |
 | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | #           |      | Comment, rest of line ignored                                                                                                               |
-| mov         |    2 | Perform move from `<arg1>si` into `<arg0>s`                                                                                                 |
 | func        |   2+ | Start function scope, name `<arg0>s`, return type `<arg1>t`, parameters `<arg2+>ts` type0 name0, type1 name1, ...                           |
-| ret         |  0,1 | Return `<arg0>` from function (if required by function signature), otherwise just returns from function                                     |
-| asm         |      | Start of assembly scope, contents is passed onto the assembler                                                                              |
-| call        |  1+n | Call function with name `<arg0>s`, arguments for call `<arg1+>si`                                                                           |
+| def         |    2 | Defines a new symbol with name `<arg0>` and type`<arg1>t`                                                                                   |
+| asm         |      | Contents after `asm ` until newline is passed onto the assembler                                                                            |
+
+Control flow instructions
+| Instruction | Args | Summary                                                                                                                                     |
+| ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| ret         |  0,1 | Return `<arg0>s` from function if given, otherwise returns void                                                                             |
+| call        |  1+n | Call function with name `<arg0>s`, return value placed in `<arg1>s` or left as void if no return, arguments for call `<arg1+>si`            |
+
+Arithmetic and logical instructions
+| Instruction | Args | Summary                                                                                                                                     |
+| ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| mov         |    2 | `<arg0>s` = `<arg1>si`                                                                                                                      |
+| add         |    3 | `<arg0>s` = `<arg1>si` + `<arg2>si`                                                                                                         |
+| sub         |    3 | `<arg0>s` = `<arg1>si` - `<arg2>si`                                                                                                         |
+| mul         |    3 | `<arg0>s` = `<arg1>si` * `<arg2>si`                                                                                                         |
+| div         |    3 | `<arg0>s` = `<arg1>si` / `<arg2>si`                                                                                                         |
 
 - `0,1` Means 0 or 1
 - `+` Means variable number of arguments
@@ -51,29 +75,42 @@ Symbols with prefix `__` are predefined, the following characters until the next
 
 ### func
 
-The signature `int main(int, char**)` is recognized as the entry point of the program
+The signature `i32 main(i32, i8**)` is recognized as the entry point of the program
 
 ## Examples
 
 ```
+# The c snippet: int z = a + b / c - d / e;
+def i32,z
+def i32,a
+def i32,b
+def i32,c
+def i32,d
+def i32,e
+def i32,__local_1
+def i32,__local_2
+def i32,__local_3
+
+div __local_1,b,c
+div __local_2,d,e
+add __local_3_,a,__local_1,
+sub z,__local_3,__local_2
+```
+
+```
 # Return 5 from main, main's signature is a special function which is recognized as the entry point
-func main,int,int,char** {
-    ret 5
-}
+func main,i32,i32,i8**
+ret 5
 ```
 
 ```
 # Make a system call to print string and return
-func print,void,const char* msg { <-- Declare print with 1 parameter
-    asm {                           <-- Section of assembly
-        mov rax, rdi                <-- Assembly block passed onto the assembler
-    }                               <-- End section of assembly
-    ret 0                           <-- Return 0
-}                                   <-- End function declaration
+func print,void,i8* msg      Declare print with 1 parameter
+asm mov rax, rdi             Assembly passed onto the assembler
+ret                          Return
 
-func main,int,int,char** {   <-- Declare main with 2 parameters
-    call print, __str_1         <-- Call function print with predefined symbol __str_1
-    ret 0                       <-- Return 0
-}                               <-- End function declaration
+func main,i32,i32,i8**       Declare main with 2 parameters
+call print,void,__str_1      Call function print with predefined symbol __str_1, no return value
+ret 0                        Return 0
 ```
 

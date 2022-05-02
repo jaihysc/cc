@@ -10,25 +10,9 @@
 #define MAX_PARSE_TREE_NODE 500 /* Maximum nodes in parser parse tree */
 #define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
 #define MAX_PARSE_TOKEN_BUFFER_CHAR 512 /* Max characters in parse tree token buffer */
-#define MAX_EXPR_OUTPUT_BUFFER_LEN 100 /* Max elements in expression parser output buffer */
-#define MAX_EXPR_TOKEN_BUFFER_CHAR 512 /* Max characters in expression parser token buffer */
-#define MAX_EXPR_NODE_BUFFER_LEN 40 /* Max nodes in expression parser tree node buffer */
-#define MAX_EXPR_OPERATOR_BUFFER_LEN 20 /* Max operators in expression parser operator buffer */
 
 /* ============================================================ */
-/* Tree data structure + functions */
-
-typedef enum {
-    op_add = 0,
-    op_subtract,
-    op_multiply,
-    op_divide,
-    op_modulus
-} operator;
-/* Higher means more important, index by operator's numeric value */
-int operator_precedence[] = {1,1,2,2,2};
-/* Character representation of operator */
-char operator_char[] = {'+', '-', '*', '/', '%'};
+/* Parser data structure + functions */
 
 #define TYPE_SPECIFIERS  \
     TYPE_SPECIFIER(void) \
@@ -160,48 +144,6 @@ static parse_node* parse_node_child(parse_node* node, int i) {
 }
 
 typedef struct {
-    void* left;
-    void* right;
-    int left_type;
-    int right_type;
-    operator op;
-} expr_node;
-
-/* Attaches node on left/right side of parent node */
-static void expr_node_l_node(expr_node* parent_node, expr_node* node) {
-    parent_node->left = node;
-    parent_node->left_type = 0;
-}
-static void expr_node_r_node(expr_node* parent_node, expr_node* node) {
-    parent_node->right = node;
-    parent_node->right_type = 0;
-}
-
-/* Attaches token on left/right side of parent node */
-static void expr_node_l_token(expr_node* parent_node, char* token) {
-    parent_node->left = token;
-    parent_node->left_type = 1;
-}
-static void expr_node_r_token(expr_node* parent_node, char* token) {
-    parent_node->right = token;
-    parent_node->right_type = 1;
-}
-
-static int expr_node_l_isnode(expr_node* node) {
-    return node->left_type == 0;
-}
-static int expr_node_r_isnode(expr_node* node) {
-    return node->right_type == 0;
-}
-
-static int expr_node_l_istoken(expr_node* node) {
-    return node->left_type == 1;
-}
-static int expr_node_r_istoken(expr_node* node) {
-    return node->right_type == 1;
-}
-
-typedef struct {
     /* Index of next available space in parse node buffer */
     int i_node_buf;
     parse_node* node; /* Node which may be modified */
@@ -209,9 +151,6 @@ typedef struct {
     long rf_offset; /* Input file offset */
     char tok_buf[MAX_TOKEN_LEN + 1]; /* Token read buffer */
 } parse_location;
-
-/* ============================================================ */
-/* Parser data structure + functions */
 
 /* Should always be initialized to ec_noerr */
 /* Since functions will only sets if error occurred */
@@ -224,31 +163,10 @@ typedef enum {
     ec_fileposfailed /* Change file position indicator failed */
 } errcode;
 
-/* Indicates what parser currently reading,
-   helps parser select the right buffer to output to */
-typedef enum {
-    ps_fdecl = 0, /* Function declaration */
-    ps_paramtypelist,
-    ps_expr
-} pstate;
-
-/* The text buffers of the parser */
-/* Holds text until enough information is known to generate an il instruction */
-typedef enum {
-    /* Reuse buffers if they will never be both used at the same time*/
-    pb_declspec_type = 0,
-    pb_declarator_id = 1,
-    pb_paramtypelist = 2,
-    pb_op1 = 1, /* Expression first operand and result */
-    pb_op2 = 2,
-    pb_count /* Count of entries in enum */
-} pbuffer;
-
 typedef struct {
     FILE* rf; /* Input file */
     FILE* of; /* Output file */
 
-    pstate state;
     /* Functions set error code only if an error occurred */
     /* By default this is set as ec_noerr */
     errcode ecode;
@@ -261,25 +179,12 @@ typedef struct {
        */
     char tok_buf[MAX_TOKEN_LEN + 1];
 
-    char buf[pb_count][MAX_PARSER_BUFFER_LEN + 1];
-    int i_buf[pb_count]; /* Points to next available space */
-
     parse_node parse_node_buf[MAX_PARSE_TREE_NODE];
     int i_parse_node_buf; /* Points to next available space */
     char parse_token_buf[MAX_PARSE_TOKEN_BUFFER_CHAR];
     int i_parse_token_buf; /* Points to next available space */
-
-    int expr_output_buf[MAX_EXPR_OUTPUT_BUFFER_LEN];
-    int i_expr_output_buf; /* Points to next available space */
-    char expr_token_buf[MAX_EXPR_TOKEN_BUFFER_CHAR];
-    int i_expr_token_buf; /* Points to next available space */
-    expr_node expr_node_buf[MAX_EXPR_NODE_BUFFER_LEN];
-    int i_expr_node_buf; /* Points to next available space */
-    int expr_operator_buf[MAX_EXPR_OPERATOR_BUFFER_LEN];
-    int i_expr_operator_buf; /* Points to next available space */
 } parser;
 
-static void parser_expr_gen_node(parser* p, const operator op);
 static void debug_parser_buf_dump(parser* p);
 static void debug_parse_node_walk(
         parser* p, parse_node* node,
@@ -299,50 +204,6 @@ static errcode parser_get_error(parser* p) {
 /* Returns 1 if error is set, 0 otherwise */
 static int parser_has_error(parser* p) {
     return p->ecode != ec_noerr;
-}
-
-/* Sets state in parser */
-static void parser_set_state(parser* p, pstate state) {
-    LOGF("Parser state change: %d -> %d\n", p->state, state);
-    p->state = state;
-}
-
-/* Returns parser state */
-static pstate parser_state(parser* p) {
-    return p->state;
-}
-
-/* Reads contents of parser buffer specified by target */
-/* Read is null terminated string */
-static char* parser_buf_rd(parser* p, pbuffer target) {
-    return p->buf[target];
-}
-
-/* Adds null terminated string into buffer specified by target */
-/* The null terminator is not included */
-/* Can be called again even if error occurred previously */
-static void parser_buf_push(parser* p, pbuffer target, const char* str) {
-    int i = 0;
-    char c;
-    while ((c = str[i]) != '\0') {
-        if (p->i_buf[target] >= MAX_PARSER_BUFFER_LEN) {
-            parser_set_error(p, ec_pbufexceed);
-            break;
-        }
-        p->buf[target][p->i_buf[target]] = c;
-        ++p->i_buf[target];
-        ++i;
-    }
-    /* Always 1 extra slot to insert null terminator */
-    p->buf[target][p->i_buf[target]] = '\0';
-}
-
-/* Clears all buffers of parser, leaving only null terminator */
-static void parser_buf_clear(parser* p) {
-    for (int i = 0; i < pb_count; ++i) {
-        p->buf[i][0] = '\0';
-        p->i_buf[i] = 0;
-    }
 }
 
 /* Writes provided IL using format string and va_args into output */
@@ -467,116 +328,8 @@ static parse_node* parser_attach_token(parser* p, parse_node* parent_node, const
     return parser_attach_node(p, parent_node, symbol_type_fromtok(token_start));
 }
 
-/* Adds provided token to expression token buffer, with a
-   reference in the expression output buffer */
-static void parser_expr_add_token(parser* p, const char* token) {
-    /* Add token to token buffer */
-    /* + 1 as a null terminator has to be inserted */
-    int token_start = p->i_expr_token_buf;
-    if (p->i_expr_token_buf + strlength(token) + 1 > MAX_EXPR_TOKEN_BUFFER_CHAR) {
-        parser_set_error(p, ec_pbufexceed);
-        return;
-    }
-    int i = 0;
-    while (token[i] != '\0') {
-        p->expr_token_buf[p->i_expr_token_buf++] = token[i++];
-    }
-    p->expr_token_buf[p->i_expr_token_buf++] = '\0';
-
-    /* Add reference in output buffer */
-    if (p->i_expr_output_buf >= MAX_EXPR_OUTPUT_BUFFER_LEN) {
-        parser_set_error(p, ec_pbufexceed);
-        return;
-    }
-    p->expr_output_buf[p->i_expr_output_buf++] = token_start;
-}
-
-/* Handles provided operator, generating tree nodes or
-   pushing the operator into a stack when appropriate */
-static void parser_expr_add_operator(parser* p, const operator op) {
-    /* Shunting yard algorithm */
-
-    while (p->i_expr_operator_buf > 0) {
-        /* Top of operator stack */
-        operator last_op = p->expr_operator_buf[p->i_expr_operator_buf - 1];
-        if (operator_precedence[last_op] >= operator_precedence[op]) {
-            parser_expr_gen_node(p, last_op);
-            --p->i_expr_operator_buf;
-        }
-        else {
-            break;
-        }
-    }
-
-    if (p->i_expr_operator_buf >= MAX_EXPR_OPERATOR_BUFFER_LEN) {
-        parser_set_error(p, ec_pbufexceed);
-        return;
-    }
-    p->expr_operator_buf[p->i_expr_operator_buf++] = op;
-}
-
-/* Generates tree nodes using all operators remaining in operator buffer
-   Call when done parsing expression */
-static void parser_expr_flush(parser* p) {
-    while (p->i_expr_operator_buf > 0) {
-        operator op = p->expr_operator_buf[p->i_expr_operator_buf - 1];
-        parser_expr_gen_node(p, op);
-        --p->i_expr_operator_buf;
-    }
-}
-
-/* Clears buffers for expression parsing */
-static void parser_expr_clear(parser* p) {
-    p->i_expr_output_buf = 0;
-    p->i_expr_token_buf = 0;
-    p->i_expr_node_buf = 0;
-    p->i_expr_operator_buf = 0;
-}
-
-/* Generates a tree node using the given operator and operands
-   in expression output buffer */
-static void parser_expr_gen_node(parser* p, const operator op) {
-    if (p->i_expr_node_buf >= MAX_EXPR_NODE_BUFFER_LEN) {
-        parser_set_error(p, ec_pbufexceed);
-        return;
-    }
-    expr_node* node = p->expr_node_buf + p->i_expr_node_buf;
-    ASSERT(p->i_expr_output_buf >= 2,
-           "Insufficient arguments generating expression tree node");
-    /* left and right nodes corresponds to the last 2 elements
-       in the output buffer */
-    int left_index = p->expr_output_buf[p->i_expr_output_buf - 2];
-    if (left_index >= 0) {
-        expr_node_l_token(node, p->expr_token_buf + left_index);
-    }
-    else {
-        expr_node_l_node(node, p->expr_node_buf + (-left_index - 1));
-    }
-    int right_index = p->expr_output_buf[p->i_expr_output_buf - 1];
-    if (right_index >= 0) {
-        expr_node_r_token(node, p->expr_token_buf + right_index);
-    }
-    else {
-        expr_node_r_node(node, p->expr_node_buf + (-right_index - 1));
-    }
-
-    node->op = op;
-
-    /* Leave a reference to the node in output buffer */
-    p->expr_output_buf[p->i_expr_output_buf - 2] = symbol_type_fromtok(p->i_expr_node_buf);
-    /* Used 2 elements in output buffer, added 1 back */
-    --p->i_expr_output_buf;
-    /* Increment this last as the original value is needed */
-    ++p->i_expr_node_buf;
-}
-
 /* Prints out contents of parser buffers */
 static void debug_parser_buf_dump(parser* p) {
-    LOG("Parser buffer: Count, contents\n");
-    for (int i = 0; i < pb_count; ++i) {
-        LOGF("%d | %s\n", i, p->buf[i]);
-    }
-
     LOG("Token buffer:\n");
     LOGF("%s\n", p->tok_buf);
 

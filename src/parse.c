@@ -7,7 +7,7 @@
 
 #define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
-#define MAX_PARSE_TREE_NODE 200 /* Maximum nodes in parser parse tree */
+#define MAX_PARSE_TREE_NODE 500 /* Maximum nodes in parser parse tree */
 #define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
 #define MAX_PARSE_TOKEN_BUFFER_CHAR 512 /* Max characters in parse tree token buffer */
 #define MAX_EXPR_OUTPUT_BUFFER_LEN 100 /* Max elements in expression parser output buffer */
@@ -132,6 +132,8 @@ typedef struct parse_node {
 
 /* Counts number of children for given node */
 static int parse_node_count_child(parse_node* node) {
+    ASSERT(node != NULL, "Node is null");
+
     int count = 0;
     while (count < MAX_PARSE_NODE_CHILD) {
         if (node->child[count] == NULL) {
@@ -286,6 +288,7 @@ static void debug_parse_node_walk(
 /* Sets error code in parser */
 static void parser_set_error(parser* p, errcode ecode) {
     p->ecode = ecode;
+    LOGF("Error set: %d\n", ecode);
 }
 
 /* Returns error code in parser */
@@ -367,6 +370,8 @@ static char* parser_get_token(parser* p, int index) {
 /* Returns information about the current location in parse tree
    parent_node is the node which may be modified and thus have to rollback */
 static parse_location parser_get_parse_location(parser* p, parse_node* parent_node) {
+    ASSERT(parent_node != NULL, "Parent node is null");
+
     /* Current file position */
     long offset = ftell(p->rf);
     if (offset == -1L) {
@@ -418,6 +423,11 @@ static parse_node* parser_attach_node(parser* p, parse_node* parent_node, symbol
     parse_node* node = p->parse_node_buf + p->i_parse_node_buf;
     ++p->i_parse_node_buf;
     node->type = st;
+
+    /* Zero out children (may have previous values) */
+    for (int i = 0; i < MAX_PARSE_NODE_CHILD; ++i) {
+        node->child[i] = NULL;
+    }
 
     /* Link parent node to child */
     int i = 0;
@@ -573,9 +583,12 @@ static void debug_parser_buf_dump(parser* p) {
     LOG("Parse tree:\n");
     /* Draw tree with first node since it is the top node */
     if (p->i_parse_node_buf > 0) {
-        char branch[100];
+        /* 2 characters per node */
+        int max_branch = MAX_PARSE_TREE_NODE * 2;
+
+        char branch[max_branch];
         branch[0] = '\0';
-        debug_parse_node_walk(p, p->parse_node_buf, branch, 0, 100);
+        debug_parse_node_walk(p, p->parse_node_buf, branch, 0, max_branch);
     }
 }
 
@@ -841,6 +854,7 @@ int debug_parse_func_recursion_depth = 0;
     }                                                                   \
     LOGF(">%d " #symbol_type__ "\n", debug_parse_func_recursion_depth); \
     debug_parse_func_recursion_depth++;                                 \
+    ASSERT(parent_node != NULL, "Parent node is null");                 \
     parse_location start_location__ =                                   \
         parser_get_parse_location(p, parent_node);                      \
     parse_node* node__ =                                                \
@@ -936,53 +950,65 @@ exit:
 
 static int parse_constant(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(constant);
-    /*
-//    int return_code = parse_integerconst(p);
-    */
 
+    if (parse_integer_constant(p, PARSE_CURRENT_NODE)) goto matched;
+
+    /* Incomplete */
+
+    goto exit;
+
+matched:
+    PARSE_MATCHED();
+
+exit:
     PARSE_FUNC_END();
 }
 
 static int parse_integer_constant(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(integer_constant);
 
-//    int return_code = parse_decimalconst(p);
+    if (parse_decimal_constant(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
+    goto exit;
+
+matched:
+    PARSE_MATCHED();
+
+exit:
     PARSE_FUNC_END();
 }
 
 static int parse_decimal_constant(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(decimal_constant);
 
-//    char* token;
-//    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
-//        goto exit;
-//    }
-//
-//    /* First character is nonzero-digit */
-//    char c = token[0];
-//    if (c <= '0' || c > '9') {
-//        goto exit;
-//    }
-//
-//    /* Remaining characters is digit */
-//    int i = 0;
-//    while (c != '\0') {
-//        if (c < '0' || c > '9') {
-//            goto exit;
-//        }
-//
-//        ++i;
-//        c = token[i];
-//    }
-//
-//    if (parser_state(p) == ps_expr) {
-//        parser_expr_add_token(p, token);
-//    }
-//    consume_token(token);
-//    return_code = 1;
+    char* token;
+    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
 
-// exit:
+    LOGF("%s\n", token);
+    /* First character is nonzero-digit */
+    char c = token[0];
+    if (c <= '0' || c > '9') {
+        goto exit;
+    }
+
+    /* Remaining characters is digit */
+    int i = 0;
+    while (c != '\0') {
+        if (c < '0' || c > '9') {
+            goto exit;
+        }
+
+        ++i;
+        c = token[i];
+    }
+
+    parser_attach_token(p, PARSE_CURRENT_NODE, token);
+    consume_token(token);
+    PARSE_MATCHED();
+
+exit:
     PARSE_FUNC_END();
 }
 
@@ -990,26 +1016,12 @@ static int parse_primary_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(primary_expression);
 
     if (parse_identifier(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_constant(p, PARSE_CURRENT_NODE)) goto matched;
 
-//    int has_const = parse_const(p);
-//    if (has_const || parser_has_error(p)) goto exit;
-//
-//    /* ( expression ) */
-//    int has_bracket = parse_expecttoken(p, "(");
-//    if (parser_has_error(p)) goto exit;
-//    if (has_bracket) {
-//        parse_expr(p);
-//        if (parser_has_error(p)) goto exit;
-//
-//        /* Matching close bracket for expression */
-//        int has_close_bracket = parse_expecttoken(p, ")");
-//        if (parser_has_error(p)) goto exit;
-//        if (!has_close_bracket) {
-//            ERRMSG("Expected ) after expression\n");
-//            parser_set_error(p, ec_syntaxerr);
-//            goto exit;
-//        }
-//    }
+    if (parse_expect(p, "(")) {
+        if (!parse_expression(p, PARSE_CURRENT_NODE)) goto exit;
+        if (parse_expect(p, ")")) goto matched;
+    }
 
     goto exit;
 
@@ -1025,6 +1037,8 @@ static int parse_postfix_expression(parser* p, parse_node* parent_node) {
 
     if (parse_primary_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
     goto exit;
 
 matched:
@@ -1038,6 +1052,8 @@ static int parse_unary_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(unary_expression);
 
     if (parse_postfix_expression(p, PARSE_CURRENT_NODE)) goto matched;
+
+    /* Incomplete */
 
     goto exit;
 
@@ -1053,6 +1069,8 @@ static int parse_cast_expression(parser* p, parse_node* parent_node) {
 
     if (parse_unary_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
     goto exit;
 
 matched:
@@ -1065,39 +1083,31 @@ exit:
 static int parse_multiplicative_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(multiplicative_expression);
 
-     if (parse_cast_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    /* Left recursion in C standard is converted to right recursion */
+    /* NOTE: This does affect order of operations, operations involving
+       multiplicative_expression nodes if preorder traversal
+       e.g., a * b / c in the order of encountering them */
+    /* multiplicative-expression
+       -> cast-expression * multiplicative-expression
+        | cast-expression / multiplicative-expression
+        | cast-expression % multiplicative-expression
+        | cast-expression */
 
-//     while (1) {
-//
-//         int has_multiply = parse_expecttoken(p, "*");
-//         if (parser_has_error(p)) goto exit;
-//         if (has_multiply) {
-//             parser_expr_add_operator(p, op_multiply);
-//             continue;
-//         }
-//
-//         int has_divide = parse_expecttoken(p, "/");
-//         if (parser_has_error(p)) goto exit;
-//         if (has_divide) {
-//             parser_expr_add_operator(p, op_divide);
-//             continue;
-//         }
-//
-//         int has_mod = parse_expecttoken(p, "%");
-//         if (parser_has_error(p)) goto exit;
-//         if (has_mod) {
-//             parser_expr_add_operator(p, op_modulus);
-//             continue;
-//         }
-//
-//         break;
-//     }
-//
-// exit:
+    if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
-    goto exit;
+    if (parse_expect(p, "*")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "*");
+        if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (parse_expect(p, "/")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "/");
+        if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (parse_expect(p, "%")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "%");
+        if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
 
-matched:
     PARSE_MATCHED();
 
 exit:
@@ -1107,32 +1117,25 @@ exit:
 static int parse_additive_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(additive_expression);
 
-    if (parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    /* Left recursion in C standard is converted to right recursion */
+    /* NOTE: This does affect order of operations, operations involving
+       multiplicative_expression nodes is preorder traversal
+       e.g., a + b - c in the order of encountering them */
+    /* additive-expression -> multiplicative-expression + additive-expression
+                            | multiplicative-expression - additive-expression
+                            | multiplicative-expression */
 
-//    while (1) {
-//
-//        int has_add = parse_expecttoken(p, "+");
-//        if (parser_has_error(p)) goto exit;
-//        if (has_add) {
-//            parser_expr_add_operator(p, op_add);
-//            continue;
-//        }
-//
-//        int has_sub = parse_expecttoken(p, "-");
-//        if (parser_has_error(p)) goto exit;
-//        if (has_sub) {
-//            parser_expr_add_operator(p, op_subtract);
-//            continue;
-//        }
-//
-//        break;
-//    }
-//
-//exit:
+    if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
-    goto exit;
+    if (parse_expect(p, "+")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "+");
+        if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    if (parse_expect(p, "-")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "-");
+        if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
 
-matched:
     PARSE_MATCHED();
 
 exit:
@@ -1143,6 +1146,8 @@ static int parse_shift_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(shift_expression);
 
     if (parse_additive_expression(p, PARSE_CURRENT_NODE)) goto matched;
+
+    /* Incomplete */
 
     goto exit;
 
@@ -1158,6 +1163,8 @@ static int parse_relational_expression(parser* p, parse_node* parent_node) {
 
     if (parse_shift_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
     goto exit;
 
 matched:
@@ -1171,6 +1178,8 @@ static int parse_equality_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(equality_expression);
 
     if (parse_relational_expression(p, PARSE_CURRENT_NODE)) goto matched;
+
+    /* Incomplete */
 
     goto exit;
 
@@ -1186,6 +1195,8 @@ static int parse_and_expression(parser* p, parse_node* parent_node) {
 
     if (parse_equality_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
     goto exit;
 
 matched:
@@ -1199,6 +1210,8 @@ static int parse_exclusive_or_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(exclusive_or_expression);
 
     if (parse_and_expression(p, PARSE_CURRENT_NODE)) goto matched;
+
+    /* Incomplete */
 
     goto exit;
 
@@ -1214,6 +1227,8 @@ static int parse_inclusive_or_expression(parser* p, parse_node* parent_node) {
 
     if (parse_exclusive_or_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
     goto exit;
 
 matched:
@@ -1227,6 +1242,8 @@ static int parse_logical_and_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(logical_and_expression);
 
     if (parse_inclusive_or_expression(p, PARSE_CURRENT_NODE)) goto matched;
+
+    /* Incomplete */
 
     goto exit;
 
@@ -1242,6 +1259,8 @@ static int parse_logical_or_expression(parser* p, parse_node* parent_node) {
 
     if (parse_logical_and_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
     goto exit;
 
 matched:
@@ -1255,6 +1274,8 @@ static int parse_conditional_expression(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(conditional_expression);
 
     if (parse_logical_or_expression(p, PARSE_CURRENT_NODE)) goto matched;
+
+    /* Incomplete */
 
     goto exit;
 
@@ -1270,6 +1291,8 @@ static int parse_assignment_expression(parser* p, parse_node* parent_node) {
 
     if (parse_conditional_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
     goto exit;
 
 matched:
@@ -1284,6 +1307,8 @@ static int parse_expression(parser* p, parse_node* parent_node) {
 
     if (parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
     goto exit;
 
 matched:
@@ -1296,17 +1321,13 @@ exit:
 static int parse_declaration(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(declaration);
 
-//    parse_declspec(p);
-//    parse_initdeclaratorlist(p);
-//
-//    int has_semicolon = parse_expecttoken(p, ";");
-//    if (parser_has_error(p)) goto exit;
-//    if (!has_semicolon) {
-//        ERRMSG("Expected semicolon after declaration\n");
-//        parser_set_error(p, ec_syntaxerr);
-//    }
-//
-//exit:
+    if (!parse_declaration_specifiers(p, PARSE_CURRENT_NODE)) goto exit;
+    parse_init_declarator_list(p, PARSE_CURRENT_NODE);
+    if (!parse_expect(p, ";")) goto exit;
+
+    PARSE_MATCHED();
+
+exit:
     PARSE_FUNC_END();
 }
 
@@ -1331,34 +1352,30 @@ exit:
 static int parse_init_declarator_list(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(init_declarator_list);
 
-//    while (1) {
-//        parse_initdeclarator(p);
-//
-//        /* init-declarators separated by commas */
-//        int has_token = parse_expecttoken(p, ",");
-//        if (parser_has_error(p)) goto exit;
-//        if (!has_token) {
-//            break;
-//        }
-//    }
-//
-//exit:
+    if (!parse_init_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+
+    if (parse_expect(p, ",")) {
+        if (!parse_init_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+
+    PARSE_MATCHED();
+
+exit:
     PARSE_FUNC_END();
 }
 
 static int parse_init_declarator(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(init_declarator);
 
-//    /* declarator OR declarator = initializer */
-//    parse_declarator(p);
-//
-//    int has_token = parse_expecttoken(p, "=");
-//    if (parser_has_error(p)) goto exit;
-//    if (has_token) {
-//        parse_initializer(p);
-//    }
-//
-//exit:
+    if (!parse_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+
+    if (parse_expect(p, "=")) {
+        if (!parse_initializer(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+
+    PARSE_MATCHED();
+
+exit:
     PARSE_FUNC_END();
 }
 
@@ -1536,17 +1553,16 @@ exit:
 static int parse_initializer(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(initializer);
 
-//    parser_set_state(p, ps_expr);
-//    parse_assignmentexpr(p);
-//    /* TODO This is temporary to test parsing */
-//    parser_expr_flush(p);
-//    debug_parser_buf_dump(p);
-//    parser_expr_clear(p);
-//    /* TODO remember and return to old state (stack maybe?) */
-//    parser_set_state(p, ps_fdecl);
-//    /* TODO be more careful about state changes to avoid a mess of
-//       state changes in the future */
+    if (parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto matched;
 
+    /* Incomplete */
+
+    goto exit;
+
+matched:
+    PARSE_MATCHED();
+
+exit:
     PARSE_FUNC_END();
 }
 
@@ -1956,15 +1972,23 @@ int main(int argc, char** argv) {
     /* Create the top level node in parse node buf */
     if (MAX_PARSE_TREE_NODE > 0) {
         p.i_parse_node_buf = 1;
-        parse_function_definition(&p, p.parse_node_buf);
-        debug_parser_buf_dump(&p);
+        int parse_success = parse_function_definition(&p, p.parse_node_buf);
 
-        if (p.i_parse_node_buf >= 2) {
-            cg_function_definition(&p, p.parse_node_buf + 1);
+        debug_parser_buf_dump(&p);
+        if (parse_success) {
+            if (p.i_parse_node_buf >= 2) {
+                cg_function_definition(&p, p.parse_node_buf + 1);
+            }
+        }
+        else {
+            parser_set_error(&p, ec_syntaxerr);
+            ERRMSG("Failed to build parse tree\n");
         }
     }
+
     if (p.ecode != ec_noerr) {
         LOGF("Error during parsing: %d\n", p.ecode);
+        rt_code = p.ecode;
     }
 
 cleanup:

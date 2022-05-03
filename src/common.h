@@ -118,4 +118,38 @@ static inline void strcopy(const char* str, char* target) {
     target[i] = '\0';
 }
 
+/* Number of chars to represent integer */
+static inline int ichar(int i) {
+    /* Always have 1 digit */
+    int digits = 1;
+    if (i < 0) {
+        /* For minus sign */
+        ++digits;
+    }
+    i /= 10;
+    while (i != 0) {
+        i /= 10;
+        ++digits;
+    }
+    return digits;
+}
+
+/* Converts integer to str representation written in buf
+   Assumes buf has sufficient space */
+static inline void itostr(int i, char* buf) {
+    int len = ichar(i);
+    if (i < 0) {
+        buf[0] = '-';
+        i = -i;
+    }
+    /* Take off digit at a time from end of number (right) */
+    buf += len - 1;
+    *buf = i % 10 + '0';
+    i /= 10;
+    while (i != 0) {
+        --buf;
+        *buf = i % 10 + '0';
+        i /= 10;
+    }
+}
 #endif

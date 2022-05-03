@@ -213,6 +213,7 @@ typedef struct {
 
     token symtab[MAX_SYMTAB_TOKEN];
     int i_symtab; /* Points to next available space */
+    int symtab_temp_num; /* Number to create unique temporary values */
 } parser;
 
 static void debug_parser_buf_dump(parser* p);
@@ -256,6 +257,23 @@ static char* parser_get_lexeme(parser* p, lexeme_id id) {
     ASSERT(id < p->i_lexeme_buf,
            "Parse lexeme buffer index out of range");
     return p->lexeme_buf + id;
+}
+
+/* Add lexeme to lexeme buffer */
+static lexeme_id parser_add_lexeme(parser* p, const char* lexeme) {
+    int lexeme_start = p->i_lexeme_buf;
+    /* + 1 as a null terminator has to be inserted */
+    if (p->i_lexeme_buf + strlength(lexeme) + 1 > MAX_LEXEME_BUFFER_CHAR) {
+        parser_set_error(p, ec_pbufexceed);
+        return -1;
+    }
+    int i = 0;
+    while (lexeme[i] != '\0') {
+        p->lexeme_buf[p->i_lexeme_buf++] = lexeme[i++];
+    }
+    p->lexeme_buf[p->i_lexeme_buf++] = '\0';
+
+    return lexeme_start;
 }
 
 /* Returns information about the current location in parse tree
@@ -342,20 +360,11 @@ static parse_node* parser_attach_node(parser* p, parse_node* parent_node, symbol
 static parse_node* parser_attach_lexeme(parser* p, parse_node* parent_node, const char* lexeme) {
     ASSERT(parent_node != NULL, "Parse tree parent node is null");
 
-    /* Add lexeme to lexeme buffer */
-    /* + 1 as a null terminator has to be inserted */
-    int lexeme_start = p->i_lexeme_buf;
-    if (p->i_lexeme_buf + strlength(lexeme) + 1 > MAX_LEXEME_BUFFER_CHAR) {
-        parser_set_error(p, ec_pbufexceed);
+    lexeme_id lex_id = parser_add_lexeme(p, lexeme);
+    if (parser_has_error(p)) {
         return NULL;
     }
-    int i = 0;
-    while (lexeme[i] != '\0') {
-        p->lexeme_buf[p->i_lexeme_buf++] = lexeme[i++];
-    }
-    p->lexeme_buf[p->i_lexeme_buf++] = '\0';
-
-    return parser_attach_node(p, parent_node, st_from_lexeme_id(lexeme_start));
+    return parser_attach_node(p, parent_node, st_from_lexeme_id(lex_id));
 }
 
 /* Prints out contents of parser buffers */
@@ -390,7 +399,9 @@ static void debug_parser_buf_dump(parser* p) {
         }
         LOGF("%s\n", parser_get_lexeme(p, tok.lex_id));
     }
+}
 
+static void debug_draw_parse_tree(parser* p) {
     LOG("Parse tree:\n");
     /* Draw tree with first node since it is the top node */
     if (p->i_parse_node_buf > 0) {
@@ -519,6 +530,20 @@ static token_id symtab_add(parser* p, lexeme_id lex_id, data_type type) {
     p->symtab[id].type = type;
 
     return id;
+}
+
+/* Creates a new temporary for the current scope in symbol table */
+static token_id symtab_add_temporary(parser* p, data_type type) {
+    int numlen = ichar(p->symtab_temp_num);
+    /* chars for __local_, null terminator and number */
+    char lexeme[9 + numlen];
+    strcopy("__local_", lexeme);
+    itostr(p->symtab_temp_num, lexeme + 8);
+    lexeme[8 + numlen] = '\0';
+    ++p->symtab_temp_num;
+
+    lexeme_id lex_id = parser_add_lexeme(p, lexeme);
+    return symtab_add(p, lex_id, type);
 }
 
 /* Retrieves the lexeme associated with token id from symbol table*/
@@ -1560,13 +1585,28 @@ static int parse_expect(parser * p, const char* match_lexeme) {
 /* 1. Prints out start of each recursive function
    2. Verifies correct node type */
 /* Call at beginning on function */
+int debug_cg_func_recursion_depth = 0;
 #define DEBUG_CG_FUNC_START(symbol_type__)                 \
-    LOG(">" #symbol_type__ "\n")                           \
-    ASSERT(parse_node_type(node) == st_ ## symbol_type__,  \
+    for (int i__ = 0; i__ < debug_cg_func_recursion_depth; ++i__) {  \
+        LOG("  ");                                                   \
+    }                                                                \
+    LOGF(">%d " #symbol_type__ "\n", debug_cg_func_recursion_depth); \
+    debug_cg_func_recursion_depth++;                                 \
+    ASSERT(node != NULL, "Node is null");                            \
+    ASSERT(parse_node_type(node) == st_ ## symbol_type__,            \
             "Incorrect node type")
+#define DEBUG_CG_FUNC_END()                                         \
+    debug_cg_func_recursion_depth--;                                \
+    for (int i__ = 0; i__ < debug_cg_func_recursion_depth; ++i__) { \
+        LOG("  ");                                                  \
+    }                                                               \
+    LOGF("<%d\n", debug_cg_func_recursion_depth)
 
 /* 6.4 Lexical elements */
 static token_id cg_identifier(parser* p, parse_node* node);
+static token_id cg_constant(parser* p, parse_node* node);
+static token_id cg_integer_constant(parser* p, parse_node* node);
+static token_id cg_decimal_constant(parser* p, parse_node* node);
 /* 6.5 Expressions */
 static token_id cg_primary_expression(parser* p, parse_node* node);
 static token_id cg_postfix_expression(parser* p, parse_node* node);
@@ -1610,177 +1650,349 @@ static token_id cg_identifier(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(identifier);
 
     parse_node* lexeme_node = parse_node_child(node, 0);
-    lexeme_id lex_id = st_to_lexeme_id(parse_node_type(lexeme_node));
+    lexeme_id lex_id = parse_node_lexeme_id(lexeme_node);
+    token_id tok_id = symtab_find(p, lex_id);
+    ASSERT(tok_id >= 0, "Failed to find identifier");
 
-    return symtab_find(p, lex_id);
+    DEBUG_CG_FUNC_END();
+    return tok_id;
+}
+
+static token_id cg_constant(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(constant);
+
+    token_id tok_id = cg_integer_constant(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
+}
+
+static token_id cg_integer_constant(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(integer_constant);
+
+    token_id tok_id = cg_decimal_constant(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
+}
+
+static token_id cg_decimal_constant(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(decimal_constant);
+
+    parse_node* lexeme_node = parse_node_child(node, 0);
+    lexeme_id lex_id = parse_node_lexeme_id(lexeme_node);
+
+    /* TODO Symbol table needs special handling for constants */
+    data_type type;
+    type.typespec = ts_i32; /* TODO temporary hardcode */
+    type.pointers = 0;
+    token_id tok_id = symtab_add(p, lex_id, type);
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_primary_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(primary_expression);
 
+    token_id tok_id = 0;
     parse_node* child = parse_node_child(node, 0);
     if (parse_node_type(child) == st_identifier) {
-        return cg_identifier(p, child);
+        tok_id = cg_identifier(p, child);
+    }
+    else if (parse_node_type(child) == st_constant) {
+        tok_id = cg_constant(p, child);
+    }
+    else if (parse_node_type(child) == st_expression) {
+        tok_id = cg_expression(p, child);
+    }
+    else {
+        ASSERT(0, "Unimplemented");
     }
 
     /* Incomplete */
 
-    return 0;
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_postfix_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(postfix_expression);
 
-    return cg_primary_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_primary_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_unary_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(unary_expression);
 
-    return cg_postfix_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_postfix_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_cast_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(cast_expression);
 
-    return cg_unary_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_unary_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
+/* Traverses down multiplicative_expression and generates code in preorder */
 static token_id cg_multiplicative_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(multiplicative_expression);
 
-    // TODO
-    return cg_cast_expression(p, parse_node_child(node, 0));
+    token_id operand_1 = cg_cast_expression(p, parse_node_child(node, 0));
+    parse_node* operator = parse_node_child(node, 1);
+    node = parse_node_child(node, 2);
+    while (node != NULL) {
+        token_id operand_2 = cg_cast_expression(p, parse_node_child(node, 0));
+        token_id operand_temp =
+            symtab_add_temporary(p, token_type(p, operand_1));
 
-    /* Incomplete */
+        /* def for temporary */
+        parser_output_il(p, "def ");
+        cg_output_type(p, operand_temp);
+        parser_output_il(p, " ");
+        cg_output_lexeme(p, operand_temp);
+        parser_output_il(p, "\n");
+
+        /* Operator can only be of 3 possible types */
+        char* operator_lexeme =
+            parser_get_lexeme(p, parse_node_lexeme_id(operator));
+        char* instruction = "mul";
+        if (strequ(operator_lexeme, "/")) {
+            instruction = "div";
+        }
+        else if (strequ(operator_lexeme, "%")) {
+            instruction = "mod";
+        }
+        parser_output_ilf(p, "%s %s,%s,%s\n",
+                instruction,
+                symtab_get_lexeme(p, operand_temp),
+                symtab_get_lexeme(p, operand_1),
+                symtab_get_lexeme(p, operand_2));
+
+        operand_1 = operand_temp;
+        operator = parse_node_child(node, 1);
+        node = parse_node_child(node, 2);
+    }
+    ASSERT(operator == NULL,
+            "Trailing operator without cast-expression");
+
+    DEBUG_CG_FUNC_END();
+    return operand_1;
 }
 
+/* Traverses down additive_expression and generates code in preorder */
 static token_id cg_additive_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(additive_expression);
 
-    // TODO
-    return cg_multiplicative_expression(p, parse_node_child(node, 0));
+    token_id operand_1 =
+        cg_multiplicative_expression(p, parse_node_child(node, 0));
+    parse_node* operator = parse_node_child(node, 1);
+    node = parse_node_child(node, 2);
+    while (node != NULL) {
+        token_id operand_2 =
+            cg_multiplicative_expression(p, parse_node_child(node, 0));
+        token_id operand_temp =
+            symtab_add_temporary(p, token_type(p, operand_1));
 
-    /* Incomplete */
+        /* def for temporary */
+        parser_output_il(p, "def ");
+        cg_output_type(p, operand_temp);
+        parser_output_il(p, " ");
+        cg_output_lexeme(p, operand_temp);
+        parser_output_il(p, "\n");
+
+        /* Operator can only be of 2 possible types */
+        char* operator_lexeme =
+            parser_get_lexeme(p, parse_node_lexeme_id(operator));
+        char* instruction = "add";
+        if (strequ(operator_lexeme, "-")) {
+            instruction = "sub";
+        }
+        parser_output_ilf(p, "%s %s,%s,%s\n",
+                instruction,
+                symtab_get_lexeme(p, operand_temp),
+                symtab_get_lexeme(p, operand_1),
+                symtab_get_lexeme(p, operand_2));
+
+        operand_1 = operand_temp;
+        operator = parse_node_child(node, 1);
+        node = parse_node_child(node, 2);
+    }
+    ASSERT(operator == NULL,
+            "Trailing operator without multiplicative-expression");
+
+    DEBUG_CG_FUNC_END();
+    return operand_1;
 }
 
 static token_id cg_shift_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(shift_expression);
 
-    return cg_additive_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_additive_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_relational_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(relational_expression);
 
-    return cg_shift_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_shift_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_equality_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(equality_expression);
 
-    return cg_relational_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_relational_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_and_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(and_expression);
 
-    return cg_equality_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_equality_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_exclusive_or_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(exclusive_or_expression);
 
-    return cg_and_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_and_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_inclusive_or_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(inclusive_or_expression);
 
-    return cg_exclusive_or_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_exclusive_or_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_logical_and_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(logical_and_expression);
 
-    return cg_inclusive_or_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_inclusive_or_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_logical_or_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(logical_or_expression);
 
-    return cg_logical_and_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_logical_and_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_conditional_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(conditional_expression);
 
-    return cg_logical_or_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_logical_or_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_assignment_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(assignment_expression);
 
-    return cg_conditional_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_conditional_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static token_id cg_expression(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(expression);
 
-    return cg_assignment_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_assignment_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 /* Generates il declaration */
 static void cg_declaration(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(declaration);
 
-    // parser_output_il(p, "def ");
+    parse_node* declspec = parse_node_child(node, 0);
+    /* NOTE: this only handles init-declarator-list of size 1 */
+    parse_node* initdecllist = parse_node_child(node, 1);
+    parse_node* initdecl = parse_node_child(initdecllist, 0);
+    parse_node* declarator = parse_node_child(initdecl, 0);
 
-    // /* type */
-    // cg_declaration_specifiers(p, parse_node_child(node, 0));
-    // /* NOTE: this only handles init-declarator-list of size 1 */
-    // parse_node* initdecllist = parse_node_child(node, 1);
-    // parse_node* initdecl = parse_node_child(initdecllist, 0);
-    // parse_node* declarator = parse_node_child(initdecl, 0);
-    // if (parse_node_count_child(declarator) > 1) {
-    //     cg_pointer(p, parse_node_child(declarator, 0));
-    // }
+    /* L value */
+    token_id lval_id = cg_extract_symbol(p, declspec, declarator);
+    parser_output_il(p, "def ");
+    cg_output_type(p, lval_id);
+    parser_output_il(p, " ");
+    cg_output_lexeme(p, lval_id);
+    parser_output_il(p, "\n");
 
-    // parser_output_il(p, ",");
-    // token_id lval_id = cg_identifier(p, tree_declarator_to_identifier(declarator));
-    // parser_output_il(p, "\n");
+    /* R value assigned to l value */
+    parse_node* initializer = parse_node_child(initdecl, 1);
+    token_id rval_id = cg_initializer(p, initializer);
+    parser_output_il(p, "mov ");
+    cg_output_lexeme(p, lval_id);
+    parser_output_il(p, ",");
+    cg_output_lexeme(p, rval_id);
+    parser_output_il(p, "\n");
 
-    // token_id rval_id = cg_initializer(p, parse_node_child(initdecl, 1));
-    // parser_output_ilf(p, "mov %s,%s\n",
-    //        token_lexeme(p, lval_id), token_lexeme(p, rval_id));
+    DEBUG_CG_FUNC_END();
 }
 
 /* Generates il type and identifier for parameters of parameter list */
@@ -1800,6 +2012,8 @@ static void cg_parameter_list(parser* p, parse_node* node) {
         cg_parameter_declaration(p, parse_node_child(node, 0));
         node = parse_node_child(node, 1);
     }
+
+    DEBUG_CG_FUNC_END();
 }
 
 /* Generates il type and identifier for parameter declaration */
@@ -1814,6 +2028,8 @@ static void cg_parameter_declaration(parser* p, parse_node* node) {
     cg_output_type(p, id);
     parser_output_il(p, " ");
     cg_output_lexeme(p, id);
+
+    DEBUG_CG_FUNC_END();
 }
 
 /* Generates il for initializer
@@ -1821,9 +2037,12 @@ static void cg_parameter_declaration(parser* p, parse_node* node) {
 static token_id cg_initializer(parser* p, parse_node* node) {
     DEBUG_CG_FUNC_START(initializer);
 
-    return cg_assignment_expression(p, parse_node_child(node, 0));
+    token_id tok_id = cg_assignment_expression(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
+    return tok_id;
 }
 
 static void cg_statement(parser* p, parse_node* node) {
@@ -1832,6 +2051,8 @@ static void cg_statement(parser* p, parse_node* node) {
     cg_jump_statement(p, parse_node_child(node, 0));
 
     /* Incomplete */
+
+    DEBUG_CG_FUNC_END();
 }
 
 /* Traverses block item list and generates code */
@@ -1842,6 +2063,8 @@ static void cg_block_item_list(parser* p, parse_node* node) {
         cg_block_item(p, parse_node_child(node, 0));
         node = parse_node_child(node, 1);
     }
+
+    DEBUG_CG_FUNC_END();
 }
 
 static void cg_block_item(parser* p, parse_node* node) {
@@ -1849,11 +2072,13 @@ static void cg_block_item(parser* p, parse_node* node) {
 
     parse_node* child = parse_node_child(node, 0);
     if (parse_node_type(child) == st_declaration) {
-        /* Incomplete */
+        cg_declaration(p, child);
     }
     else {
         cg_statement(p, child);
     }
+
+    DEBUG_CG_FUNC_END();
 }
 
 static void cg_jump_statement(parser* p, parse_node* node) {
@@ -1868,6 +2093,8 @@ static void cg_jump_statement(parser* p, parse_node* node) {
         cg_output_lexeme(p, exp_id);
         parser_output_il(p, "\n");
     }
+
+    DEBUG_CG_FUNC_END();
 }
 
 /* Generates il for function definition */
@@ -1897,6 +2124,8 @@ static void cg_function_definition(parser* p, parse_node* node) {
     parse_node* compound_statement = parse_node_child(node, 2);
     parse_node* blockitemlist = parse_node_child(compound_statement, 0);
     cg_block_item_list(p, blockitemlist);
+
+    DEBUG_CG_FUNC_END();
 }
 
 /* Extracts type specifiers
@@ -1993,7 +2222,7 @@ static int cg_extract_pointer(parse_node* node) {
     int pointers = 1;
     while (pointer != NULL) {
         ++pointers;
-        pointer = parse_node_child(pointer, 0);
+        pointer = parse_node_child(pointer, 1);
     }
     return pointers;
 }

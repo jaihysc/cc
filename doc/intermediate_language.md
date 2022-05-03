@@ -47,7 +47,7 @@ Program format instructions
 | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | #           |      | Comment, rest of line ignored                                                                                                               |
 | func        |   2+ | Start function scope, name `<arg0>s`, return type `<arg1>t`, parameters `<arg2+>ts` type0 name0, type1 name1, ...                           |
-| def         |    2 | Defines a new symbol with name `<arg0>` and type`<arg1>t`                                                                                   |
+| def         |    1 | Defines a new symbol with `<arg0>ts` type name                                                                                              |
 | asm         |      | Contents after `asm ` until newline is passed onto the assembler                                                                            |
 
 Control flow instructions
@@ -81,15 +81,15 @@ The signature `i32 main(i32, i8**)` is recognized as the entry point of the prog
 
 ```
 # The c snippet: int z = a + b / c - d / e;
-def i32,z
-def i32,a
-def i32,b
-def i32,c
-def i32,d
-def i32,e
-def i32,__local_1
-def i32,__local_2
-def i32,__local_3
+def i32 z
+def i32 a
+def i32 b
+def i32 c
+def i32 d
+def i32 e
+def i32 __local_1
+def i32 __local_2
+def i32 __local_3
 
 div __local_1,b,c
 div __local_2,d,e

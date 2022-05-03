@@ -9,7 +9,8 @@
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
 #define MAX_PARSE_TREE_NODE 500 /* Maximum nodes in parser parse tree */
 #define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
-#define MAX_PARSE_TOKEN_BUFFER_CHAR 512 /* Max characters in parse tree token buffer */
+#define MAX_LEXEME_BUFFER_CHAR 512 /* Max characters in lexeme buffer */
+#define MAX_SYMTAB_TOKEN 200 /* Maximum tokens in symbol table in total */
 
 /* ============================================================ */
 /* Parser data structure + functions */
@@ -33,6 +34,19 @@ typedef enum {ts_none = -1, TYPE_SPECIFIERS} type_specifiers;
 #define TYPE_SPECIFIER(name__) #name__,
 char* type_specifiers_str[] = {TYPE_SPECIFIERS};
 #undef TYPE_SPECIFIER
+
+typedef struct {
+    type_specifiers typespec;
+    int pointers;
+} data_type;
+
+typedef int lexeme_id;
+typedef int token_id;
+
+typedef struct {
+    lexeme_id lex_id;
+    data_type type;
+} token;
 
 /* Sorted by Annex A */
 /* 6.4 Lexical elements */
@@ -91,7 +105,7 @@ char* type_specifiers_str[] = {TYPE_SPECIFIERS};
 
 #define SYMBOL_TYPE(name__) st_ ## name__,
 /* st_ force compiler to choose data type with negative values
-   as negative values indicate a token is stored */
+   as negative values indicate a lexeme is stored */
 typedef enum { st_= -1, SYMBOL_TYPES} symbol_type;
 #undef SYMBOL_TYPE
 /* Maps symbol type to string (index with symbol type) */
@@ -99,13 +113,13 @@ typedef enum { st_= -1, SYMBOL_TYPES} symbol_type;
 const char* symbol_type_str[] = {SYMBOL_TYPES};
 #undef SYMBOL_TYPES
 
-/* Convert from an index into token buffer to symbol type */
-static symbol_type symbol_type_fromtok(int index) {
+/* Convert from an index into lexeme buffer to symbol type */
+static symbol_type st_from_lexeme_id(int index) {
     return -(index + 1);
 }
 
-/* Convert from a symbol type to an index into token buffer */
-static int symbol_type_totok(symbol_type type) {
+/* Convert from a symbol type to an index into lexeme buffer */
+static lexeme_id st_to_lexeme_id(symbol_type type) {
     return -type - 1;
 }
 
@@ -143,13 +157,24 @@ static parse_node* parse_node_child(parse_node* node, int i) {
     return node->child[childs + i];
 }
 
+/* Retrieves the symbol type for node */
+static symbol_type parse_node_type(parse_node* node) {
+    ASSERT(node != NULL, "Node is null");
+    return node->type;
+}
+
+/* Retrieves lexeme id for node */
+static lexeme_id parse_node_lexeme_id(parse_node* node) {
+    return st_to_lexeme_id(node->type);
+}
+
 typedef struct {
     /* Index of next available space in parse node buffer */
     int i_node_buf;
     parse_node* node; /* Node which may be modified */
     int node_childs; /* Children the node has */
     long rf_offset; /* Input file offset */
-    char tok_buf[MAX_TOKEN_LEN + 1]; /* Token read buffer */
+    char read_buf[MAX_TOKEN_LEN + 1]; /* Lexeme read buffer */
 } parse_location;
 
 /* Should always be initialized to ec_noerr */
@@ -171,18 +196,23 @@ typedef struct {
     /* By default this is set as ec_noerr */
     errcode ecode;
 
-    /* Token read buffer, used by read_token to store token read */
-    /* The read token is kept here, subsequent calls to read_token()
+    /* Lexeme read buffer, used by read_lexeme to store lexeme read */
+    /* The read lexeme is kept here, subsequent calls to read_lexeme()
        will return this.
-       When consume_token() is called, the next call to read_token()
-       will fill this buffer with a new token
+       When consume_lexeme() is called, the next call to read_lexeme()
+       will fill this buffer with a new lexeme
        */
-    char tok_buf[MAX_TOKEN_LEN + 1];
+    char read_buf[MAX_TOKEN_LEN + 1];
 
     parse_node parse_node_buf[MAX_PARSE_TREE_NODE];
     int i_parse_node_buf; /* Points to next available space */
-    char parse_token_buf[MAX_PARSE_TOKEN_BUFFER_CHAR];
-    int i_parse_token_buf; /* Points to next available space */
+
+    /* In future: Could save space by seeing if the lexeme is already in buf */
+    char lexeme_buf[MAX_LEXEME_BUFFER_CHAR];
+    lexeme_id i_lexeme_buf; /* Points to next available space */
+
+    token symtab[MAX_SYMTAB_TOKEN];
+    int i_symtab; /* Points to next available space */
 } parser;
 
 static void debug_parser_buf_dump(parser* p);
@@ -221,11 +251,11 @@ static void parser_output_il(parser* p, const char* txt) {
     parser_output_ilf(p, "%s", txt);
 }
 
-/* Returns token at given index */
-static char* parser_get_token(parser* p, int index) {
-    ASSERT(index < p->i_parse_token_buf,
-           "Parse token buffer index out of range");
-    return p->parse_token_buf + index;
+/* Returns lexeme at given index */
+static char* parser_get_lexeme(parser* p, lexeme_id id) {
+    ASSERT(id < p->i_lexeme_buf,
+           "Parse lexeme buffer index out of range");
+    return p->lexeme_buf + id;
 }
 
 /* Returns information about the current location in parse tree
@@ -246,8 +276,8 @@ static parse_location parser_get_parse_location(parser* p, parse_node* parent_no
         .rf_offset = offset
     };
 
-    /* Copy over token read buffer */
-    strcopy(p->tok_buf, location.tok_buf);
+    /* Copy over lexeme read buffer */
+    strcopy(p->read_buf, location.read_buf);
 
     return location;
 }
@@ -267,8 +297,8 @@ static void parser_set_parse_location(parser* p, parse_location* location) {
         return;
     }
 
-    /* Return to old token read buffer */
-    strcopy(location->tok_buf, p->tok_buf);
+    /* Return to old lexeme read buffer */
+    strcopy(location->read_buf, p->read_buf);
 }
 
 /* Attaches a node of type st onto the provided parent node
@@ -307,31 +337,59 @@ static parse_node* parser_attach_node(parser* p, parse_node* parent_node, symbol
     return node;
 }
 
-/* Attaches a token node onto the provided parent node
+/* Attaches a lexeme node onto the provided parent node
    Returns the attached node */
-static parse_node* parser_attach_token(parser* p, parse_node* parent_node, const char* token) {
+static parse_node* parser_attach_lexeme(parser* p, parse_node* parent_node, const char* lexeme) {
     ASSERT(parent_node != NULL, "Parse tree parent node is null");
 
-    /* Add token to token buffer */
+    /* Add lexeme to lexeme buffer */
     /* + 1 as a null terminator has to be inserted */
-    int token_start = p->i_parse_token_buf;
-    if (p->i_parse_token_buf + strlength(token) + 1 > MAX_PARSE_TOKEN_BUFFER_CHAR) {
+    int lexeme_start = p->i_lexeme_buf;
+    if (p->i_lexeme_buf + strlength(lexeme) + 1 > MAX_LEXEME_BUFFER_CHAR) {
         parser_set_error(p, ec_pbufexceed);
         return NULL;
     }
     int i = 0;
-    while (token[i] != '\0') {
-        p->parse_token_buf[p->i_parse_token_buf++] = token[i++];
+    while (lexeme[i] != '\0') {
+        p->lexeme_buf[p->i_lexeme_buf++] = lexeme[i++];
     }
-    p->parse_token_buf[p->i_parse_token_buf++] = '\0';
+    p->lexeme_buf[p->i_lexeme_buf++] = '\0';
 
-    return parser_attach_node(p, parent_node, symbol_type_fromtok(token_start));
+    return parser_attach_node(p, parent_node, st_from_lexeme_id(lexeme_start));
 }
 
 /* Prints out contents of parser buffers */
 static void debug_parser_buf_dump(parser* p) {
-    LOG("Token buffer:\n");
-    LOGF("%s\n", p->tok_buf);
+    LOG("Read buffer:\n");
+    LOGF("%s\n", p->read_buf);
+
+    LOG("Lexeme buffer:\n");
+    int first_char = 1;
+    for (int i = 0; i < p->i_lexeme_buf; ++i) {
+        char c = p->lexeme_buf[i];
+        /* Number indicates index of first char in each row */
+        if (first_char) {
+            LOGF("%d ", i);
+            first_char = 0;
+        }
+        if (c == '\0') {
+            LOG("\n");
+            first_char = 1;
+        }
+        else {
+            LOGF("%c", c);
+        }
+    }
+
+    LOG("Symbol table:\n");
+    for (int i = 0; i < p->i_symtab; ++i) {
+        token tok = p->symtab[i];
+        LOGF("%d %s ", i, type_specifiers_str[tok.type.typespec]);
+        for (int j = 0; j < tok.type.pointers; ++j) {
+            LOG("*");
+        }
+        LOGF("%s\n", parser_get_lexeme(p, tok.lex_id));
+    }
 
     LOG("Parse tree:\n");
     /* Draw tree with first node since it is the top node */
@@ -357,9 +415,9 @@ static void debug_parse_node_walk(
         LOGF("%s\n", symbol_type_str[node->type]);
     }
     else {
-        /* Is token */
-        char* token = p->parse_token_buf + symbol_type_totok(node->type);
-        LOGF("\"%s\"\n", token);
+        /* Is lexeme */
+        char* lexeme = p->lexeme_buf + st_to_lexeme_id(parse_node_type(node));
+        LOGF("\"%s\"\n", lexeme);
     }
 
     /* iterate through children */
@@ -402,6 +460,77 @@ static void debug_parse_node_walk(
     }
 }
 
+/* Moves to the last (higher) scope */
+/* static void symtab_ascend(parser* p) {
+} */
+
+/* Moves to a new scope within the current scope */
+/* static void symtab_descend(parser* p) {
+} */
+
+/* Finds provided lexeme in symbol table, closest scope first
+   -1 if not found */
+static token_id symtab_find(parser* p, lexeme_id lex_id) {
+    char* lex_1 = parser_get_lexeme(p, lex_id);
+    for (int i = 0; i < p->i_symtab; ++i) {
+        char* lex_2 = parser_get_lexeme(p, p->symtab[i].lex_id);
+        if (strequ(lex_1, lex_2)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Returns lexeme for token */
+static const char* symtab_get_lexeme(parser* p, token_id tok_id) {
+    ASSERT(tok_id >= 0, "Token id out of range");
+    ASSERT(tok_id < p->i_symtab, "Token id out of range");
+    return p->lexeme_buf + p->symtab[tok_id].lex_id;
+}
+
+/* Returns data type for token */
+static data_type symtab_get_type(parser* p, token_id tok_id) {
+    ASSERT(tok_id >= 0, "Token id out of range");
+    ASSERT(tok_id < p->i_symtab, "Token id out of range");
+    return p->symtab[tok_id].type;
+}
+
+/* In the future the parser has to generate the symbol table to
+   provide context for parsing */
+
+/* Adds provided lexeme index and type into symbol table */
+static token_id symtab_add(parser* p, lexeme_id lex_id, data_type type) {
+    /* Check if already exists in current scope */
+    token_id id = symtab_find(p, lex_id);
+    if (id >= 0) {
+        /* In future come up with method to handle already existing symbols */
+        ASSERT(0, "Symbol already exists");
+        return id;
+    }
+
+    /* Add new token */
+    if (id >= MAX_SYMTAB_TOKEN) {
+        parser_set_error(p, ec_pbufexceed);
+        return -1;
+    }
+    id = p->i_symtab++;
+
+    p->symtab[id].lex_id = lex_id;
+    p->symtab[id].type = type;
+
+    return id;
+}
+
+/* Retrieves the lexeme associated with token id from symbol table*/
+static const char* token_lexeme(parser* p, token_id id) {
+    return p->lexeme_buf + p->symtab[id].lex_id;
+}
+
+/* Retrieves the type associated with token id from symbol table*/
+static data_type token_type(parser* p, token_id id) {
+    return p->symtab[id].type;
+}
+
 /* ============================================================ */
 /* Token handling */
 
@@ -417,10 +546,10 @@ static int iswhitespace(char c) {
     }
 }
 
-/* If character is considered as its own token */
-static int istokenchar(char c) {
+/* If character is considered as its own lexeme */
+static int islexemechar(char c) {
     switch (c) {
-        /* TODO incomplete list of token chars */
+        /* TODO incomplete list of lexeme chars */
         case '(': case ')': case '{': case '&': case '*': case ',': case ';':
             return 1;
         default:
@@ -430,7 +559,7 @@ static int istokenchar(char c) {
 
 /* C keyword handling */
 
-const char* token_storage_class_keyword[] = {
+const char* lexeme_storage_class_keyword[] = {
     /* See strbinfind for ordering requirements */
     "auto",
     "extern",
@@ -438,16 +567,16 @@ const char* token_storage_class_keyword[] = {
     "static",
     "typedef"
 };
-/* Returns 1 if token c string is a storage class keyword, 0 otherwise */
+/* Returns 1 if lexeme c string is a storage class keyword, 0 otherwise */
 static int tok_isstoreclass(const char* str) {
     return strbinfind(
             str,
             strlength(str),
-            token_storage_class_keyword,
-            ARRAY_SIZE(token_storage_class_keyword)) >= 0;
+            lexeme_storage_class_keyword,
+            ARRAY_SIZE(lexeme_storage_class_keyword)) >= 0;
 }
 
-const char* token_type_keyword[] = {
+const char* lexeme_type_keyword[] = {
     /* See strbinfind for ordering requirements */
     "char",
     "double",
@@ -459,36 +588,36 @@ const char* token_type_keyword[] = {
     "unsigned",
     "void",
 };
-/* Returns 1 if token c string is a type specifier keyword, 0 otherwise */
+/* Returns 1 if lexeme c string is a type specifier keyword, 0 otherwise */
 static int tok_istypespec(const char* str) {
     return strbinfind(
             str,
             strlength(str),
-            token_type_keyword,
-            ARRAY_SIZE(token_type_keyword)) >= 0;
+            lexeme_type_keyword,
+            ARRAY_SIZE(lexeme_type_keyword)) >= 0;
 }
 
-const char* token_type_qualifier_keyword[] = {
+const char* lexeme_type_qualifier_keyword[] = {
     /* See strbinfind for ordering requirements */
     "const",
     "restrict",
     "volatile"
 };
-/* Returns 1 if token c string is a type qualifier keyword, 0 otherwise */
+/* Returns 1 if lexeme c string is a type qualifier keyword, 0 otherwise */
 static int tok_istypequal(const char* str) {
     return strbinfind(
             str,
             strlength(str),
-            token_type_qualifier_keyword,
-            ARRAY_SIZE(token_type_qualifier_keyword)) >= 0;
+            lexeme_type_qualifier_keyword,
+            ARRAY_SIZE(lexeme_type_qualifier_keyword)) >= 0;
 }
 
-/* Returns 1 if token c string is a function specifier keyword, 0 otherwise */
+/* Returns 1 if lexeme c string is a function specifier keyword, 0 otherwise */
 static int tok_isfuncspec(const char* str) {
     return strequ(str, "inline");
 }
 
-/* Returns 1 if token c string is an identifier */
+/* Returns 1 if lexeme c string is an identifier */
 static int tok_isidentifier(const char* str) {
     char c = str[0];
     if (c == '\0') {
@@ -531,22 +660,22 @@ static int tok_isidentifier(const char* str) {
     return 1;
 }
 
-/* Indicates the pointed to token is no longer in use */
-static void consume_token(char* token) {
-    token[0] = '\0';
+/* Indicates the pointed to lexeme is no longer in use */
+static void consume_lexeme(char* lexeme) {
+    lexeme[0] = '\0';
     LOG("^Consumed\n");
 }
 
-/* Reads a null terminated token */
-/* Returns pointer to the token, NULL if EOF or errored */
-static char* read_token(parser* p) {
-    if (p->tok_buf[0] != '\0') {
-        LOGF("%s ^Cached\n", p->tok_buf);
-        return p->tok_buf;
+/* Reads a null terminated lexeme */
+/* Returns pointer to the lexeme, NULL if EOF or errored */
+static char* read_lexeme(parser* p) {
+    if (p->read_buf[0] != '\0') {
+        LOGF("%s ^Cached\n", p->read_buf);
+        return p->read_buf;
     }
 
     int i = 0; /* Index into buf */
-    int seen_token = 0;
+    int seen_lexeme = 0;
     char c;
     while ((c = getc(p->rf)) != EOF) {
         if (i >= MAX_TOKEN_LEN) {
@@ -555,38 +684,37 @@ static char* read_token(parser* p) {
         }
 
         if (iswhitespace(c)) {
-            if (seen_token) {
+            if (seen_lexeme) {
                 break;
             }
             /* Skip leading whitespace */
             continue;
         }
-        if (istokenchar(c)) {
-            /* Token char is a separate token, save it to be read again */
-            if (seen_token) {
+        if (islexemechar(c)) {
+            /* Lexeme char is a separate lexeme, save it to be read again */
+            if (seen_lexeme) {
                 fseek(p->rf, -1, SEEK_CUR);
                 break;
             }
             else {
-                /* A token char itself is a token */
-                ASSERT(i == 0, "Expected token char to occupy index 0");
-                p->tok_buf[i] = c;
+                ASSERT(i == 0, "Expected lexeme char to occupy index 0");
+                p->read_buf[i] = c;
                 ++i;
                 break;
             }
         }
-        seen_token = 1;
-        p->tok_buf[i] = c;
+        seen_lexeme = 1;
+        p->read_buf[i] = c;
         ++i;
     }
 
-    p->tok_buf[i] = '\0';
-    LOGF("%s\n", p->tok_buf);
+    p->read_buf[i] = '\0';
+    LOGF("%s\n", p->read_buf);
 
     if (c == EOF) {
         return NULL;
     }
-    return p->tok_buf;
+    return p->read_buf;
 }
 
 
@@ -681,18 +809,18 @@ static int parse_jump_statement(parser* p, parse_node* parent_node);
 /* 6.9 External definitions */
 static int parse_function_definition(parser* p, parse_node* parent_node);
 /* Helpers */
-static int parse_expect(parser* p, const char* match_token);
+static int parse_expect(parser* p, const char* match_lexeme);
 
 /* identifier */
 static int parse_identifier(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(identifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
+    char* lexeme;
+    if ((lexeme = read_lexeme(p)) == NULL || parser_has_error(p)) goto exit;
 
-    if (tok_isidentifier(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
+    if (tok_isidentifier(lexeme)) {
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, lexeme);
+        consume_lexeme(lexeme);
         PARSE_MATCHED();
         goto exit;
     }
@@ -736,12 +864,12 @@ exit:
 static int parse_decimal_constant(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(decimal_constant);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
+    char* lexeme;
+    if ((lexeme = read_lexeme(p)) == NULL || parser_has_error(p)) goto exit;
 
-    LOGF("%s\n", token);
+    LOGF("%s\n", lexeme);
     /* First character is nonzero-digit */
-    char c = token[0];
+    char c = lexeme[0];
     if (c <= '0' || c > '9') {
         goto exit;
     }
@@ -754,11 +882,11 @@ static int parse_decimal_constant(parser* p, parse_node* parent_node) {
         }
 
         ++i;
-        c = token[i];
+        c = lexeme[i];
     }
 
-    parser_attach_token(p, PARSE_CURRENT_NODE, token);
-    consume_token(token);
+    parser_attach_lexeme(p, PARSE_CURRENT_NODE, lexeme);
+    consume_lexeme(lexeme);
     PARSE_MATCHED();
 
 exit:
@@ -849,15 +977,15 @@ static int parse_multiplicative_expression(parser* p, parse_node* parent_node) {
     if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "*")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "*");
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, "*");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "/")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "/");
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, "/");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "%")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "%");
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, "%");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
 
@@ -881,11 +1009,11 @@ static int parse_additive_expression(parser* p, parse_node* parent_node) {
     if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "+")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "+");
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, "+");
         if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     if (parse_expect(p, "-")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "-");
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, "-");
         if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
 
@@ -1135,11 +1263,11 @@ exit:
 static int parse_storage_class_specifier(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(storage_class_specifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
-    if (tok_isstoreclass(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
+    char* lexeme;
+    if ((lexeme = read_lexeme(p)) == NULL || parser_has_error(p)) goto exit;
+    if (tok_isstoreclass(lexeme)) {
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, lexeme);
+        consume_lexeme(lexeme);
         PARSE_MATCHED();
     }
 
@@ -1150,11 +1278,11 @@ exit:
 static int parse_type_specifier(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(type_specifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
-    if (tok_istypespec(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
+    char* lexeme;
+    if ((lexeme = read_lexeme(p)) == NULL || parser_has_error(p)) goto exit;
+    if (tok_istypespec(lexeme)) {
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, lexeme);
+        consume_lexeme(lexeme);
         PARSE_MATCHED();
     }
 
@@ -1165,11 +1293,11 @@ exit:
 static int parse_type_qualifier(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(type_qualifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
-    if (tok_istypequal(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
+    char* lexeme;
+    if ((lexeme = read_lexeme(p)) == NULL || parser_has_error(p)) goto exit;
+    if (tok_istypequal(lexeme)) {
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, lexeme);
+        consume_lexeme(lexeme);
         PARSE_MATCHED();
     }
 
@@ -1180,11 +1308,11 @@ exit:
 static int parse_function_specifier(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(function_specifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
-    if (tok_isfuncspec(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
+    char* lexeme;
+    if ((lexeme = read_lexeme(p)) == NULL || parser_has_error(p)) goto exit;
+    if (tok_isfuncspec(lexeme)) {
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, lexeme);
+        consume_lexeme(lexeme);
         PARSE_MATCHED();
     }
 
@@ -1379,6 +1507,7 @@ static int parse_jump_statement(parser* p, parse_node* parent_node) {
     PARSE_FUNC_START(jump_statement);
 
     if (parse_expect(p, "return")) {
+        parser_attach_lexeme(p, PARSE_CURRENT_NODE, "return");
         parse_expression(p, PARSE_CURRENT_NODE);
         if (parse_expect(p, ";")) goto matched;
     }
@@ -1404,34 +1533,376 @@ static int parse_function_definition(parser* p, parse_node* parent_node) {
     if (!parse_compound_statement(p, PARSE_CURRENT_NODE) ||
             parser_has_error(p)) goto exit;
 
-    /* TODO generate code */
     PARSE_MATCHED();
 exit:
     PARSE_FUNC_END();
 }
 
-/* Return 1 if next token read matches provided token, 0 otherwise */
-/* The token is consumed if it matches the provided token */
-static int parse_expect(parser * p, const char* match_token) {
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_get_error(p) != ec_noerr) {
+/* Return 1 if next lexeme read matches provided lexeme, 0 otherwise */
+/* The lexeme is consumed if it matches the provided lexeme */
+static int parse_expect(parser * p, const char* match_lexeme) {
+    char* lexeme;
+    if ((lexeme = read_lexeme(p)) == NULL || parser_has_error(p)) {
         return 0;
     }
 
-    if (strequ(token, match_token)) {
-        consume_token(token);
+    if (strequ(lexeme, match_lexeme)) {
+        consume_lexeme(lexeme);
         return 1;
     }
     return 0;
 }
 
 /* ============================================================ */
-/* Parse tree */
+/* Intermediate code generation */
+/* codegen functions assume the parse tree is valid */
+
+/* 1. Prints out start of each recursive function
+   2. Verifies correct node type */
+/* Call at beginning on function */
+#define DEBUG_CG_FUNC_START(symbol_type__)                 \
+    LOG(">" #symbol_type__ "\n")                           \
+    ASSERT(parse_node_type(node) == st_ ## symbol_type__,  \
+            "Incorrect node type")
+
+/* 6.4 Lexical elements */
+static token_id cg_identifier(parser* p, parse_node* node);
+/* 6.5 Expressions */
+static token_id cg_primary_expression(parser* p, parse_node* node);
+static token_id cg_postfix_expression(parser* p, parse_node* node);
+static token_id cg_unary_expression(parser* p, parse_node* node);
+static token_id cg_cast_expression(parser* p, parse_node* node);
+static token_id cg_multiplicative_expression(parser* p, parse_node* node);
+static token_id cg_additive_expression(parser* p, parse_node* node);
+static token_id cg_shift_expression(parser* p, parse_node* node);
+static token_id cg_relational_expression(parser* p, parse_node* node);
+static token_id cg_equality_expression(parser* p, parse_node* node);
+static token_id cg_and_expression(parser* p, parse_node* node);
+static token_id cg_exclusive_or_expression(parser* p, parse_node* node);
+static token_id cg_inclusive_or_expression(parser* p, parse_node* node);
+static token_id cg_logical_and_expression(parser* p, parse_node* node);
+static token_id cg_logical_or_expression(parser* p, parse_node* node);
+static token_id cg_conditional_expression(parser* p, parse_node* node);
+static token_id cg_assignment_expression(parser* p, parse_node* node);
+static token_id cg_expression(parser* p, parse_node* node);
+/* 6.7 Declarators */
+static void cg_declaration(parser* p, parse_node* node);
+static void cg_parameter_list(parser* p, parse_node* node);
+static void cg_parameter_declaration(parser* p, parse_node* node);
+static token_id cg_initializer(parser* p, parse_node* node);
+/* 6.8 Statements and blocks */
+static void cg_statement(parser* p, parse_node* node);
+static void cg_block_item_list(parser* p, parse_node* node);
+static void cg_block_item(parser* p, parse_node* node);
+static void cg_jump_statement(parser* p, parse_node* node);
+/* 6.9 External definitions */
+static void cg_function_definition(parser* p, parse_node* node);
+/* Helpers */
+static type_specifiers cg_extract_type_specifiers(parser* p, parse_node* node);
+static int cg_extract_pointer(parse_node* node);
+static lexeme_id cg_extract_identifier(parse_node* node);
+static token_id cg_extract_symbol(parser* p,
+        parse_node* declaration_specifiers_node, parse_node* declarator_node);
+static void cg_output_lexeme(parser* p, token_id id);
+static void cg_output_type(parser* p, token_id id);
+
+static token_id cg_identifier(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(identifier);
+
+    parse_node* lexeme_node = parse_node_child(node, 0);
+    lexeme_id lex_id = st_to_lexeme_id(parse_node_type(lexeme_node));
+
+    return symtab_find(p, lex_id);
+}
+
+static token_id cg_primary_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(primary_expression);
+
+    parse_node* child = parse_node_child(node, 0);
+    if (parse_node_type(child) == st_identifier) {
+        return cg_identifier(p, child);
+    }
+
+    /* Incomplete */
+
+    return 0;
+}
+
+static token_id cg_postfix_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(postfix_expression);
+
+    return cg_primary_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_unary_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(unary_expression);
+
+    return cg_postfix_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_cast_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(cast_expression);
+
+    return cg_unary_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_multiplicative_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(multiplicative_expression);
+
+    // TODO
+    return cg_cast_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_additive_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(additive_expression);
+
+    // TODO
+    return cg_multiplicative_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_shift_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(shift_expression);
+
+    return cg_additive_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_relational_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(relational_expression);
+
+    return cg_shift_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_equality_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(equality_expression);
+
+    return cg_relational_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_and_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(and_expression);
+
+    return cg_equality_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_exclusive_or_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(exclusive_or_expression);
+
+    return cg_and_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_inclusive_or_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(inclusive_or_expression);
+
+    return cg_exclusive_or_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_logical_and_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(logical_and_expression);
+
+    return cg_inclusive_or_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_logical_or_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(logical_or_expression);
+
+    return cg_logical_and_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_conditional_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(conditional_expression);
+
+    return cg_logical_or_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_assignment_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(assignment_expression);
+
+    return cg_conditional_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static token_id cg_expression(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(expression);
+
+    return cg_assignment_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+/* Generates il declaration */
+static void cg_declaration(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(declaration);
+
+    // parser_output_il(p, "def ");
+
+    // /* type */
+    // cg_declaration_specifiers(p, parse_node_child(node, 0));
+    // /* NOTE: this only handles init-declarator-list of size 1 */
+    // parse_node* initdecllist = parse_node_child(node, 1);
+    // parse_node* initdecl = parse_node_child(initdecllist, 0);
+    // parse_node* declarator = parse_node_child(initdecl, 0);
+    // if (parse_node_count_child(declarator) > 1) {
+    //     cg_pointer(p, parse_node_child(declarator, 0));
+    // }
+
+    // parser_output_il(p, ",");
+    // token_id lval_id = cg_identifier(p, tree_declarator_to_identifier(declarator));
+    // parser_output_il(p, "\n");
+
+    // token_id rval_id = cg_initializer(p, parse_node_child(initdecl, 1));
+    // parser_output_ilf(p, "mov %s,%s\n",
+    //        token_lexeme(p, lval_id), token_lexeme(p, rval_id));
+}
+
+/* Generates il type and identifier for parameters of parameter list */
+static void cg_parameter_list(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(parameter_list);
+    ASSERT(parse_node_count_child(node) >= 1,
+            "Expected at least 1 children of node");
+
+    /* No comma ahead of first parameter */
+    cg_parameter_declaration(p, parse_node_child(node, 0));
+
+    node = parse_node_child(node, 1);
+    while (node != NULL) {
+        ASSERT(parse_node_count_child(node) >= 1,
+                "Expected at least 1 children of node");
+        parser_output_il(p, ",");
+        cg_parameter_declaration(p, parse_node_child(node, 0));
+        node = parse_node_child(node, 1);
+    }
+}
+
+/* Generates il type and identifier for parameter declaration */
+static void cg_parameter_declaration(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(parameter_declaration);
+    ASSERT(parse_node_count_child(node) == 2, "Expected 2 children of node");
+
+    parse_node* declspec = parse_node_child(node, 0);
+    parse_node* declarator = parse_node_child(node, 1);
+    token_id id = cg_extract_symbol(p, declspec, declarator);
+
+    cg_output_type(p, id);
+    parser_output_il(p, " ");
+    cg_output_lexeme(p, id);
+}
+
+/* Generates il for initializer
+   Returned token_id corresponds to the result of the initializer expression */
+static token_id cg_initializer(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(initializer);
+
+    return cg_assignment_expression(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+static void cg_statement(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(statement);
+
+    cg_jump_statement(p, parse_node_child(node, 0));
+
+    /* Incomplete */
+}
+
+/* Traverses block item list and generates code */
+static void cg_block_item_list(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(block_item_list);
+
+    while (node != NULL) {
+        cg_block_item(p, parse_node_child(node, 0));
+        node = parse_node_child(node, 1);
+    }
+}
+
+static void cg_block_item(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(block_item);
+
+    parse_node* child = parse_node_child(node, 0);
+    if (parse_node_type(child) == st_declaration) {
+        /* Incomplete */
+    }
+    else {
+        cg_statement(p, child);
+    }
+}
+
+static void cg_jump_statement(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(jump_statement);
+
+    lexeme_id jmp_id = parse_node_lexeme_id(parse_node_child(node, 0));
+    const char* jmp_lexeme = parser_get_lexeme(p, jmp_id);
+
+    if (strequ(jmp_lexeme, "return")) {
+        token_id exp_id = cg_expression(p, parse_node_child(node, 1));
+        parser_output_il(p, "ret ");
+        cg_output_lexeme(p, exp_id);
+        parser_output_il(p, "\n");
+    }
+}
+
+/* Generates il for function definition */
+static void cg_function_definition(parser* p, parse_node* node) {
+    DEBUG_CG_FUNC_START(function_definition);
+    ASSERT(parse_node_count_child(node) == 3, "Expected 3 children of node");
+
+    parse_node* declspec = parse_node_child(node, 0);
+    parse_node* declarator = parse_node_child(node, 1);
+
+    /* name is function name, type is return type */
+    token_id func_id = cg_extract_symbol(p, declspec, declarator);
+    parser_output_il(p, "func ");
+    cg_output_lexeme(p, func_id);
+    parser_output_il(p, ",");
+    cg_output_type(p, func_id);
+    parser_output_il(p, ",");
+
+    parse_node* dirdeclarator = parse_node_child(declarator, -1);
+    parse_node* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
+    parse_node* paramtypelist = parse_node_child(dirdeclarator2, 0);
+    parse_node* paramlist = parse_node_child(paramtypelist, 0);
+    cg_parameter_list(p, paramlist);
+    parser_output_il(p, "\n");
+
+    /* Function body */
+    parse_node* compound_statement = parse_node_child(node, 2);
+    parse_node* blockitemlist = parse_node_child(compound_statement, 0);
+    cg_block_item_list(p, blockitemlist);
+}
 
 /* Extracts type specifiers
    Expects declaration-specifiers node */
-static type_specifiers tree_type_specifiers(parser* p, parse_node* node) {
-    ASSERT(node->type == st_declaration_specifiers, "Incorrect node type");
+static type_specifiers cg_extract_type_specifiers(parser* p, parse_node* node) {
+    ASSERT(parse_node_type(node) == st_declaration_specifiers, "Incorrect node type");
     ASSERT(parse_node_count_child(node) >= 1,
             "Expected at least 1 children of node");
 
@@ -1452,7 +1923,7 @@ static type_specifiers tree_type_specifiers(parser* p, parse_node* node) {
         "double",
         "long double",
     };
-    int count = sizeof(arrangement) / sizeof(arrangement[0]);
+    int count = ARRAY_SIZE(arrangement);
     type_specifiers typespec[] = {
         ts_void,
         ts_i8, ts_i8,
@@ -1473,16 +1944,16 @@ static type_specifiers tree_type_specifiers(parser* p, parse_node* node) {
     /* 22 (max size of arrangements) + 1 for null terminator */
     int i_buf = 0;
     char buf[23];
-    while (1) {
+    while (node != NULL) {
         parse_node* subnode = parse_node_child(node, 0);
-        if (subnode->type == st_type_specifier) {
-            char* token = parser_get_token(p,
-                    symbol_type_totok(parse_node_child(subnode, 0)->type));
+        if (parse_node_type(subnode) == st_type_specifier) {
+            char* lexeme = parser_get_lexeme(p,
+                    parse_node_lexeme_id(parse_node_child(subnode, 0)));
 
-            /* Copy token into buffer */
+            /* Copy lexeme into buffer */
             int i = 0;
             char c;
-            while ((c = token[i]) != '\0') {
+            while ((c = lexeme[i]) != '\0') {
                 if (i_buf >= 22) {
                     /* Too long, not a match */
                     return ts_none;
@@ -1500,11 +1971,7 @@ static type_specifiers tree_type_specifiers(parser* p, parse_node* node) {
                 }
             }
         }
-
-        if (parse_node_child(node, 1) == NULL) {
-            break;
-        }
-        node = parse_node_child(node, 0);
+        node = parse_node_child(node, 1);
     }
 
     return ts_none;
@@ -1512,8 +1979,8 @@ static type_specifiers tree_type_specifiers(parser* p, parse_node* node) {
 
 /* Counts number of pointers
    Expects declarator node */
-static int tree_pointers(parse_node* node) {
-    ASSERT(node->type == st_declarator, "Incorrect node type");
+static int cg_extract_pointer(parse_node* node) {
+    ASSERT(parse_node_type(node) == st_declarator, "Incorrect node type");
     ASSERT(parse_node_count_child(node) >= 1,
             "Expected at least 1 children of node");
 
@@ -1524,128 +1991,45 @@ static int tree_pointers(parse_node* node) {
 
     parse_node* pointer = parse_node_child(node, 0);
     int pointers = 1;
-    while (1) {
-        if (parse_node_child(pointer, 0) == NULL) {
-            break;
-        }
-        pointer = parse_node_child(pointer, 0);
+    while (pointer != NULL) {
         ++pointers;
+        pointer = parse_node_child(pointer, 0);
     }
     return pointers;
 }
 
 /* Retrieves identifier string
    Expects declarator node */
-static char* tree_identifier(parser* p, parse_node* node) {
+static lexeme_id cg_extract_identifier(parse_node* node) {
     ASSERT(node->type == st_declarator, "Incorrect node type");
 
     parse_node* dirdecl = parse_node_child(node, -1);
     parse_node* identifier = parse_node_child(dirdecl, 0);
-    parse_node* token_node = parse_node_child(identifier, 0);
-    return parser_get_token(p, symbol_type_totok(token_node->type));
+    parse_node* lexeme_node = parse_node_child(identifier, 0);
+    return parse_node_lexeme_id(lexeme_node);
 }
 
-/* ============================================================ */
-/* Intermediate code generation */
-/* codegen functions assume the parse tree is valid */
-
-/* 6.4 Lexical elements */
-static void cg_identifier(parser* p, parse_node* node);
-/* 6.7 Declarators */
-static void cg_parameter_list(parser* p, parse_node* node);
-static void cg_parameter_declaration(parser* p, parse_node* node);
-/* 6.9 External definitions */
-static void cg_function_definition(parser* p, parse_node* node);
-/* Helpers */
-static void cg_type(parser* p, parse_node* node);
-
-/* Generates identifier for node
-   Expects declarator node */
-static void cg_identifier(parser* p, parse_node* node) {
-    ASSERT(node->type == st_declarator, "Incorrect node type");
-
-    char* identifier = tree_identifier(p, node);
-    parser_output_ilf(p, "%s", identifier);
+/* Adds symbol (type + lexeme) to symbol table
+   Expects declaration-specifiers node and declarator node*/
+static token_id cg_extract_symbol(parser* p,
+        parse_node* declaration_specifiers_node, parse_node* declarator_node) {
+    lexeme_id lex_id = cg_extract_identifier(declarator_node);
+    data_type type;
+    type.typespec = cg_extract_type_specifiers(p, declaration_specifiers_node);
+    type.pointers = cg_extract_pointer(declarator_node);
+    return symtab_add(p, lex_id, type);
 }
 
-/* Generates type and identifier for parameters of parameter list
-   Expects parameter-list node */
-static void cg_parameter_list(parser* p, parse_node* node) {
-    ASSERT(node->type == st_parameter_list, "Incorrect node type");
-    ASSERT(parse_node_count_child(node) >= 1,
-            "Expected at least 1 children of node");
-
-    /* No comma on ahead of first parameter */
-    cg_parameter_declaration(p, parse_node_child(node, 0));
-
-    if (parse_node_child(node, 1) == NULL) {
-        return;
-    }
-    node = parse_node_child(node, 1);
-
-    while (1) {
-        ASSERT(parse_node_count_child(node) >= 1,
-                "Expected at least 1 children of node");
-        parser_output_il(p, ",");
-        cg_parameter_declaration(p, parse_node_child(node, 0));
-
-        if (parse_node_child(node, 1) == NULL) {
-            break;
-        }
-        node = parse_node_child(node, 1);
-    }
+/* Outputs lexeme for provided token */
+static void cg_output_lexeme(parser* p, token_id id) {
+    parser_output_il(p, symtab_get_lexeme(p, id));
 }
 
-/* Generates type and identifier for parameter declaration
-   Expects parameter-declaration node */
-static void cg_parameter_declaration(parser* p, parse_node* node) {
-    ASSERT(node->type == st_parameter_declaration, "Incorrect node type");
-    ASSERT(parse_node_count_child(node) == 2, "Expected 2 children of node");
-
-    cg_type(p, node);
-    parser_output_il(p, " ");
-    cg_identifier(p, parse_node_child(node, 1));
-}
-
-/* Generates il instruction for function definition
-   Expects function-definition node */
-static void cg_function_definition(parser* p, parse_node* node) {
-    ASSERT(node->type == st_function_definition, "Incorrect node type");
-    ASSERT(parse_node_count_child(node) == 3, "Expected 3 children of node");
-
-    parser_output_ilf(p, "func ");
-    cg_identifier(p, parse_node_child(node, 1)); /* Function name */
-    parser_output_il(p, ",");
-    cg_type(p, node); /* Return type */
-    parser_output_il(p, ",");
-
-    parse_node* declarator = parse_node_child(node, 1);
-    parse_node* dirdeclarator = parse_node_child(declarator, -1);
-    parse_node* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
-    parse_node* paramtypelist = parse_node_child(dirdeclarator2, 0);
-    parse_node* paramlist = parse_node_child(paramtypelist, 0);
-    cg_parameter_list(p, paramlist);
-
-    parser_output_il(p, "\n");
-}
-
-/* Generates type for node
-   Expects node containing declaration-specifiers node at child 0
-   declarator as child 1 */
-static void cg_type(parser* p, parse_node* node) {
-    ASSERT(parse_node_count_child(node) >= 2,
-            "Expected at least 2 children of node");
-    ASSERT(parse_node_child(node, 0)->type == st_declaration_specifiers,
-            "Incorrect child 0 type");
-    ASSERT(parse_node_child(node, 1)->type == st_declarator,
-            "Incorrect child 1 type");
-
-    type_specifiers typespec =
-        tree_type_specifiers(p, parse_node_child(node, 0));
-    int pointers = tree_pointers(parse_node_child(node, 1));
-
-    parser_output_ilf(p, "%s", type_specifiers_str[typespec]);
-    for (int i = 0; i < pointers; ++i) {
+/* Outputs type for provided token */
+static void cg_output_type(parser* p, token_id id) {
+    data_type type = symtab_get_type(p, id);
+    parser_output_il(p, type_specifiers_str[type.typespec]);
+    for (int i = 0; i < type.pointers; ++i) {
         parser_output_il(p, "*");
     }
 }
@@ -1727,7 +2111,6 @@ int main(int argc, char** argv) {
         p.i_parse_node_buf = 1;
         int parse_success = parse_function_definition(&p, p.parse_node_buf);
 
-        debug_parser_buf_dump(&p);
         if (parse_success) {
             if (p.i_parse_node_buf >= 2) {
                 cg_function_definition(&p, p.parse_node_buf + 1);
@@ -1737,6 +2120,7 @@ int main(int argc, char** argv) {
             parser_set_error(&p, ec_syntaxerr);
             ERRMSG("Failed to build parse tree\n");
         }
+        debug_parser_buf_dump(&p);
     }
 
     if (p.ecode != ec_noerr) {

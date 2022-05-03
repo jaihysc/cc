@@ -79,11 +79,22 @@ parse_node
 
 ## Intermediate code generation
 
-Intemediate code generation functions expect a valid parse tree and valid inputs, they are of the below form. `parse_node` contains the information to perform code generation, e.g., a node of type function-definition when performing generation for a function definition.
+Intermediate code generation function expects a valid parse tree and a `parse_node` with a symbol type matching the respective function, e.g., a node of type function-definition for a function generating function definition. Generation functions which return void emit intermediate code, generation functions which return `token_id` do not emit code, the returned `token_id` is the token holding the result of the identifier/expression/etc.
 
 ```
-void cg_<name>(parser*, parse_node*)
+void cg_<nonterminal-name>(parser*, parse_node*)
+token_id cg_<nonterminal-name>(parser*, parse_node*)
 ```
+
+During generation, lexemes are added to the symbol table alongside its attributes to form a token, indexed via a `token_id`. A token's attributes are as follows:
+
+```
+Token attributes
+  Index of lexeme in parse token buffer
+  Type
+```
+
+To add new symbols into the symbol table, a special function `cg_extract_symbol(parser*, parse_node*, parse_node*)` is used as a symbol requires type and identifier which come from different nodes. This special function takes in both nodes and performs the necessary operations. The standard `cg_<nonterminal-name>` functions such as `cg_identifier` can be used for accessing symbols as they return the symbol's `token_id`.
 
 ## Output file formats
 

@@ -20,19 +20,26 @@
 #define MAX_SCOPE_DEPTH 16 /* Max number of scopes */
 #define MAX_SCOPE_LEN 50   /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
 
-typedef enum {
-    ec_noerr = 0,
-    ec_insbufexceed,
-    ec_argbufexceed,
-    ec_scopedepexceed,
-    ec_scopelenexceed,
-    ec_invalidins,
-    ec_invalidinsop,
-    ec_badargs,
-    ec_badmain,
-    ec_writefailed,
-    ec_unknownsym
-} errcode;
+#define ERROR_CODES            \
+    ERROR_CODE(noerr)          \
+    ERROR_CODE(insbufexceed)   \
+    ERROR_CODE(argbufexceed)   \
+    ERROR_CODE(scopedepexceed) \
+    ERROR_CODE(scopelenexceed) \
+    ERROR_CODE(invalidins)     \
+    ERROR_CODE(invalidinsop)   \
+    ERROR_CODE(badargs)        \
+    ERROR_CODE(badmain)        \
+    ERROR_CODE(writefailed)    \
+    ERROR_CODE(unknownsym)
+
+#define ERROR_CODE(name__) ec_ ## name__,
+typedef enum {ERROR_CODES} errcode;
+#undef ERROR_CODE
+#define ERROR_CODE(name__) #name__,
+char* errcode_str[] = {ERROR_CODES};
+#undef ERROR_CODE
+#undef ERROR_CODES
 
 typedef enum {
     ps_rdins = 0,
@@ -85,6 +92,8 @@ typedef struct {
 } il_symbol;
 
 typedef struct {
+    errcode ecode;
+
     FILE* rf; /* Input file */
     FILE* of; /* Generated code goes in this file */
 
@@ -101,11 +110,26 @@ typedef struct {
     int i_symbol[MAX_SCOPE_DEPTH]; /* Index of latest symbol for each scope */
 } parser;
 
+/* Return 1 if error is set, else 0 */
+static int parser_has_error(parser* p) {
+    return p->ecode != ec_noerr;
+}
+
+/* Gets error in parser */
+static errcode parser_get_error(parser* p) {
+    return p->ecode;
+}
+
+/* Sets error in parser */
+static void parser_set_error(parser* p, errcode ecode) {
+    p->ecode = ecode;
+    LOGF("Error set %d\n", ecode);
+}
+
 /* Sets up a new symbol scope*/
-/* Error code returned via ecode pointer argument, otherwise ecode is unaffected */
-static void parser_new_scope(parser* p, errcode* ecode) {
+static void parser_new_scope(parser* p) {
     if (p->i_scope + 1 >= MAX_SCOPE_DEPTH) {
-        *ecode = ec_scopedepexceed;
+        parser_set_error(p, ec_scopedepexceed);
         return;
     }
     /* Scope may have been previously used, reset index for symbol */
@@ -113,12 +137,11 @@ static void parser_new_scope(parser* p, errcode* ecode) {
 }
 
 /* Acquires and returns memory for new symbol of current scope, contents of returned memory undefined */
-/* Error code returned via ecode pointer argument, otherwise ecode is unaffected */
 /* if an error occurred returned pointer is NULL */
-static il_symbol* parser_sym_alloc(parser* p, errcode* ecode) {
+static il_symbol* parser_sym_alloc(parser* p) {
     int i_scope = p->i_scope;
     if (p->i_symbol[i_scope] + 1 >= MAX_SCOPE_LEN) {
-        *ecode = ec_scopelenexceed;
+        parser_set_error(p, ec_scopelenexceed);
         return NULL;
     }
     return &p->symbol[i_scope][++p->i_symbol[i_scope]];
@@ -140,12 +163,11 @@ static il_symbol* parser_sym_lookup(parser* p, const char* name) {
 
 
 /* Writes provided assembly using format string and va_args into output */
-/* Error code returned via ecode pointer argument, otherwise ecode is unaffected */
-static void parser_output_asm(parser* p, errcode* ecode, const char* fmt, ...) {
+static void parser_output_asm(parser* p, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     if (vfprintf(p->of, fmt, args) < 0) {
-        *ecode = ec_writefailed;
+        parser_set_error(p, ec_writefailed);
     }
     va_end(args);
 }
@@ -194,40 +216,34 @@ static void debug_dump(parser* p) {
     INSTRUCTION(func) \
     INSTRUCTION(mov)  \
     INSTRUCTION(ret)
-typedef errcode(*instruction_handler) (parser*, char**, int);
+typedef void(*instruction_handler) (parser*, char**, int);
 /* pparg is pointer to array of size, each element is pointer to null terminated argument string */
-#define INSTRUCTION_HANDLER(name__) errcode handler_ ## name__ (parser* p, char** pparg, int arg_count)
+#define INSTRUCTION_HANDLER(name__) void handler_ ## name__ (parser* p, char** pparg, int arg_count)
 
 static INSTRUCTION_HANDLER(func) {
-    LOG("func\n");
     for (int i = 0; i < arg_count; ++i) {
         LOGF("%s\n", pparg[i]);
     }
 
     if (arg_count < 2) {
-        return ec_badargs;
+        parser_set_error(p, ec_badargs);
+        goto exit;
     }
-    errcode ecode = ec_noerr;
 
     /* Special handling of main function */
     if (strequ(pparg[0], "main")) {
         if (arg_count != 4) {
-            return ec_badmain;
+            parser_set_error(p, ec_badmain);
+            goto exit;
         }
 
         /* Load symbols argc argv*/
-        parser_new_scope(p, &ecode);
-        if (ecode != ec_noerr) {
-            return ecode;
-        }
-        il_symbol* argc_sym = parser_sym_alloc(p, &ecode);
-        if (ecode != ec_noerr) {
-            return ecode;
-        }
-        il_symbol* argv_sym = parser_sym_alloc(p, &ecode);
-        if (ecode != ec_noerr) {
-            return ecode;
-        }
+        parser_new_scope(p);
+        if (parser_has_error(p)) goto exit;
+        il_symbol* argc_sym = parser_sym_alloc(p);
+        if (parser_has_error(p)) goto exit;
+        il_symbol* argv_sym = parser_sym_alloc(p);
+        if (parser_has_error(p)) goto exit;
 
         extract_type_name(pparg[2], argc_sym->name);
         extract_type_name(pparg[3], argv_sym->name);
@@ -237,7 +253,7 @@ static INSTRUCTION_HANDLER(func) {
         argv_sym->loc.isptr = 1;
 
         /* Generate a _start function which calls main */
-        parser_output_asm(p, &ecode, "%s"
+        parser_output_asm(p, "%s",
             "\n"
             "    global _start\n"
             "_start:\n"
@@ -248,40 +264,38 @@ static INSTRUCTION_HANDLER(func) {
             "    mov             rax, 60\n"
             "    syscall\n"
         );
-        if (ecode != ec_noerr) {
-            return ecode;
-        }
+        if (parser_has_error(p)) goto exit;
     }
 
     /* Function labels always with prefix f@ */
-    parser_output_asm(p, &ecode, "f@%s:\n", pparg[0]);
-    if (ecode != ec_noerr) {
-        return ecode;
-    }
+    parser_output_asm(p, "f@%s:\n", pparg[0]);
 
-    return ecode;
+exit:
+    return;
 }
+
 static INSTRUCTION_HANDLER(mov) {
-    LOG("mov\n");
-    return 0;
+    return;
 }
 static INSTRUCTION_HANDLER(ret) {
-    LOG("ret\n");
     if (arg_count != 1) {
-        return ec_badargs;
+        parser_set_error(p, ec_badargs);
+        goto exit;
     }
 
     il_symbol* sym = parser_sym_lookup(p, pparg[0]);
     if (sym == NULL) {
-        return ec_unknownsym;
+        parser_set_error(p, ec_unknownsym);
+        goto exit;
     }
-    errcode ecode = ec_noerr;
-    parser_output_asm(p, &ecode,
+    parser_output_asm(p,
         "    mov             rax, %s\n" /* Return integer types in rax */
         "    ret\n",
         asm_register_str(sym->loc.reg)
     );
-    return ecode;
+
+exit:
+    return;
 }
 
 /* Index of string is instruction handler index */
@@ -293,9 +307,7 @@ const instruction_handler instruction_handler_table[] = {INSTRUCTIONS};
 #undef INSTRUCTION
 
 
-static errcode parse(parser* p) {
-    errcode rt_code = ec_noerr;
-
+static void parse(parser* p) {
     char ins[MAX_INSTRUCTION_LEN];
     int i_ins = 0; /* Points to end of ins buffer */
     char arg[MAX_ARG_LEN + 1]; /* Needs to be 1 longer for final null terminator */
@@ -306,7 +318,8 @@ static errcode parse(parser* p) {
     while((ch = getc(p->rf)) != EOF) {
         if (state == ps_rdins) {
             if (i_ins == MAX_INSTRUCTION_LEN) {
-                rt_code = ec_insbufexceed;
+                parser_set_error(p, ec_insbufexceed);
+                goto exit;
             }
             else if (ch == ' ') {
                 state = ps_rdarg;
@@ -318,7 +331,8 @@ static errcode parse(parser* p) {
         }
         else if (state == ps_rdarg) {
             if (i_arg == MAX_ARG_LEN) {
-                rt_code = ec_argbufexceed;
+                parser_set_error(p, ec_argbufexceed);
+                goto exit;
             }
             else if (ch == '\n') {
                 LOGF("Instruction buffer:\n%.*s\nArgument buffer:\n%.*s\n", i_ins, ins, i_arg, arg);
@@ -342,11 +356,10 @@ static errcode parse(parser* p) {
                 /* Run handler for instruction */
                 int i_handler = strbinfind(ins, i_ins, instruction_handler_index, ARRAY_SIZE(instruction_handler_index));
                 if (i_handler < 0) {
-                    rt_code = ec_invalidins;
+                    parser_set_error(p, ec_invalidins);
+                    goto exit;
                 }
-                else {
-                    rt_code = instruction_handler_table[i_handler](p, arg_table, arg_count);
-                }
+                instruction_handler_table[i_handler](p, arg_table, arg_count);
 
                 /* Prepare for reading new instruction again */
                 i_ins = 0;
@@ -359,11 +372,11 @@ static errcode parse(parser* p) {
             }
         }
         /* Check, maybe need to exit in error */
-        if (rt_code != ec_noerr) {
-            return rt_code;
-        }
+        if (parser_has_error(p)) goto exit;
     }
-    return rt_code;
+
+exit:
+    return;
 }
 
 /* Parses cli args and processes them */
@@ -420,11 +433,11 @@ int main(int argc, char** argv) {
 
     exitcode = handle_cli_arg(&p, argc, argv);
     if (exitcode != 0) {
-        goto cleanup;
+        goto exit;
     }
     if (p.rf == NULL) {
         ERRMSG("No input file\n");
-        goto cleanup;
+        goto exit;
     }
     if (p.of == NULL) {
         /* Default to opening imm3 */
@@ -432,26 +445,23 @@ int main(int argc, char** argv) {
         if (p.of == NULL) {
             ERRMSG("Failed to open output file\n");
             exitcode = 1;
-            goto cleanup;
+            goto exit;
         }
     }
 
     /* Global scope */
-    errcode ecode = ec_noerr;
-    parser_new_scope(&p, &ecode);
-    if (ecode != ec_noerr) {
-        goto handle_ecode;
-    }
-    ecode = parse(&p);
+    parser_new_scope(&p);
+    if (parser_has_error(&p)) goto exit;
+    parse(&p);
 
-handle_ecode:
+exit:
     /* Indicate to the user cause for exiting if errored during parsing */
-    if (ecode != ec_noerr) {
-        LOGF("Error during parsing: %d\n", ecode);
+    if (parser_has_error(&p)) {
+        errcode ecode = parser_get_error(&p);
+        ERRMSGF("Error during parsing: %d %s\n", ecode, errcode_str[ecode]);
     }
     debug_dump(&p);
 
-cleanup:
     if (p.rf != NULL) {
         fclose(p.rf);
     }

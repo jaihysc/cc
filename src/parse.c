@@ -177,16 +177,25 @@ typedef struct {
     char read_buf[MAX_TOKEN_LEN + 1]; /* Lexeme read buffer */
 } parse_location;
 
+/* pbufexceed: Parser buffer exceeded
+   fileposfailed: Change file position indicator failed */
+#define ERROR_CODES          \
+    ERROR_CODE(noerr)        \
+    ERROR_CODE(tokbufexceed) \
+    ERROR_CODE(pbufexceed)   \
+    ERROR_CODE(syntaxerr)    \
+    ERROR_CODE(writefailed)  \
+    ERROR_CODE(fileposfailed)
+
 /* Should always be initialized to ec_noerr */
 /* Since functions will only sets if error occurred */
-typedef enum {
-    ec_noerr = 0,
-    ec_tokbufexceed,
-    ec_pbufexceed, /* Parser buffer exceeded */
-    ec_syntaxerr,
-    ec_writefailed,
-    ec_fileposfailed /* Change file position indicator failed */
-} errcode;
+#define ERROR_CODE(name__) ec_ ## name__,
+typedef enum {ERROR_CODES} errcode;
+#undef ERROR_CODE
+#define ERROR_CODE(name__) #name__,
+char* errcode_str[] = {ERROR_CODES};
+#undef ERROR_CODE
+#undef ERROR_CODES
 
 typedef struct {
     FILE* rf; /* Input file */
@@ -2353,7 +2362,7 @@ int main(int argc, char** argv) {
     }
 
     if (p.ecode != ec_noerr) {
-        LOGF("Error during parsing: %d\n", p.ecode);
+        ERRMSGF("Error during parsing: %d %s\n", p.ecode, errcode_str[p.ecode]);
         rt_code = p.ecode;
     }
 

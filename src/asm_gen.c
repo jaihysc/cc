@@ -46,50 +46,146 @@ typedef enum {
     ps_rdarg
 } pstate;
 
-/* Data for parser */
+/* ============================================================ */
+/* x86 Registers */
 
 /* All the registers in x86-64 (just 8 byte ones for now) */
-#define X86_REGISTERS \
-    X86_REGISTER(rax) \
-    X86_REGISTER(rbx) \
-    X86_REGISTER(rcx) \
-    X86_REGISTER(rdx) \
-    X86_REGISTER(rsi) \
-    X86_REGISTER(rdi) \
-    X86_REGISTER(rbp) \
-    X86_REGISTER(rsp) \
-    X86_REGISTER(r8)  \
-    X86_REGISTER(r9)  \
-    X86_REGISTER(r10) \
-    X86_REGISTER(r11) \
-    X86_REGISTER(r12) \
-    X86_REGISTER(r13) \
-    X86_REGISTER(r14) \
+#define X86_REGISTERS  \
+    X86_REGISTER(eax)  \
+    X86_REGISTER(ebx)  \
+    X86_REGISTER(ecx)  \
+    X86_REGISTER(edx)  \
+    X86_REGISTER(esi)  \
+    X86_REGISTER(edi)  \
+    X86_REGISTER(ebp)  \
+    X86_REGISTER(esp)  \
+    X86_REGISTER(r8d)  \
+    X86_REGISTER(r9d)  \
+    X86_REGISTER(r10d) \
+    X86_REGISTER(r11d) \
+    X86_REGISTER(r12d) \
+    X86_REGISTER(r13d) \
+    X86_REGISTER(r14d) \
+    X86_REGISTER(r15d) \
+    X86_REGISTER(rax)  \
+    X86_REGISTER(rbx)  \
+    X86_REGISTER(rcx)  \
+    X86_REGISTER(rdx)  \
+    X86_REGISTER(rsi)  \
+    X86_REGISTER(rdi)  \
+    X86_REGISTER(rbp)  \
+    X86_REGISTER(rsp)  \
+    X86_REGISTER(r8)   \
+    X86_REGISTER(r9)   \
+    X86_REGISTER(r10)  \
+    X86_REGISTER(r11)  \
+    X86_REGISTER(r12)  \
+    X86_REGISTER(r13)  \
+    X86_REGISTER(r14)  \
     X86_REGISTER(r15)
 
-#define X86_REGISTER(reg__) asm_ ## reg__,
-typedef enum {X86_REGISTERS} asm_register;
+#define X86_REGISTER(reg__) reg_ ## reg__,
+typedef enum {reg_none = -2, reg_stack = -1, X86_REGISTERS} Register;
 #undef X86_REGISTER
 #define X86_REGISTER(reg__) #reg__ ,
-const char* asm_register_strings[] = {X86_REGISTERS};
+const char* reg_strings[] = {X86_REGISTERS};
 #undef X86_REGISTER
 
-/* Converts given asm_register into its corresponding cstr*/
-static const char* asm_register_str(asm_register reg) {
-    return asm_register_strings[reg];
+/* Refers to the various sizes of a register (GenericRegister)
+   e.g., reg_a refers to: al, ah, ax eax, rax */
+typedef enum {
+    reg_a,
+    reg_b,
+    reg_c,
+    reg_d
+} GRegister;
+
+/* Returns the name to access a given register with the indicates size
+   e.g., reg_a*/
+static Register reg_get(GRegister greg, int bytes) {
+    const Register reg_4[] = {reg_eax, reg_ebx, reg_ecx, reg_edx};
+    const Register reg_8[] = {reg_rax, reg_rbx, reg_rcx, reg_rdx};
+    switch (bytes) {
+        case 4:
+            return reg_4[greg];
+        case 8:
+            return reg_8[greg];
+        default:
+            ASSERT(0, "Bad byte size");
+    }
 }
 
-/* Location of symbol */
-typedef struct {
-    asm_register reg;
-    int isptr; /* Register holds value if 0, register points to value if 1 and offset may be used*/
-    uint64_t offset; /* Offset applied to register if reg is pointer */
-} il_symloc;
+/* Converts given asm_register into its corresponding cstr*/
+static const char* reg_str(Register reg) {
+    ASSERT(reg >= 0, "Invalid register");
+    return reg_strings[reg];
+}
 
+/* ============================================================ */
+/* Assembly manipulation */
+
+/* Returns the size directive used to access bytes from memory location */
+static const char* asm_size_directive(int bytes) {
+    switch (bytes) {
+        case 1:
+            return "BYTE";
+        case 2:
+            return "WORD";
+        case 4:
+            return "DWORD";
+        case 8:
+            return "QWORD";
+        default:
+            ASSERT(0, "Bad byte size");
+            return "";
+    }
+}
+
+/* ============================================================ */
+/* Parser data structure + functions */
+
+typedef int SymbolId;
 typedef struct {
+    data_type type;
     char name[MAX_ARG_LEN + 1]; /* +1 for null terminator */
-    il_symloc loc;
-} il_symbol;
+    Register reg;
+} Symbol;
+
+/* Returns type for given symbol */
+static data_type symbol_type(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->type;
+}
+
+/* Returns name for given symbol */
+static const char* symbol_name(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->name;
+}
+
+/* Returns where symbol is stored */
+static Register symbol_location(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->reg;
+}
+
+/* Returns 1 if symbol is located on the stack, 0 otherwise */
+static int symbol_on_stack(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->reg == reg_stack;
+}
+
+/* Returns 1 if symbol is a constant */
+static int symbol_is_constant(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->reg == reg_none;
+}
+
+/* Turns this symbol into a special symbol for representing constants */
+static void symbol_make_constant(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    sym->reg = reg_none;
+}
 
 typedef struct {
     errcode ecode;
@@ -100,14 +196,12 @@ typedef struct {
     /* [Array of scopes][Array of symbols in each scope] */
     /* First scope element is highest scope (most global) */
     /* First symbol element is earliest in occurrence */
-    il_symbol symbol[MAX_SCOPE_DEPTH][MAX_SCOPE_LEN];
+    Symbol symbol[MAX_SCOPE_DEPTH][MAX_SCOPE_LEN];
 
-    /*
-     Point to last so createing new scope,symbol is one function, then caller code, otherwise if pointed one past:
-        create new -> caller code to initialize new -> increment index
-    */
-    int i_scope; /* Index of latest(deepest) scope. */
-    int i_symbol[MAX_SCOPE_DEPTH]; /* Index of latest symbol for each scope */
+    /* One past end of latest(deepest) scope. */
+    int i_scope;
+    /* One past end of each scope indexed by i_scope */
+    int i_symbol[MAX_SCOPE_DEPTH];
 } parser;
 
 /* Return 1 if error is set, else 0 */
@@ -126,42 +220,6 @@ static void parser_set_error(parser* p, errcode ecode) {
     LOGF("Error set %d\n", ecode);
 }
 
-/* Sets up a new symbol scope*/
-static void parser_new_scope(parser* p) {
-    if (p->i_scope + 1 >= MAX_SCOPE_DEPTH) {
-        parser_set_error(p, ec_scopedepexceed);
-        return;
-    }
-    /* Scope may have been previously used, reset index for symbol */
-    p->i_symbol[++p->i_scope] = -1;
-}
-
-/* Acquires and returns memory for new symbol of current scope, contents of returned memory undefined */
-/* if an error occurred returned pointer is NULL */
-static il_symbol* parser_sym_alloc(parser* p) {
-    int i_scope = p->i_scope;
-    if (p->i_symbol[i_scope] + 1 >= MAX_SCOPE_LEN) {
-        parser_set_error(p, ec_scopelenexceed);
-        return NULL;
-    }
-    return &p->symbol[i_scope][++p->i_symbol[i_scope]];
-}
-
-/* Looks for symbol with given cstr name from deepest scope first*/
-/* Return NULL if not found */
-static il_symbol* parser_sym_lookup(parser* p, const char* name) {
-    for (int i_scope = p->i_scope; i_scope >= 0; --i_scope) {
-        for (int i_sym = 0; i_sym <= p->i_symbol[i_scope]; ++i_sym) {
-            il_symbol* sym = &p->symbol[i_scope][i_sym];
-            if (strequ(sym->name, name)) {
-                return sym;
-            }
-        }
-    }
-    return NULL;
-}
-
-
 /* Writes provided assembly using format string and va_args into output */
 static void parser_output_asm(parser* p, const char* fmt, ...) {
     va_list args;
@@ -171,38 +229,101 @@ static void parser_output_asm(parser* p, const char* fmt, ...) {
     }
     va_end(args);
 }
-/* Extracts the type and the name from <arg>ts stored in cstr */
-/* Ensure out_name is of sufficient size to hold all names which can be contained in arguments */
-/* Currently only extracts the name */
-static void extract_type_name(const char* arg, char* out_name) {
-    char c;
-    int i = 0;
-    /* Extract type */
-    while ((c = arg[i]) != ' ' && c != '\0') {
-        ++i;
-    }
-    if (c == '\0') { /* No name provided */
-        out_name[0] = '\0';
+
+static SymbolId symtab_add(parser* p, data_type type, const char* name);
+static Symbol* symtab_get(parser* p, SymbolId sym_id);
+
+/* Sets up a new symbol scope*/
+static void symtab_new_scope(parser* p) {
+    if (p->i_scope >= MAX_SCOPE_DEPTH) {
+        parser_set_error(p, ec_scopedepexceed);
         return;
     }
-    /* Extract name */
-    ++i; /* Skip the space which was encountered */
-    int i_out = 0;
-    while ((c = arg[i]) != '\0') {
-        out_name[i_out] = arg[i];
-        ++i;
-        ++i_out;
+    /* Scope may have been previously used, reset index for symbol */
+    p->i_symbol[p->i_scope] = 0;
+    ++p->i_scope;
+}
+
+/* Retrieves symbol with given name from symbol table
+   Null if not found */
+static SymbolId symtab_find(parser* p, const char* name) {
+    for (int i_scope = p->i_scope - 1; i_scope >= 0; --i_scope) {
+        for (int i = 0; i < p->i_symbol[i_scope]; ++i) {
+            Symbol* symbol = p->symbol[i_scope] + i;
+            if (strequ(symbol->name, name)) {
+                return i;
+            }
+        }
     }
-    out_name[i_out] = '\0';
+
+    /* Special handling for constants, they always exist, thus add
+       them to the table when not found to make them exist */
+    if ('0' <= name[0] && name[0] <= '9') {
+        /* TODO calculate size of constant, assume integer for now */
+        ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
+        data_type type = {.typespec = ts_i32};
+        SymbolId sym_id = symtab_add(p, type, name);
+        symbol_make_constant(symtab_get(p, sym_id));
+        return sym_id;
+    }
+    return -1;
+}
+
+static Symbol* symtab_get(parser* p, SymbolId sym_id) {
+    ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
+    ASSERT(sym_id >= 0, "Invalid symbol id");
+    ASSERT(sym_id < p->i_symbol[0], "Symbol id out of range");
+    return p->symbol[0] + sym_id;
+}
+
+/* Returns offset from base pointer to access symbol on the stack */
+static int symtab_get_offset(parser* p, SymbolId sym_id) {
+    int offset = 0;
+    /* For current scope only for now
+       Crossing scopes requires SymbolId to also identify scope */
+    ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
+    ASSERT(sym_id >= 0, "Symbol not found");
+
+    int i_scope = 0;
+    for (int i = 0; i <= sym_id; ++i) {
+        Symbol* sym = p->symbol[i_scope] + i;
+        if (symbol_on_stack(sym)) {
+            offset -= type_bytes(symbol_type(sym));
+        }
+    }
+    return offset;
+}
+
+/* Adds symbol created with given arguments to symbol table
+   Returns the added symbol */
+static SymbolId symtab_add(parser* p, data_type type, const char* name) {
+    if (p->i_symbol[p->i_scope] >= MAX_SCOPE_LEN) {
+        parser_set_error(p, ec_scopelenexceed);
+        return -1;
+    }
+    int current_scope = p->i_scope - 1;
+    int i_sym = p->i_symbol[current_scope]++;
+    Symbol* sym = p->symbol[current_scope] + i_sym;
+
+    sym->type = type;
+    strcopy(name, sym->name);
+    sym->reg = reg_stack;
+    return i_sym;
 }
 
 /* Dumps contents stored in parser */
 static void debug_dump(parser* p) {
-    LOGF("Scopes: [%d]\n", p->i_scope + 1);
-    for (int i = 0; i <= p->i_scope; ++i) {
-        LOGF("  [%d]\n", p->i_symbol[i] + 1);
-        for (int j = 0; j <= p->i_symbol[i]; ++j) {
-            LOGF("    %s\n", p->symbol[i][j].name);
+    LOGF("Scopes: [%d]\n", p->i_scope);
+    for (int i = 0; i < p->i_scope; ++i) {
+        LOGF("  [%d]\n", p->i_symbol[i]);
+        for (int j = 0; j < p->i_symbol[i]; ++j) {
+            Symbol* sym = p->symbol[i] + j;
+            data_type type = symbol_type(sym);
+            LOGF("    %s", type_specifiers_str(type.typespec));
+            for (int k = 0; k < type.pointers; ++k) {
+                LOG("*");
+            }
+            LOGF(" %s %d\n", symbol_name(sym), symbol_location(sym));
         }
     }
 }
@@ -210,15 +331,84 @@ static void debug_dump(parser* p) {
 
 /* Instruction handlers */
 
+/* Helpers */
+static void cg_arithmetic(
+        parser* p,
+        SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins);
+static void cg_mov_tor(parser* p, SymbolId source, GRegister dest);
+static void cg_mov_fromr(parser* p, GRegister source, SymbolId dest);
+static void cg_ref_symbol(parser* p, SymbolId sym_id);
+static void cg_extract_param(const char* str, char* type, char* name);
+static void cg_validate_equal_size2(parser* p,
+        SymbolId lval_id, SymbolId rval_id);
+static void cg_validate_equal_size3(parser* p,
+        SymbolId lval_id, SymbolId op1_id, SymbolId op2_id);
 
 /* See strbinfind for ordering requirements */
 #define INSTRUCTIONS  \
+    INSTRUCTION(add)  \
+    INSTRUCTION(def)  \
+    INSTRUCTION(div)  \
     INSTRUCTION(func) \
     INSTRUCTION(mov)  \
-    INSTRUCTION(ret)
+    INSTRUCTION(mul)  \
+    INSTRUCTION(ret)  \
+    INSTRUCTION(sub)
 typedef void(*instruction_handler) (parser*, char**, int);
 /* pparg is pointer to array of size, each element is pointer to null terminated argument string */
 #define INSTRUCTION_HANDLER(name__) void handler_ ## name__ (parser* p, char** pparg, int arg_count)
+
+static INSTRUCTION_HANDLER(add) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+
+    parser_output_asm(p, "; add %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
+    cg_arithmetic(p, lval_id, op1_id, op2_id, "add");
+}
+
+static INSTRUCTION_HANDLER(def) {
+    if (arg_count != 1) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+
+    char type[MAX_ARG_LEN];
+    char name[MAX_ARG_LEN];
+    cg_extract_param(pparg[0], type, name);
+
+    Symbol* sym = symtab_get(p, symtab_add(p, type_from_str(type), name));
+
+    parser_output_asm(p, "; def %s\n", pparg[0]);
+    parser_output_asm(p, "sub rsp,%d\n", type_bytes(symbol_type(sym)));
+}
+
+static INSTRUCTION_HANDLER(div) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    /* Division needs special handling, since it behaves differently
+       Dividend in ax, Result in ax */
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+    cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
+
+    GRegister op2_reg = reg_c;
+    Symbol* lval = symtab_get(p, lval_id);
+    int bytes = type_bytes(symbol_type(lval));
+
+    parser_output_asm(p, "; div %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
+    cg_mov_tor(p, op1_id, reg_a);
+    cg_mov_tor(p, op2_id, op2_reg);
+    parser_output_asm(p, "idiv %s\n", reg_str(reg_get(op2_reg, bytes)));
+    cg_mov_fromr(p, reg_a, lval_id);
+}
 
 static INSTRUCTION_HANDLER(func) {
     for (int i = 0; i < arg_count; ++i) {
@@ -237,20 +427,26 @@ static INSTRUCTION_HANDLER(func) {
             goto exit;
         }
 
-        /* Load symbols argc argv*/
-        parser_new_scope(p);
+        /* TODO single scope for now
+           symtab_new_scope(p); */
         if (parser_has_error(p)) goto exit;
-        il_symbol* argc_sym = parser_sym_alloc(p);
-        if (parser_has_error(p)) goto exit;
-        il_symbol* argv_sym = parser_sym_alloc(p);
+        char type[MAX_ARG_LEN];
+        char name[MAX_ARG_LEN];
+        /* Symbol argc */
+        cg_extract_param(pparg[2], type, name);
+        Symbol* argc_sym =
+            symtab_get(p, symtab_add(p, type_from_str(type), name));
         if (parser_has_error(p)) goto exit;
 
-        extract_type_name(pparg[2], argc_sym->name);
-        extract_type_name(pparg[3], argv_sym->name);
+        /* Symbol argv */
+        cg_extract_param(pparg[3], type, name);
+        Symbol* argv_sym =
+            symtab_get(p, symtab_add(p, type_from_str(type), name));
+        if (parser_has_error(p)) goto exit;
 
-        argc_sym->loc.reg = asm_rdi;
-        argv_sym->loc.reg = asm_rsi;
-        argv_sym->loc.isptr = 1;
+        /* TODO hardcoded for now */
+        argc_sym->reg = reg_edi;
+        argv_sym->reg = reg_esi;
 
         /* Generate a _start function which calls main */
         parser_output_asm(p, "%s",
@@ -268,34 +464,205 @@ static INSTRUCTION_HANDLER(func) {
     }
 
     /* Function labels always with prefix f@ */
-    parser_output_asm(p, "f@%s:\n", pparg[0]);
+    parser_output_asm(p,
+        "f@%s:\n"
+        /* Function prologue */
+        "push rbp\n"
+        "mov rbp,rsp\n",
+        pparg[0]
+    );
 
 exit:
     return;
 }
 
 static INSTRUCTION_HANDLER(mov) {
-    return;
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId rval_id = symtab_find(p, pparg[1]);
+    cg_validate_equal_size2(p, lval_id, rval_id);
+
+    parser_output_asm(p, "; mov %s,%s\n", pparg[0], pparg[1]);
+    cg_mov_tor(p, rval_id, reg_a);
+    cg_mov_fromr(p, reg_a, lval_id);
 }
+
+static INSTRUCTION_HANDLER(mul) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+
+    parser_output_asm(p, "; mul %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
+    cg_arithmetic(p, lval_id, op1_id, op2_id, "imul");
+}
+
 static INSTRUCTION_HANDLER(ret) {
     if (arg_count != 1) {
         parser_set_error(p, ec_badargs);
         goto exit;
     }
 
-    il_symbol* sym = parser_sym_lookup(p, pparg[0]);
+    SymbolId sym_id = symtab_find(p, pparg[0]);
+    Symbol* sym = symtab_get(p, sym_id);
     if (sym == NULL) {
         parser_set_error(p, ec_unknownsym);
         goto exit;
     }
+
+    int bytes = type_bytes(symbol_type(sym));
+    /* Return integer types in rax */
+    parser_output_asm(p, "mov %s,", reg_str(reg_get(reg_a, bytes)));
+    cg_ref_symbol(p, sym_id);
+    parser_output_asm(p, "\n");
+
+    /* Function epilogue */
     parser_output_asm(p,
-        "    mov             rax, %s\n" /* Return integer types in rax */
-        "    ret\n",
-        asm_register_str(sym->loc.reg)
+        "leave\n"
+        "ret\n"
     );
 
 exit:
     return;
+}
+
+static INSTRUCTION_HANDLER(sub) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+
+    parser_output_asm(p, "; sub %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
+    cg_arithmetic(p, lval_id, op1_id, op2_id, "sub");
+}
+
+/* Generates the necessary instructions to implement each arithmetic operation
+   Generates very inefficient code, but goal is to get something functioning
+   right now.
+   1. Moves both operands into registers
+   2. Performs operation using instruction
+   3. Moves register where op_1 used to be to destination */
+static void cg_arithmetic(
+        parser* p,
+        SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins) {
+    cg_validate_equal_size3(p, dest_id, op1_id, op2_id);
+
+    GRegister op1_reg = reg_a;
+    GRegister op2_reg = reg_c;
+    Symbol* dest = symtab_get(p, dest_id);
+    int bytes = type_bytes(symbol_type(dest));
+
+    cg_mov_tor(p, op1_id, op1_reg);
+    cg_mov_tor(p, op2_id, op2_reg);
+    parser_output_asm(p, "%s %s,%s\n",
+        ins,
+        reg_str(reg_get(op1_reg, bytes)), reg_str(reg_get(op2_reg, bytes)));
+    cg_mov_fromr(p, op1_reg, dest_id);
+}
+
+/* Generates code for reg/mem -> reg */
+static void cg_mov_tor(parser* p, SymbolId source, GRegister dest) {
+    Symbol* sym = symtab_get(p, source);
+    int bytes = type_bytes(symbol_type(sym));
+
+    parser_output_asm(p, "mov %s,", reg_str(reg_get(dest, bytes)));
+    cg_ref_symbol(p, source);
+    parser_output_asm(p, "\n");
+}
+
+/* Generates code for reg -> reg/mem */
+static void cg_mov_fromr(parser* p, GRegister source, SymbolId dest) {
+    Symbol* sym = symtab_get(p, dest);
+    int bytes = type_bytes(symbol_type(sym));
+
+    parser_output_asm(p, "mov ");
+    cg_ref_symbol(p, dest);
+    parser_output_asm(p, ",%s\n", reg_str(reg_get(source, bytes)));
+}
+
+/* Generates assembly code to reference symbol
+   Example: "dword [rbp+10]" */
+static void cg_ref_symbol(parser* p, SymbolId sym_id) {
+    Symbol* sym = symtab_get(p, sym_id);
+
+    if (symbol_on_stack(sym)) {
+        char sign = '+';
+        int abs_offset = symtab_get_offset(p, sym_id);
+        if (abs_offset < 0) {
+            sign = '-';
+            abs_offset = -abs_offset;
+        }
+        const char* size_dir = asm_size_directive(type_bytes(symbol_type(sym)));
+        parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
+    }
+    else if (symbol_is_constant(sym)) {
+        parser_output_asm(p, "%s", symbol_name(sym));
+    }
+    else {
+        /* Symbol in register */
+        parser_output_asm(p, "%s", reg_str(symbol_location(sym)));
+    }
+}
+
+/* Extracts the type and the name from str into name and type
+   Assumes type and name is of sufficient size */
+static void cg_extract_param(const char* str, char* type, char* name) {
+    char c;
+    int i = 0;
+    /* Extract type */
+    {
+        while ((c = str[i]) != ' ' && c != '\0') {
+            type[i] = str[i];
+            ++i;
+        }
+        type[i] = '\0';
+    }
+    /* Extract name */
+    {
+        if (c == '\0') { /* No name provided */
+            name[0] = '\0';
+            return;
+        }
+        ++i; /* Skip the space which was encountered */
+        int i_out = 0;
+        while ((c = str[i]) != '\0') {
+            name[i_out] = str[i];
+            ++i;
+            ++i_out;
+        }
+        name[i_out] = '\0';
+    }
+}
+
+/* Asserts the given symbols are the same size */
+static void cg_validate_equal_size2(parser* p,
+        SymbolId lval_id, SymbolId rval_id) {
+    Symbol* lval = symtab_get(p, lval_id);
+    Symbol* rval = symtab_get(p, rval_id);
+    ASSERT(type_bytes(symbol_type(lval)) == type_bytes(symbol_type(rval)),
+            "Non equal type sizes");
+}
+
+/* Asserts the given symbols are the same size */
+static void cg_validate_equal_size3(parser* p,
+        SymbolId lval_id, SymbolId op1_id, SymbolId op2_id) {
+    Symbol* lval = symtab_get(p, lval_id);
+    Symbol* op1 = symtab_get(p, op1_id);
+    Symbol* op2 = symtab_get(p, op2_id);
+    ASSERT(type_bytes(symbol_type(lval)) == type_bytes(symbol_type(op1)),
+            "Non equal type sizes");
+    ASSERT(type_bytes(symbol_type(op1)) == type_bytes(symbol_type(op2)),
+            "Non equal type sizes");
 }
 
 /* Index of string is instruction handler index */
@@ -335,7 +702,7 @@ static void parse(parser* p) {
                 goto exit;
             }
             else if (ch == '\n') {
-                LOGF("Instruction buffer:\n%.*s\nArgument buffer:\n%.*s\n", i_ins, ins, i_arg, arg);
+                /* LOGF("Instruction buffer:\n%.*s\nArgument buffer:\n%.*s\n", i_ins, ins, i_arg, arg); */
 
                 /* Separate each arg into array of pointers below, pass the array */
                 int arg_count = 0;
@@ -429,7 +796,7 @@ static int handle_cli_arg(parser* p, int argc, char** argv) {
 int main(int argc, char** argv) {
     int exitcode = 0;
 
-    parser p = {.rf = NULL, .of = NULL, .i_scope = -1}; /* Initially have no active scope */
+    parser p = {.rf = NULL, .of = NULL};
 
     exitcode = handle_cli_arg(&p, argc, argv);
     if (exitcode != 0) {
@@ -450,7 +817,7 @@ int main(int argc, char** argv) {
     }
 
     /* Global scope */
-    parser_new_scope(&p);
+    symtab_new_scope(&p);
     if (parser_has_error(&p)) goto exit;
     parse(&p);
 

@@ -152,4 +152,106 @@ static inline void itostr(int i, char* buf) {
         i /= 10;
     }
 }
+
+#define TYPE_SPECIFIERS  \
+    TYPE_SPECIFIER(void) \
+    TYPE_SPECIFIER(i8)   \
+    TYPE_SPECIFIER(i16)  \
+    TYPE_SPECIFIER(i32)  \
+    TYPE_SPECIFIER(i64)  \
+    TYPE_SPECIFIER(u8)   \
+    TYPE_SPECIFIER(u16)  \
+    TYPE_SPECIFIER(u32)  \
+    TYPE_SPECIFIER(u64)  \
+    TYPE_SPECIFIER(f32)  \
+    TYPE_SPECIFIER(f64)
+#define TYPE_SPECIFIER(name__) ts_ ## name__,
+/* ts_none for indicating error */
+typedef enum {ts_none = -1, TYPE_SPECIFIERS ts_count} type_specifiers;
+#undef TYPE_SPECIFIER
+#define TYPE_SPECIFIER(name__) #name__,
+char* ts_str[] = {TYPE_SPECIFIERS};
+#undef TYPE_SPECIFIER
+
+/* Converts a type specifier to string */
+static inline const char* type_specifiers_str(type_specifiers typespec) {
+    return ts_str[typespec];
+}
+
+typedef struct {
+    type_specifiers typespec;
+    int pointers;
+} data_type;
+
+/* Converts a string into a type */
+static inline data_type type_from_str(const char* str) {
+    data_type type;
+    type.typespec = ts_none;
+    type.pointers = 0;
+
+    /* type at most 4 char, + 1 null terminator */
+    char buf[5];
+    int i = 0;
+    for (; i < 4; ++i) {
+        char c = str[i];
+        if (c == '\0' || c == '*') {
+            break;
+        }
+        buf[i] = c;
+    }
+    /* Insert null terminator so can compare */
+    buf[i] = '\0';
+    for (int j = 0; j < ts_count; ++j) {
+        if (strequ(buf, ts_str[j])) {
+            type.typespec = j;
+        }
+    }
+    /* Pointers */
+    char c;
+    while ((c = str[i]) != '\0') {
+        ASSERT(c == '*', "Expected pointer");
+        ++type.pointers;
+        ++i;
+    }
+    return type;
+}
+
+/* Number of bytes this type takes up */
+static inline int type_bytes(data_type type) {
+    ASSERT(type.typespec != ts_none, "Invalid type specifiers");
+
+    if (type.pointers > 0) {
+        return 8;
+    }
+    switch (type.typespec) {
+        case ts_void:
+            return 0;
+        case ts_i8:
+            return 1;
+        case ts_i16:
+            return 2;
+        case ts_i32:
+            return 4;
+        case ts_i64:
+            return 8;
+        case ts_u8:
+            return 1;
+        case ts_u16:
+            return 2;
+        case ts_u32:
+            return 4;
+        case ts_u64:
+            return 8;
+        case ts_f32:
+            return 4;
+        case ts_f64:
+            return 8;
+        case ts_none:
+        case ts_count:
+        default:
+            ASSERT(0, "Bad type specifier");
+            return 0;
+    }
+}
+
 #endif

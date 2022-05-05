@@ -15,31 +15,6 @@
 /* ============================================================ */
 /* Parser data structure + functions */
 
-#define TYPE_SPECIFIERS  \
-    TYPE_SPECIFIER(void) \
-    TYPE_SPECIFIER(i8)   \
-    TYPE_SPECIFIER(i16)  \
-    TYPE_SPECIFIER(i32)  \
-    TYPE_SPECIFIER(i64)  \
-    TYPE_SPECIFIER(u8)   \
-    TYPE_SPECIFIER(u16)  \
-    TYPE_SPECIFIER(u32)  \
-    TYPE_SPECIFIER(u64)  \
-    TYPE_SPECIFIER(f32)  \
-    TYPE_SPECIFIER(f64)
-#define TYPE_SPECIFIER(name__) ts_ ## name__,
-/* ts_none for indicating error */
-typedef enum {ts_none = -1, TYPE_SPECIFIERS} type_specifiers;
-#undef TYPE_SPECIFIER
-#define TYPE_SPECIFIER(name__) #name__,
-char* type_specifiers_str[] = {TYPE_SPECIFIERS};
-#undef TYPE_SPECIFIER
-
-typedef struct {
-    type_specifiers typespec;
-    int pointers;
-} data_type;
-
 typedef int lexeme_id;
 typedef int token_id;
 
@@ -402,7 +377,7 @@ static void debug_parser_buf_dump(parser* p) {
     LOG("Symbol table:\n");
     for (int i = 0; i < p->i_symtab; ++i) {
         token tok = p->symtab[i];
-        LOGF("%d %s ", i, type_specifiers_str[tok.type.typespec]);
+        LOGF("%d %s ", i, type_specifiers_str(tok.type.typespec));
         for (int j = 0; j < tok.type.pointers; ++j) {
             LOG("*");
         }
@@ -2266,7 +2241,7 @@ static void cg_output_lexeme(parser* p, token_id id) {
 /* Outputs type for provided token */
 static void cg_output_type(parser* p, token_id id) {
     data_type type = symtab_get_type(p, id);
-    parser_output_il(p, type_specifiers_str[type.typespec]);
+    parser_output_il(p, type_specifiers_str(type.typespec));
     for (int i = 0; i < type.pointers; ++i) {
         parser_output_il(p, "*");
     }

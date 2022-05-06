@@ -197,14 +197,14 @@ typedef struct {
     char read_buf[MAX_TOKEN_LEN + 1];
 
     ParseNode parse_node_buf[MAX_PARSE_TREE_NODE];
-    int i_parse_node_buf; /* Points to next available space */
+    int i_parse_node_buf; /* Index one past last element */
 
     /* In future: Could save space by seeing if the token is already in buf */
     char token_buf[MAX_LEXEME_BUFFER_CHAR];
-    TokenId i_token_buf; /* Points to next available space */
+    TokenId i_token_buf; /* Index one past last element */
 
     Symbol symtab[MAX_SYMTAB_TOKEN];
-    int i_symtab; /* Points to next available space */
+    int i_symtab; /* Index one past last element */
     int symtab_temp_num; /* Number to create unique temporary values */
 } Parser;
 
@@ -230,18 +230,13 @@ static int parser_has_error(Parser* p) {
 }
 
 /* Writes provided IL using format string and va_args into output */
-static void parser_output_ilf(Parser* p, const char* fmt, ...) {
+static void parser_output_il(Parser* p, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     if (vfprintf(p->of, fmt, args) < 0) {
         parser_set_error(p, ec_writefailed);
     }
     va_end(args);
-}
-
-/* Writes provided IL using format string and va_args into output */
-static void parser_output_il(Parser* p, const char* txt) {
-    parser_output_ilf(p, "%s", txt);
 }
 
 /* Returns token at given index */
@@ -1787,7 +1782,7 @@ static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node) {
         else if (strequ(operator_token, "%")) {
             instruction = "mod";
         }
-        parser_output_ilf(p, "%s %s,%s,%s\n",
+        parser_output_il(p, "%s %s,%s,%s\n",
                 instruction,
                 symtab_get_token(p, operand_temp),
                 symtab_get_token(p, operand_1),
@@ -1832,7 +1827,7 @@ static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
         if (strequ(operator_token, "-")) {
             instruction = "sub";
         }
-        parser_output_ilf(p, "%s %s,%s,%s\n",
+        parser_output_il(p, "%s %s,%s,%s\n",
                 instruction,
                 symtab_get_token(p, operand_temp),
                 symtab_get_token(p, operand_1),

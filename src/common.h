@@ -167,25 +167,25 @@ static inline void itostr(int i, char* buf) {
     TYPE_SPECIFIER(f64)
 #define TYPE_SPECIFIER(name__) ts_ ## name__,
 /* ts_none for indicating error */
-typedef enum {ts_none = -1, TYPE_SPECIFIERS ts_count} type_specifiers;
+typedef enum {ts_none = -1, TYPE_SPECIFIERS ts_count} TypeSpecifiers;
 #undef TYPE_SPECIFIER
 #define TYPE_SPECIFIER(name__) #name__,
 char* ts_str[] = {TYPE_SPECIFIERS};
 #undef TYPE_SPECIFIER
 
 /* Converts a type specifier to string */
-static inline const char* type_specifiers_str(type_specifiers typespec) {
+static inline const char* type_specifiers_str(TypeSpecifiers typespec) {
     return ts_str[typespec];
 }
 
 typedef struct {
-    type_specifiers typespec;
+    TypeSpecifiers typespec;
     int pointers;
-} data_type;
+} Type;
 
 /* Converts a string into a type */
-static inline data_type type_from_str(const char* str) {
-    data_type type;
+static inline Type type_from_str(const char* str) {
+    Type type;
     type.typespec = ts_none;
     type.pointers = 0;
 
@@ -217,7 +217,7 @@ static inline data_type type_from_str(const char* str) {
 }
 
 /* Number of bytes this type takes up */
-static inline int type_bytes(data_type type) {
+static inline int type_bytes(Type type) {
     ASSERT(type.typespec != ts_none, "Invalid type specifiers");
 
     if (type.pointers > 0) {

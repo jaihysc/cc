@@ -34,7 +34,7 @@
     ERROR_CODE(unknownsym)
 
 #define ERROR_CODE(name__) ec_ ## name__,
-typedef enum {ERROR_CODES} errcode;
+typedef enum {ERROR_CODES} ErrorCode;
 #undef ERROR_CODE
 #define ERROR_CODE(name__) #name__,
 char* errcode_str[] = {ERROR_CODES};
@@ -44,7 +44,7 @@ char* errcode_str[] = {ERROR_CODES};
 typedef enum {
     ps_rdins = 0,
     ps_rdarg
-} pstate;
+} PState;
 
 /* ============================================================ */
 /* x86 Registers */
@@ -146,13 +146,13 @@ static const char* asm_size_directive(int bytes) {
 
 typedef int SymbolId;
 typedef struct {
-    data_type type;
+    Type type;
     char name[MAX_ARG_LEN + 1]; /* +1 for null terminator */
     Register reg;
 } Symbol;
 
 /* Returns type for given symbol */
-static data_type symbol_type(Symbol* sym) {
+static Type symbol_type(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->type;
 }
@@ -188,7 +188,7 @@ static void symbol_make_constant(Symbol* sym) {
 }
 
 typedef struct {
-    errcode ecode;
+    ErrorCode ecode;
 
     FILE* rf; /* Input file */
     FILE* of; /* Generated code goes in this file */
@@ -202,26 +202,26 @@ typedef struct {
     int i_scope;
     /* One past end of each scope indexed by i_scope */
     int i_symbol[MAX_SCOPE_DEPTH];
-} parser;
+} Parser;
 
 /* Return 1 if error is set, else 0 */
-static int parser_has_error(parser* p) {
+static int parser_has_error(Parser* p) {
     return p->ecode != ec_noerr;
 }
 
 /* Gets error in parser */
-static errcode parser_get_error(parser* p) {
+static ErrorCode parser_get_error(Parser* p) {
     return p->ecode;
 }
 
 /* Sets error in parser */
-static void parser_set_error(parser* p, errcode ecode) {
+static void parser_set_error(Parser* p, ErrorCode ecode) {
     p->ecode = ecode;
     LOGF("Error set %d\n", ecode);
 }
 
 /* Writes provided assembly using format string and va_args into output */
-static void parser_output_asm(parser* p, const char* fmt, ...) {
+static void parser_output_asm(Parser* p, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     if (vfprintf(p->of, fmt, args) < 0) {
@@ -230,11 +230,11 @@ static void parser_output_asm(parser* p, const char* fmt, ...) {
     va_end(args);
 }
 
-static SymbolId symtab_add(parser* p, data_type type, const char* name);
-static Symbol* symtab_get(parser* p, SymbolId sym_id);
+static SymbolId symtab_add(Parser* p, Type type, const char* name);
+static Symbol* symtab_get(Parser* p, SymbolId sym_id);
 
 /* Sets up a new symbol scope*/
-static void symtab_new_scope(parser* p) {
+static void symtab_new_scope(Parser* p) {
     if (p->i_scope >= MAX_SCOPE_DEPTH) {
         parser_set_error(p, ec_scopedepexceed);
         return;
@@ -246,7 +246,7 @@ static void symtab_new_scope(parser* p) {
 
 /* Retrieves symbol with given name from symbol table
    Null if not found */
-static SymbolId symtab_find(parser* p, const char* name) {
+static SymbolId symtab_find(Parser* p, const char* name) {
     for (int i_scope = p->i_scope - 1; i_scope >= 0; --i_scope) {
         for (int i = 0; i < p->i_symbol[i_scope]; ++i) {
             Symbol* symbol = p->symbol[i_scope] + i;
@@ -261,7 +261,7 @@ static SymbolId symtab_find(parser* p, const char* name) {
     if ('0' <= name[0] && name[0] <= '9') {
         /* TODO calculate size of constant, assume integer for now */
         ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
-        data_type type = {.typespec = ts_i32};
+        Type type = {.typespec = ts_i32};
         SymbolId sym_id = symtab_add(p, type, name);
         symbol_make_constant(symtab_get(p, sym_id));
         return sym_id;
@@ -269,7 +269,7 @@ static SymbolId symtab_find(parser* p, const char* name) {
     return -1;
 }
 
-static Symbol* symtab_get(parser* p, SymbolId sym_id) {
+static Symbol* symtab_get(Parser* p, SymbolId sym_id) {
     ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
     ASSERT(sym_id >= 0, "Invalid symbol id");
     ASSERT(sym_id < p->i_symbol[0], "Symbol id out of range");
@@ -277,7 +277,7 @@ static Symbol* symtab_get(parser* p, SymbolId sym_id) {
 }
 
 /* Returns offset from base pointer to access symbol on the stack */
-static int symtab_get_offset(parser* p, SymbolId sym_id) {
+static int symtab_get_offset(Parser* p, SymbolId sym_id) {
     int offset = 0;
     /* For current scope only for now
        Crossing scopes requires SymbolId to also identify scope */
@@ -296,7 +296,7 @@ static int symtab_get_offset(parser* p, SymbolId sym_id) {
 
 /* Adds symbol created with given arguments to symbol table
    Returns the added symbol */
-static SymbolId symtab_add(parser* p, data_type type, const char* name) {
+static SymbolId symtab_add(Parser* p, Type type, const char* name) {
     if (p->i_symbol[p->i_scope] >= MAX_SCOPE_LEN) {
         parser_set_error(p, ec_scopelenexceed);
         return -1;
@@ -312,13 +312,13 @@ static SymbolId symtab_add(parser* p, data_type type, const char* name) {
 }
 
 /* Dumps contents stored in parser */
-static void debug_dump(parser* p) {
+static void debug_dump(Parser* p) {
     LOGF("Scopes: [%d]\n", p->i_scope);
     for (int i = 0; i < p->i_scope; ++i) {
         LOGF("  [%d]\n", p->i_symbol[i]);
         for (int j = 0; j < p->i_symbol[i]; ++j) {
             Symbol* sym = p->symbol[i] + j;
-            data_type type = symbol_type(sym);
+            Type type = symbol_type(sym);
             LOGF("    %s", type_specifiers_str(type.typespec));
             for (int k = 0; k < type.pointers; ++k) {
                 LOG("*");
@@ -333,15 +333,15 @@ static void debug_dump(parser* p) {
 
 /* Helpers */
 static void cg_arithmetic(
-        parser* p,
+        Parser* p,
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins);
-static void cg_mov_tor(parser* p, SymbolId source, GRegister dest);
-static void cg_mov_fromr(parser* p, GRegister source, SymbolId dest);
-static void cg_ref_symbol(parser* p, SymbolId sym_id);
+static void cg_mov_tor(Parser* p, SymbolId source, GRegister dest);
+static void cg_mov_fromr(Parser* p, GRegister source, SymbolId dest);
+static void cg_ref_symbol(Parser* p, SymbolId sym_id);
 static void cg_extract_param(const char* str, char* type, char* name);
-static void cg_validate_equal_size2(parser* p,
+static void cg_validate_equal_size2(Parser* p,
         SymbolId lval_id, SymbolId rval_id);
-static void cg_validate_equal_size3(parser* p,
+static void cg_validate_equal_size3(Parser* p,
         SymbolId lval_id, SymbolId op1_id, SymbolId op2_id);
 
 /* See strbinfind for ordering requirements */
@@ -354,9 +354,9 @@ static void cg_validate_equal_size3(parser* p,
     INSTRUCTION(mul)  \
     INSTRUCTION(ret)  \
     INSTRUCTION(sub)
-typedef void(*instruction_handler) (parser*, char**, int);
+typedef void(*InstructionHandler) (Parser*, char**, int);
 /* pparg is pointer to array of size, each element is pointer to null terminated argument string */
-#define INSTRUCTION_HANDLER(name__) void handler_ ## name__ (parser* p, char** pparg, int arg_count)
+#define INSTRUCTION_HANDLER(name__) void handler_ ## name__ (Parser* p, char** pparg, int arg_count)
 
 static INSTRUCTION_HANDLER(add) {
     if (arg_count != 3) {
@@ -553,7 +553,7 @@ static INSTRUCTION_HANDLER(sub) {
    2. Performs operation using instruction
    3. Moves register where op_1 used to be to destination */
 static void cg_arithmetic(
-        parser* p,
+        Parser* p,
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins) {
     cg_validate_equal_size3(p, dest_id, op1_id, op2_id);
 
@@ -571,7 +571,7 @@ static void cg_arithmetic(
 }
 
 /* Generates code for reg/mem -> reg */
-static void cg_mov_tor(parser* p, SymbolId source, GRegister dest) {
+static void cg_mov_tor(Parser* p, SymbolId source, GRegister dest) {
     Symbol* sym = symtab_get(p, source);
     int bytes = type_bytes(symbol_type(sym));
 
@@ -581,7 +581,7 @@ static void cg_mov_tor(parser* p, SymbolId source, GRegister dest) {
 }
 
 /* Generates code for reg -> reg/mem */
-static void cg_mov_fromr(parser* p, GRegister source, SymbolId dest) {
+static void cg_mov_fromr(Parser* p, GRegister source, SymbolId dest) {
     Symbol* sym = symtab_get(p, dest);
     int bytes = type_bytes(symbol_type(sym));
 
@@ -592,7 +592,7 @@ static void cg_mov_fromr(parser* p, GRegister source, SymbolId dest) {
 
 /* Generates assembly code to reference symbol
    Example: "dword [rbp+10]" */
-static void cg_ref_symbol(parser* p, SymbolId sym_id) {
+static void cg_ref_symbol(Parser* p, SymbolId sym_id) {
     Symbol* sym = symtab_get(p, sym_id);
 
     if (symbol_on_stack(sym)) {
@@ -645,7 +645,7 @@ static void cg_extract_param(const char* str, char* type, char* name) {
 }
 
 /* Asserts the given symbols are the same size */
-static void cg_validate_equal_size2(parser* p,
+static void cg_validate_equal_size2(Parser* p,
         SymbolId lval_id, SymbolId rval_id) {
     Symbol* lval = symtab_get(p, lval_id);
     Symbol* rval = symtab_get(p, rval_id);
@@ -654,7 +654,7 @@ static void cg_validate_equal_size2(parser* p,
 }
 
 /* Asserts the given symbols are the same size */
-static void cg_validate_equal_size3(parser* p,
+static void cg_validate_equal_size3(Parser* p,
         SymbolId lval_id, SymbolId op1_id, SymbolId op2_id) {
     Symbol* lval = symtab_get(p, lval_id);
     Symbol* op1 = symtab_get(p, op1_id);
@@ -670,17 +670,17 @@ static void cg_validate_equal_size3(parser* p,
 const char* instruction_handler_index[] = {INSTRUCTIONS};
 #undef INSTRUCTION
 #define INSTRUCTION(name__) &handler_ ## name__,
-const instruction_handler instruction_handler_table[] = {INSTRUCTIONS};
+const InstructionHandler instruction_handler_table[] = {INSTRUCTIONS};
 #undef INSTRUCTION
 
 
-static void parse(parser* p) {
+static void parse(Parser* p) {
     char ins[MAX_INSTRUCTION_LEN];
     int i_ins = 0; /* Points to end of ins buffer */
     char arg[MAX_ARG_LEN + 1]; /* Needs to be 1 longer for final null terminator */
     int i_arg = 0; /* Points to end of arg buffer */
 
-    pstate state = ps_rdins;
+    PState state = ps_rdins;
     char ch;
     while((ch = getc(p->rf)) != EOF) {
         if (state == ps_rdins) {
@@ -749,7 +749,7 @@ exit:
 /* Parses cli args and processes them */
 /* NOTE: will not clean up file handles at exit */
 /* Returns non zero if error */
-static int handle_cli_arg(parser* p, int argc, char** argv) {
+static int handle_cli_arg(Parser* p, int argc, char** argv) {
     int rt_code = 0;
     /* Skip first argv since it is path */
     for (int i = 1; i < argc; ++i) {
@@ -796,7 +796,7 @@ static int handle_cli_arg(parser* p, int argc, char** argv) {
 int main(int argc, char** argv) {
     int exitcode = 0;
 
-    parser p = {.rf = NULL, .of = NULL};
+    Parser p = {.rf = NULL, .of = NULL};
 
     exitcode = handle_cli_arg(&p, argc, argv);
     if (exitcode != 0) {
@@ -824,7 +824,7 @@ int main(int argc, char** argv) {
 exit:
     /* Indicate to the user cause for exiting if errored during parsing */
     if (parser_has_error(&p)) {
-        errcode ecode = parser_get_error(&p);
+        ErrorCode ecode = parser_get_error(&p);
         ERRMSGF("Error during parsing: %d %s\n", ecode, errcode_str[ecode]);
     }
     debug_dump(&p);

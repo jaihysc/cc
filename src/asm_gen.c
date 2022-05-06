@@ -20,31 +20,10 @@
 #define MAX_SCOPE_DEPTH 16 /* Max number of scopes */
 #define MAX_SCOPE_LEN 50   /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
 
-#define ERROR_CODES            \
-    ERROR_CODE(noerr)          \
-    ERROR_CODE(insbufexceed)   \
-    ERROR_CODE(argbufexceed)   \
-    ERROR_CODE(scopedepexceed) \
-    ERROR_CODE(scopelenexceed) \
-    ERROR_CODE(invalidins)     \
-    ERROR_CODE(invalidinsop)   \
-    ERROR_CODE(badargs)        \
-    ERROR_CODE(badmain)        \
-    ERROR_CODE(writefailed)    \
-    ERROR_CODE(unknownsym)
+/* ============================================================ */
+/* Parser global configuration */
 
-#define ERROR_CODE(name__) ec_ ## name__,
-typedef enum {ERROR_CODES} ErrorCode;
-#undef ERROR_CODE
-#define ERROR_CODE(name__) #name__,
-char* errcode_str[] = {ERROR_CODES};
-#undef ERROR_CODE
-#undef ERROR_CODES
-
-typedef enum {
-    ps_rdins = 0,
-    ps_rdarg
-} PState;
+int g_debug_print_buffers = 0;
 
 /* ============================================================ */
 /* x86 Registers */
@@ -144,6 +123,31 @@ static const char* asm_size_directive(int bytes) {
 /* ============================================================ */
 /* Parser data structure + functions */
 
+#define ERROR_CODES            \
+    ERROR_CODE(noerr)          \
+    ERROR_CODE(insbufexceed)   \
+    ERROR_CODE(argbufexceed)   \
+    ERROR_CODE(scopedepexceed) \
+    ERROR_CODE(scopelenexceed) \
+    ERROR_CODE(invalidins)     \
+    ERROR_CODE(invalidinsop)   \
+    ERROR_CODE(badargs)        \
+    ERROR_CODE(badmain)        \
+    ERROR_CODE(writefailed)    \
+    ERROR_CODE(unknownsym)
+
+#define ERROR_CODE(name__) ec_ ## name__,
+typedef enum {ERROR_CODES} ErrorCode;
+#undef ERROR_CODE
+#define ERROR_CODE(name__) #name__,
+char* errcode_str[] = {ERROR_CODES};
+#undef ERROR_CODE
+#undef ERROR_CODES
+
+typedef enum {
+    ps_rdins = 0,
+    ps_rdarg
+} PState;
 typedef int SymbolId;
 typedef struct {
     Type type;
@@ -411,10 +415,6 @@ static INSTRUCTION_HANDLER(div) {
 }
 
 static INSTRUCTION_HANDLER(func) {
-    for (int i = 0; i < arg_count; ++i) {
-        LOGF("%s\n", pparg[i]);
-    }
-
     if (arg_count < 2) {
         parser_set_error(p, ec_badargs);
         goto exit;
@@ -773,6 +773,9 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
                 break;
             }
         }
+        else if (strequ(argv[i], "-Zd4")) {
+            g_debug_print_buffers = 1;
+        }
         else {
             if (p->rf != NULL) {
                 /* Maybe user meant for additional arg to go with flag */
@@ -827,7 +830,9 @@ exit:
         ErrorCode ecode = parser_get_error(&p);
         ERRMSGF("Error during parsing: %d %s\n", ecode, errcode_str[ecode]);
     }
-    debug_dump(&p);
+    if (g_debug_print_buffers) {
+        debug_dump(&p);
+    }
 
     if (p.rf != NULL) {
         fclose(p.rf);

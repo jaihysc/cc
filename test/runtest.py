@@ -1,8 +1,5 @@
 #!/bin/python
 '''
-Args:
-    compiler-path, required, e.g., ./out/cc
-    tests-to-run, optional, each test separated by space, e.g., integer-arithmetic floating-arithmetic
 Globals
     _prog: Program, use this to perform testing
 '''
@@ -10,6 +7,7 @@ Globals
 import os
 import sys
 import traceback
+import argparse
 
 compiler_path = ""
 
@@ -129,22 +127,20 @@ def run_py_file(c_file, py_file):
         traceback.print_exc()
 
 def main():
-    if len(sys.argv) < 2:
-        log('Missing compiler path', Color.ERR)
-        return
-    if len(sys.argv) > 3:
-        log('Too many arguments', Color.ERR)
-        return
+    parser = argparse.ArgumentParser()
+    parser.add_argument('compiler_path', help='Path to C compiler, flags can be passed. Example: "./out/cc -Ee -Ff"')
+    parser.add_argument('-t', metavar='test', nargs='*', help='Names of tests to run (No file extensions in name). Example: integer_arithmetic')
+    args = parser.parse_args()
+
     global compiler_path
-    compiler_path = sys.argv[1]
+    compiler_path = args.compiler_path
+    print(compiler_path)
     if len(compiler_path) == 0 or compiler_path.isspace():
         log('Bad compiler path', Color.ERR)
         return
 
     # Only run tests with provided names if set
-    filter_tests = None
-    if len(sys.argv) == 3:
-        filter_tests = sys.argv[2].split(' ')
+    filter_tests = args.t
 
     # Tests are located where the python file is
     test_dir = os.path.dirname(sys.argv[0])

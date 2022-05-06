@@ -13,6 +13,14 @@
 #define MAX_SYMTAB_TOKEN 200 /* Maximum symbols in symbol table in total */
 
 /* ============================================================ */
+/* Parser global configuration */
+
+int g_debug_print_parse_recursion = 0;
+int g_debug_print_cg_recursion = 0;
+int g_debug_print_parse_tree = 0;
+int g_debug_print_buffers = 0;
+
+/* ============================================================ */
 /* Parser data structure + functions */
 
 typedef int TokenId;
@@ -672,14 +680,18 @@ static int tok_isidentifier(const char* str) {
 /* Indicates the pointed to token is no longer in use */
 static void consume_token(char* token) {
     token[0] = '\0';
-    LOG("^Consumed\n");
+    if (g_debug_print_parse_recursion) {
+        LOG("^Consumed\n");
+    }
 }
 
 /* Reads a null terminated token */
 /* Returns pointer to the token, NULL if EOF or errored */
 static char* read_token(Parser* p) {
     if (p->read_buf[0] != '\0') {
-        LOGF("%s ^Cached\n", p->read_buf);
+        if (g_debug_print_parse_recursion) {
+            LOGF("%s ^Cached\n", p->read_buf);
+        }
         return p->read_buf;
     }
 
@@ -718,7 +730,9 @@ static char* read_token(Parser* p) {
     }
 
     p->read_buf[i] = '\0';
-    LOGF("%s\n", p->read_buf);
+    if (g_debug_print_parse_recursion) {
+        LOGF("%s\n", p->read_buf);
+    }
 
     if (c == EOF) {
         return NULL;
@@ -739,11 +753,13 @@ static char* read_token(Parser* p) {
 int debug_parse_func_recursion_depth = 0;
 /* Call at beginning on function */
 #define PARSE_FUNC_START(symbol_type__)                                 \
+    if (g_debug_print_parse_recursion) {                                \
     for (int i__ = 0; i__ < debug_parse_func_recursion_depth; ++i__) {  \
         LOG("  ");                                                      \
     }                                                                   \
     LOGF(">%d " #symbol_type__ "\n", debug_parse_func_recursion_depth); \
     debug_parse_func_recursion_depth++;                                 \
+    }                                                                   \
     ASSERT(parent != NULL, "Parent node is null");                      \
     ParseLocation start_location__ =                                    \
         parser_get_parse_location(p, parent);                           \
@@ -752,12 +768,14 @@ int debug_parse_func_recursion_depth = 0;
     int matched__ = 0
 /* Call at end on function */
 #define PARSE_FUNC_END()                                               \
+    if (g_debug_print_parse_recursion) {                               \
     debug_parse_func_recursion_depth--;                                \
     for (int i__ = 0; i__ < debug_parse_func_recursion_depth; ++i__) { \
         LOG("  ");                                                     \
     }                                                                  \
     if (matched__) {LOG("\033[32m");} else {LOG("\033[0;1;31m");}      \
     LOGF("<%d\033[0m\n", debug_parse_func_recursion_depth);            \
+    }                                                                  \
     if (!matched__) {parser_set_parse_location(p, &start_location__);} \
     return matched__
 /* Call if a match was made in production rule */
@@ -876,7 +894,6 @@ static int parse_decimal_constant(Parser* p, ParseNode* parent) {
     char* token;
     if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
 
-    LOGF("%s\n", token);
     /* First character is nonzero-digit */
     char c = token[0];
     if (c <= '0' || c > '9') {
@@ -1570,21 +1587,25 @@ static int parse_expect(Parser* p, const char* match_token) {
    2. Verifies correct node type */
 /* Call at beginning on function */
 int debug_cg_func_recursion_depth = 0;
-#define DEBUG_CG_FUNC_START(symbol_type__)                 \
+#define DEBUG_CG_FUNC_START(symbol_type__)                           \
+    if (g_debug_print_cg_recursion) {                                \
     for (int i__ = 0; i__ < debug_cg_func_recursion_depth; ++i__) {  \
         LOG("  ");                                                   \
     }                                                                \
     LOGF(">%d " #symbol_type__ "\n", debug_cg_func_recursion_depth); \
     debug_cg_func_recursion_depth++;                                 \
+    }                                                                \
     ASSERT(node != NULL, "Node is null");                            \
     ASSERT(parse_node_type(node) == st_ ## symbol_type__,            \
             "Incorrect node type")
 #define DEBUG_CG_FUNC_END()                                         \
+    if (g_debug_print_cg_recursion) {                               \
     debug_cg_func_recursion_depth--;                                \
     for (int i__ = 0; i__ < debug_cg_func_recursion_depth; ++i__) { \
         LOG("  ");                                                  \
     }                                                               \
-    LOGF("<%d\n", debug_cg_func_recursion_depth)
+    LOGF("<%d\n", debug_cg_func_recursion_depth);                   \
+    } do {} while (0)
 
 /* 6.4 Lexical elements */
 static SymbolId cg_identifier(Parser* p, ParseNode* node);
@@ -2277,6 +2298,18 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
                 break;
             }
         }
+        else if (strequ(argv[i], "-Zd1")) {
+            g_debug_print_parse_recursion = 1;
+        }
+        else if (strequ(argv[i], "-Zd2")) {
+            g_debug_print_cg_recursion = 1;
+        }
+        else if (strequ(argv[i], "-Zd3")) {
+            g_debug_print_parse_tree = 1;
+        }
+        else if (strequ(argv[i], "-Zd4")) {
+            g_debug_print_buffers = 1;
+        }
         else {
             if (p->rf != NULL) {
                 /* Incorrect flag */
@@ -2333,12 +2366,20 @@ int main(int argc, char** argv) {
             parser_set_error(&p, ec_syntaxerr);
             ERRMSG("Failed to build parse tree\n");
         }
-        debug_parser_buf_dump(&p);
+
+        /* Debug options */
+        if (g_debug_print_buffers) {
+            debug_parser_buf_dump(&p);
+        }
+        if (g_debug_print_parse_tree) {
+            debug_draw_parse_tree(&p);
+        }
     }
 
-    if (p.ecode != ec_noerr) {
-        ERRMSGF("Error during parsing: %d %s\n", p.ecode, errcode_str[p.ecode]);
-        rt_code = p.ecode;
+    if (parser_has_error(&p)) {
+        ErrorCode ecode = parser_get_error(&p);
+        ERRMSGF("Error during parsing: %d %s\n", ecode, errcode_str[ecode]);
+        rt_code = ecode;
     }
 
 cleanup:

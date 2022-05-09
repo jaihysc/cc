@@ -254,4 +254,15 @@ static inline int type_bytes(Type type) {
     }
 }
 
+/* Return 1 if both types are equal, 0 if not */
+static inline int type_equal(Type lhs, Type rhs) {
+    if (lhs.typespec != rhs.typespec) {
+        return 0;
+    }
+    if (lhs.pointers != rhs.pointers) {
+        return 0;
+    }
+    return 1;
+}
+
 #endif

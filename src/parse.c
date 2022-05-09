@@ -501,9 +501,17 @@ static SymbolId symtab_add(Parser* p, TokenId tok_id, Type type) {
     /* Check if already exists in current scope */
     SymbolId id = symtab_find(p, tok_id);
     if (id >= 0) {
-        /* In future come up with method to handle already existing symbols */
-        ASSERT(0, "Symbol already exists");
-        return id;
+        const char* name = parser_get_token(p, tok_id);
+
+        /* Special handling for constants, duplicates can exist */
+        if ('0' <= name[0] && name[0] <= '9') {
+            ASSERT(type_equal(symtab_get_type(p, id), type),
+                    "Same constant name with different types");
+            return id;
+        }
+
+        ERRMSGF("Symbol already exists %s", name);
+        return -1;
     }
 
     /* Add new symbol */

@@ -42,6 +42,7 @@ typedef struct {
     SYMBOL_TYPE(constant)                  \
     SYMBOL_TYPE(integer_constant)          \
     SYMBOL_TYPE(decimal_constant)          \
+    SYMBOL_TYPE(octal_constant)            \
                                            \
     SYMBOL_TYPE(primary_expression)        \
     SYMBOL_TYPE(postfix_expression)        \
@@ -872,6 +873,7 @@ static int parse_identifier(Parser* p, ParseNode* parent);
 static int parse_constant(Parser* p, ParseNode* parent);
 static int parse_integer_constant(Parser* p, ParseNode* parent);
 static int parse_decimal_constant(Parser* p, ParseNode* parent);
+static int parse_octal_constant(Parser* p, ParseNode* parent);
 /* 6.5 Expressions */
 static int parse_primary_expression(Parser* p, ParseNode* parent);
 static int parse_postfix_expression(Parser* p, ParseNode* parent);
@@ -958,6 +960,7 @@ static int parse_integer_constant(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(integer_constant);
 
     if (parse_decimal_constant(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_octal_constant(p, PARSE_CURRENT_NODE)) goto matched;
 
     /* Incomplete */
 
@@ -989,6 +992,41 @@ static int parse_decimal_constant(Parser* p, ParseNode* parent) {
             goto exit;
         }
 
+        ++i;
+        c = token[i];
+    }
+
+    parser_attach_token(p, PARSE_CURRENT_NODE, token);
+    consume_token(token);
+    PARSE_MATCHED();
+
+exit:
+    PARSE_FUNC_END();
+}
+
+static int parse_octal_constant(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(octal_constant);
+
+    /* Left recursion in C standard is converted to right recursion */
+    /* octal-constant
+       -> 0 octal-constant-2(opt) */
+    /* octal-constant-2
+       -> octal-digit octal-constant-2(opt) */
+
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
+
+    char c = token[0];
+    if (c != '0') {
+        goto exit;
+    }
+
+    /* Remaining characters is digit */
+    int i = 0;
+    while (c != '\0') {
+        if (c < '0' || c > '7') {
+            goto exit;
+        }
         ++i;
         c = token[i];
     }
@@ -1762,7 +1800,6 @@ int debug_cg_func_recursion_depth = 0;
 static SymbolId cg_identifier(Parser* p, ParseNode* node);
 static SymbolId cg_constant(Parser* p, ParseNode* node);
 static SymbolId cg_integer_constant(Parser* p, ParseNode* node);
-static SymbolId cg_decimal_constant(Parser* p, ParseNode* node);
 /* 6.5 Expressions */
 static SymbolId cg_primary_expression(Parser* p, ParseNode* node);
 static SymbolId cg_postfix_expression(Parser* p, ParseNode* node);
@@ -1830,21 +1867,12 @@ static SymbolId cg_constant(Parser* p, ParseNode* node) {
 static SymbolId cg_integer_constant(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(integer_constant);
 
-    SymbolId sym_id = cg_decimal_constant(p, parse_node_child(node, 0));
-
-    /* Incomplete */
-
-    DEBUG_CG_FUNC_END();
-    return sym_id;
-}
-
-static SymbolId cg_decimal_constant(Parser* p, ParseNode* node) {
-    DEBUG_CG_FUNC_START(decimal_constant);
-
-    ParseNode* token_node = parse_node_child(node, 0);
+    /* The various type of integer constants are all handled
+       the same, by passing it to the assembler */
+    ParseNode* constant_node = parse_node_child(node, 0);
+    ParseNode* token_node = parse_node_child(constant_node, 0);
     TokenId tok_id = parse_node_token_id(token_node);
 
-    /* TODO Symbol table needs special handling for constants */
     Type type;
     type.typespec = ts_i32; /* TODO temporary hardcode */
     type.pointers = 0;

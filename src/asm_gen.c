@@ -261,14 +261,19 @@ static SymbolId symtab_find(Parser* p, const char* name) {
     }
 
     /* Special handling for constants, they always exist, thus add
-       them to the table when not found to make them exist */
-    if ('0' <= name[0] && name[0] <= '9') {
+       them to the table when not found to make them exist
+       '-' for negative numbers */
+    if (('0' <= name[0] && name[0] <= '9') || name[0] == '-') {
         /* TODO calculate size of constant, assume integer for now */
         ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
         Type type = {.typespec = ts_i32};
         SymbolId sym_id = symtab_add(p, type, name);
         symbol_make_constant(symtab_get(p, sym_id));
         return sym_id;
+    }
+
+    if (g_debug_print_buffers) {
+        LOGF("Cannot find %s\n", name);
     }
     return -1;
 }

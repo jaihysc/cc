@@ -1723,6 +1723,7 @@ static int cg_extract_pointer(ParseNode* node);
 static TokenId cg_extract_identifier(ParseNode* node);
 static SymbolId cg_extract_symbol(Parser* p,
         ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
+static SymbolId cg_make_temporary(Parser* p, Type type);
 static void cg_output_token(Parser* p, SymbolId id);
 static void cg_output_type(Parser* p, SymbolId id);
 
@@ -1831,9 +1832,24 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
         }
         else {
             /* unary-operator */
-            // TODO generate il for unary operator
-            // char op = token[0]; /* Unary operator only single token */
-            sym_id = cg_cast_expression(p, parse_node_child(node, 1));
+            SymbolId operand_1 =
+                cg_cast_expression(p, parse_node_child(node, 1));
+            sym_id = cg_make_temporary(p, symbol_type(p, operand_1));
+
+            char op = token[0]; /* Unary operator only single token */
+            switch (op) {
+                case '-':
+                    /* Negative by multiplying by -1 */
+                    parser_output_il(p, "mul ");
+                    cg_output_token(p, sym_id);
+                    parser_output_il(p, ",");
+                    cg_output_token(p, operand_1);
+                    parser_output_il(p, ",-1\n");
+                    break;
+
+                default:
+                    ASSERT(0, "Unimplemented");
+            }
         }
     }
 
@@ -1862,14 +1878,7 @@ static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node) {
     while (node != NULL) {
         SymbolId operand_2 = cg_cast_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            symtab_add_temporary(p, symbol_type(p, operand_1));
-
-        /* def for temporary */
-        parser_output_il(p, "def ");
-        cg_output_type(p, operand_temp);
-        parser_output_il(p, " ");
-        cg_output_token(p, operand_temp);
-        parser_output_il(p, "\n");
+            cg_make_temporary(p, symbol_type(p, operand_1));
 
         /* Operator can only be of 3 possible types */
         char* operator_token =
@@ -1910,14 +1919,7 @@ static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
         SymbolId operand_2 =
             cg_multiplicative_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            symtab_add_temporary(p, symbol_type(p, operand_1));
-
-        /* def for temporary */
-        parser_output_il(p, "def ");
-        cg_output_type(p, operand_temp);
-        parser_output_il(p, " ");
-        cg_output_token(p, operand_temp);
-        parser_output_il(p, "\n");
+            cg_make_temporary(p, symbol_type(p, operand_1));
 
         /* Operator can only be of 2 possible types */
         char* operator_token =
@@ -2346,6 +2348,19 @@ static SymbolId cg_extract_symbol(Parser* p,
     type.typespec = cg_extract_type_specifiers(p, declaration_specifiers_node);
     type.pointers = cg_extract_pointer(declarator_node);
     return symtab_add(p, tok_id, type);
+}
+
+/* Creates temporary in symbol table and
+   generates the necessary il to create a temporary */
+static SymbolId cg_make_temporary(Parser* p, Type type) {
+    SymbolId sym_id = symtab_add_temporary(p, type);
+
+    parser_output_il(p, "def ");
+    cg_output_type(p, sym_id);
+    parser_output_il(p, " ");
+    cg_output_token(p, sym_id);
+    parser_output_il(p, "\n");
+    return sym_id;
 }
 
 /* Outputs token for provided symbol */

@@ -558,11 +558,14 @@ static int iswhitespace(char c) {
     }
 }
 
-/* If character is considered as its own token */
-static int istokenchar(char c) {
+/* If character is part of a punctuator */
+static int isofpunctuator(char c) {
     switch (c) {
-        /* TODO incomplete list of token chars */
-        case '(': case ')': case '{': case '&': case '*': case ',': case ';':
+        case '[': case ']': case '(': case ')': case '{': case '}':
+        case '.': case '-': case '+': case '&': case '*': case '~':
+        case '!': case '/': case '%': case '<': case '>': case '=':
+        case '^': case '|': case '?': case ':': case ';': case ',':
+        case '#':
             return 1;
         default:
             return 0;
@@ -570,6 +573,20 @@ static int istokenchar(char c) {
 }
 
 /* C keyword handling */
+
+/* Returns 1 if string is considered a unary operator */
+static int tok_isunaryop(const char* str) {
+    if (strlength(str) != 1) {
+        return 0;
+    }
+
+    switch (str[0]) {
+        case '&': case '*': case '+': case '-': case '~': case '!':
+            return 1;
+        default:
+            return 0;
+    }
+}
 
 const char* token_storage_class_keyword[] = {
     /* See strbinfind for ordering requirements */
@@ -672,6 +689,32 @@ static int tok_isidentifier(const char* str) {
     return 1;
 }
 
+/* Reads in a character from input
+   Does not advance read position */
+static char read_char(Parser* p) {
+    /* Perhaps this can be a buffer in the future to reduce system calls */
+    char c = getc(p->rf);
+    fseek(p->rf, -1, SEEK_CUR);
+    return c;
+}
+
+/* Reads in a character from input 1 ahead
+   of character from read_char
+   Does not advance read position */
+static char read_char_next(Parser* p) {
+    getc(p->rf);
+    char c = getc(p->rf);
+    fseek(p->rf, -2, SEEK_CUR);
+    return c;
+}
+
+
+/* Advances read position to next char */
+static void consume_char(Parser* p) {
+    /* Move the file position forwards */
+    getc(p->rf);
+}
+
 /* Indicates the pointed to token is no longer in use */
 static void consume_token(char* token) {
     token[0] = '\0';
@@ -680,9 +723,11 @@ static void consume_token(char* token) {
     }
 }
 
-/* Reads a null terminated token */
-/* Returns pointer to the token, NULL if EOF or errored */
+/* Reads a null terminated token
+   Returns pointer to the token, the token is blank (just a null terminator)
+   if end of file is reached or error happened */
 static char* read_token(Parser* p) {
+    /* Has cached token */
     if (p->read_buf[0] != '\0') {
         if (g_debug_print_parse_recursion) {
             LOGF("%s ^Cached\n", p->read_buf);
@@ -690,50 +735,67 @@ static char* read_token(Parser* p) {
         return p->read_buf;
     }
 
-    int i = 0; /* Index into buf */
-    int seen_token = 0;
-    char c;
-    while ((c = getc(p->rf)) != EOF) {
+    char c = read_char(p);
+    /* Skip leading whitespace */
+    while (iswhitespace(c = read_char(p))) {
+        consume_char(p);
+    }
+
+    /* Handle punctuators
+       sufficient space guaranteed to hold all punctuators*/
+    ASSERT(MAX_TOKEN_LEN >= 4,
+            "Max token length must be at least 4 to hold C operators");
+    if (isofpunctuator(c)) {
+        char cn = read_char_next(p);
+        /* - -- */
+        if (c == '-') {
+            consume_char(p);
+            p->read_buf[0] = '-';
+            if (cn == '-') {
+                consume_char(p);
+                p->read_buf[1] = '-';
+                p->read_buf[2] = '\0';
+            }
+            else {
+                p->read_buf[1] = '\0';
+            }
+            goto exit;
+        }
+
+        /* TODO For now, treat everything else as token */
+        p->read_buf[0] = c;
+        p->read_buf[1] = '\0';
+        consume_char(p);
+        goto exit;
+    }
+
+    /* Handle others */
+    int i = 0;
+    while (c != EOF) {
+        if (iswhitespace(c) || isofpunctuator(c)) {
+            break;
+        }
+
         if (i >= MAX_TOKEN_LEN) {
             parser_set_error(p, ec_tokbufexceed);
             break; /* Since MAX_TOKEN_LEN excludes null terminator, we can break and add null terminator */
         }
-
-        if (iswhitespace(c)) {
-            if (seen_token) {
-                break;
-            }
-            /* Skip leading whitespace */
-            continue;
-        }
-        if (istokenchar(c)) {
-            /* Token char is a separate token, save it to be read again */
-            if (seen_token) {
-                fseek(p->rf, -1, SEEK_CUR);
-                break;
-            }
-            else {
-                ASSERT(i == 0, "Expected token char to occupy index 0");
-                p->read_buf[i] = c;
-                ++i;
-                break;
-            }
-        }
-        seen_token = 1;
         p->read_buf[i] = c;
+        consume_char(p);
+        c = read_char(p);
         ++i;
     }
-
     p->read_buf[i] = '\0';
+
+exit:
     if (g_debug_print_parse_recursion) {
         LOGF("%s\n", p->read_buf);
     }
 
-    if (c == EOF) {
-        return NULL;
-    }
     return p->read_buf;
 }
+
+
 
 
 /* ============================================================ */
@@ -837,8 +899,8 @@ static int parse_expect(Parser* p, const char* match_token);
 static int parse_identifier(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(identifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
 
     if (tok_isidentifier(token)) {
         parser_attach_token(p, PARSE_CURRENT_NODE, token);
@@ -886,8 +948,8 @@ exit:
 static int parse_decimal_constant(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(decimal_constant);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
 
     /* First character is nonzero-digit */
     char c = token[0];
@@ -954,6 +1016,16 @@ static int parse_unary_expression(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(unary_expression);
 
     if (parse_postfix_expression(p, PARSE_CURRENT_NODE)) goto matched;
+
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
+
+    if (tok_isunaryop(token)) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        consume_token(token);
+        if (parse_cast_expression(p, PARSE_CURRENT_NODE)) goto matched;
+        goto exit;
+    }
 
     /* Incomplete */
 
@@ -1284,8 +1356,8 @@ exit:
 static int parse_storage_class_specifier(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(storage_class_specifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
     if (tok_isstoreclass(token)) {
         parser_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
@@ -1299,8 +1371,8 @@ exit:
 static int parse_type_specifier(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(type_specifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
     if (tok_istypespec(token)) {
         parser_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
@@ -1314,8 +1386,8 @@ exit:
 static int parse_type_qualifier(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(type_qualifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
     if (tok_istypequal(token)) {
         parser_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
@@ -1329,8 +1401,8 @@ exit:
 static int parse_function_specifier(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(function_specifier);
 
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) goto exit;
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
     if (tok_isfuncspec(token)) {
         parser_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
@@ -1562,8 +1634,8 @@ exit:
 /* Return 1 if next token read matches provided token, 0 otherwise */
 /* The token is consumed if it matches the provided token */
 static int parse_expect(Parser* p, const char* match_token) {
-    char* token;
-    if ((token = read_token(p)) == NULL || parser_has_error(p)) {
+    char* token = read_token(p);
+    if (parser_has_error(p)) {
         return 0;
     }
 
@@ -1734,9 +1806,28 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(unary_expression);
 
-    SymbolId sym_id = cg_postfix_expression(p, parse_node_child(node, 0));
+    SymbolId sym_id;
+    if (parse_node_count_child(node) == 1) {
+        sym_id = cg_postfix_expression(p, parse_node_child(node, 0));
+    }
+    else {
+        TokenId tok_id = parse_node_token_id(parse_node_child(node, 0));
+        const char* token = parser_get_token(p, tok_id);
 
-    /* Incomplete */
+        /* Incomplete */
+        if (strequ(token, "++")) {
+        }
+        else if (strequ(token, "--")) {
+        }
+        else if (strequ(token, "sizeof")) {
+        }
+        else {
+            /* unary-operator */
+            // TODO generate il for unary operator
+            // char op = token[0]; /* Unary operator only single token */
+            sym_id = cg_cast_expression(p, parse_node_child(node, 1));
+        }
+    }
 
     DEBUG_CG_FUNC_END();
     return sym_id;
@@ -2352,6 +2443,10 @@ int main(int argc, char** argv) {
         p.i_parse_node_buf = 1;
         int parse_success = parse_function_definition(&p, p.parse_node_buf);
 
+        if (g_debug_print_parse_tree) {
+            debug_draw_parse_tree(&p);
+        }
+
         if (parse_success) {
             if (p.i_parse_node_buf >= 2) {
                 cg_function_definition(&p, p.parse_node_buf + 1);
@@ -2365,9 +2460,6 @@ int main(int argc, char** argv) {
         /* Debug options */
         if (g_debug_print_buffers) {
             debug_parser_buf_dump(&p);
-        }
-        if (g_debug_print_parse_tree) {
-            debug_draw_parse_tree(&p);
         }
     }
 

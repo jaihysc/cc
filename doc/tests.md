@@ -1,6 +1,6 @@
 # Tests
 
-To run the tests, run `runtest.py`.
+To run the tests, run `runtest.py`. The test results are printed at the end with the names and output of any failed tests.
 
 ## Defining tests
 

@@ -344,6 +344,9 @@ static void debug_dump(Parser* p) {
 static void cg_arithmetic(
         Parser* p,
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins);
+static void cg_divide(
+        Parser* p, SymbolId op1_id, SymbolId op2_id,
+        const char* ins);
 static void cg_mov_tor(Parser* p, SymbolId source, GRegister dest);
 static void cg_mov_fromr(Parser* p, GRegister source, SymbolId dest);
 static void cg_ref_symbol(Parser* p, SymbolId sym_id);
@@ -359,6 +362,7 @@ static void cg_validate_equal_size3(Parser* p,
     INSTRUCTION(def)  \
     INSTRUCTION(div)  \
     INSTRUCTION(func) \
+    INSTRUCTION(mod)  \
     INSTRUCTION(mov)  \
     INSTRUCTION(mul)  \
     INSTRUCTION(ret)  \
@@ -408,14 +412,8 @@ static INSTRUCTION_HANDLER(div) {
     SymbolId op2_id = symtab_find(p, pparg[2]);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
-    GRegister op2_reg = reg_c;
-    Symbol* lval = symtab_get(p, lval_id);
-    int bytes = type_bytes(symbol_type(lval));
-
     parser_output_asm(p, "; div %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
-    cg_mov_tor(p, op1_id, reg_a);
-    cg_mov_tor(p, op2_id, op2_reg);
-    parser_output_asm(p, "idiv %s\n", reg_str(reg_get(op2_reg, bytes)));
+    cg_divide(p, op1_id, op2_id, "idiv");
     cg_mov_fromr(p, reg_a, lval_id);
 }
 
@@ -479,6 +477,24 @@ static INSTRUCTION_HANDLER(func) {
 
 exit:
     return;
+}
+
+static INSTRUCTION_HANDLER(mod) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+
+    /* Mod is division but returning different part of result
+       Dividend in ax, Remainder in dx */
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+    cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
+
+    parser_output_asm(p, "; mod %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
+    cg_divide(p, op1_id, op2_id, "idiv");
+    cg_mov_fromr(p, reg_d, lval_id);
 }
 
 static INSTRUCTION_HANDLER(mov) {
@@ -573,6 +589,26 @@ static void cg_arithmetic(
         ins,
         reg_str(reg_get(op1_reg, bytes)), reg_str(reg_get(op2_reg, bytes)));
     cg_mov_fromr(p, op1_reg, dest_id);
+}
+
+/* Places op1 and op2 in the appropriate locations for op1 / op2
+   ins is the instruction to apply to perform the division */
+static void cg_divide(
+        Parser* p, SymbolId op1_id, SymbolId op2_id,
+        const char* ins) {
+    GRegister op2_reg = reg_c;
+
+    Symbol* op1 = symtab_get(p, op1_id);
+    int bytes = type_bytes(symbol_type(op1));
+
+    cg_mov_tor(p, op1_id, reg_a);
+    cg_mov_tor(p, op2_id, op2_reg);
+    /* dx has to be zeroed, other it is interpreted as part of dividend */
+    parser_output_asm(p, "xor %s,%s\n",
+            reg_str(reg_get(reg_d, bytes)),
+            reg_str(reg_get(reg_d, bytes)));
+
+    parser_output_asm(p, "%s %s\n", ins, reg_str(reg_get(op2_reg, bytes)));
 }
 
 /* Generates code for reg/mem -> reg */
@@ -834,6 +870,7 @@ exit:
     if (parser_has_error(&p)) {
         ErrorCode ecode = parser_get_error(&p);
         ERRMSGF("Error during parsing: %d %s\n", ecode, errcode_str[ecode]);
+        exitcode = ecode;
     }
     if (g_debug_print_buffers) {
         debug_dump(&p);

@@ -8,7 +8,7 @@ if [ ! -d "out" ]; then
 fi
 
 cc_flags="-Wall -Wextra -Wshadow -pedantic -Wmissing-prototypes -Wpointer-arith -Wcast-qual -Wswitch-default\
-    -Wswitch-enum -Wbad-function-cast -Wlogical-op -Wredundant-decls -Wsign-conversion -Wdouble-promotion -Wmisleading-indentation\
+    -Wswitch -Wbad-function-cast -Wlogical-op -Wredundant-decls -Wsign-conversion -Wdouble-promotion -Wmisleading-indentation\
     -Wduplicated-cond -Wduplicated-branches\
     -Wno-unused-parameter"
 

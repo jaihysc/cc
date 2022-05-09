@@ -7,7 +7,7 @@
 
 #define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
-#define MAX_PARSE_TREE_NODE 500 /* Maximum nodes in parser parse tree */
+#define MAX_PARSE_TREE_NODE 600 /* Maximum nodes in parser parse tree */
 #define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
 #define MAX_LEXEME_BUFFER_CHAR 512 /* Max characters in token buffer */
 #define MAX_SYMTAB_TOKEN 200 /* Maximum symbols in symbol table in total */
@@ -82,6 +82,7 @@ typedef struct {
     SYMBOL_TYPE(compound_statement)        \
     SYMBOL_TYPE(block_item_list)           \
     SYMBOL_TYPE(block_item)                \
+    SYMBOL_TYPE(expression_statement)      \
     SYMBOL_TYPE(jump_statement)            \
                                            \
     SYMBOL_TYPE(function_definition)
@@ -755,6 +756,20 @@ static char* read_token(Parser* p) {
             "Max token length must be at least 4 to hold C operators");
     if (isofpunctuator(c)) {
         char cn = read_char_next(p);
+        /* + ++ */
+        if (c == '+') {
+            consume_char(p);
+            p->read_buf[0] = '+';
+            if (cn == '+') {
+                consume_char(p);
+                p->read_buf[1] = '+';
+                p->read_buf[2] = '\0';
+            }
+            else {
+                p->read_buf[1] = '\0';
+            }
+            goto exit;
+        }
         /* - -- */
         if (c == '-') {
             consume_char(p);
@@ -860,6 +875,7 @@ static int parse_decimal_constant(Parser* p, ParseNode* parent);
 /* 6.5 Expressions */
 static int parse_primary_expression(Parser* p, ParseNode* parent);
 static int parse_postfix_expression(Parser* p, ParseNode* parent);
+static int parse_postfix_expression_2(Parser* p, ParseNode* parent);
 static int parse_unary_expression(Parser* p, ParseNode* parent);
 static int parse_cast_expression(Parser* p, ParseNode* parent);
 static int parse_multiplicative_expression(Parser* p, ParseNode* parent);
@@ -897,6 +913,7 @@ static int parse_statement(Parser* p, ParseNode* parent);
 static int parse_compound_statement(Parser* p, ParseNode* parent);
 static int parse_block_item_list(Parser* p, ParseNode* parent);
 static int parse_block_item(Parser* p, ParseNode* parent);
+static int parse_expression_statement(Parser* p, ParseNode* parent);
 static int parse_jump_statement(Parser* p, ParseNode* parent);
 /* 6.9 External definitions */
 static int parse_function_definition(Parser* p, ParseNode* parent);
@@ -1007,14 +1024,52 @@ exit:
 static int parse_postfix_expression(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(postfix_expression);
 
-    if (parse_primary_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    /* Left recursion in C standard is converted to right recursion */
+    /* postfix-expression
+       -> primary-expression postfix-expression-2(opt)
+        | ( type-name ) { initializer-list } postfix-expression-2(opt)
+        | ( type-name ) { initializer-list , } postfix-expression-2(opt) */
+    /* postfix-expression-2
+       -> [ expression ] postfix-expression-2(opt)
+        | ( argument-expression-list(opt) ) postfix-expression-2(opt)
+        | . identifier postfix-expression-2(opt)
+        | -> identifier postfix-expression-2(opt)
+        | ++ postfix-expression-2(opt)
+        | -- postfix-expression-2(opt) */
+
+    if (parse_primary_expression(p, PARSE_CURRENT_NODE)) {
+        PARSE_MATCHED();
+        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
+    }
 
     /* Incomplete */
 
-    goto exit;
+    PARSE_FUNC_END();
+}
 
-matched:
-    PARSE_MATCHED();
+static int parse_postfix_expression_2(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(postfix_expression);
+
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
+
+    /* Postfix increment, decrement */
+    if (strequ(token, "++")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        consume_token(token);
+        PARSE_MATCHED();
+
+        parse_postfix_expression(p, PARSE_CURRENT_NODE);
+    }
+    else if (strequ(token, "--")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        consume_token(token);
+        PARSE_MATCHED();
+
+        parse_postfix_expression(p, PARSE_CURRENT_NODE);
+    }
+
+    /* Incomplete */
 
 exit:
     PARSE_FUNC_END();
@@ -1023,23 +1078,31 @@ exit:
 static int parse_unary_expression(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(unary_expression);
 
-    if (parse_postfix_expression(p, PARSE_CURRENT_NODE)) goto matched;
-
     char* token = read_token(p);
     if (parser_has_error(p)) goto exit;
 
-    if (tok_isunaryop(token)) {
+    /* Prefix increment, decrement */
+    if (strequ(token, "++")) {
         parser_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
-        if (parse_cast_expression(p, PARSE_CURRENT_NODE)) goto matched;
+        if (!parse_unary_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (strequ(token, "--")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        consume_token(token);
+        if (!parse_unary_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (tok_isunaryop(token)) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        consume_token(token);
+        if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (!parse_postfix_expression(p, PARSE_CURRENT_NODE)) {
         goto exit;
     }
 
     /* Incomplete */
 
-    goto exit;
-
-matched:
     PARSE_MATCHED();
 
 exit:
@@ -1552,6 +1615,7 @@ static int parse_statement(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(statement);
 
     if (parse_jump_statement(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_expression_statement(p, PARSE_CURRENT_NODE)) goto matched;
 
     goto exit;
 
@@ -1598,6 +1662,18 @@ static int parse_block_item(Parser* p, ParseNode* parent) {
     goto exit;
 
 matched:
+    PARSE_MATCHED();
+
+exit:
+    PARSE_FUNC_END();
+}
+
+static int parse_expression_statement(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(expression_statement);
+
+    parse_expression(p, PARSE_CURRENT_NODE);
+    if (!parse_expect(p, ";")) goto exit;
+
     PARSE_MATCHED();
 
 exit:
@@ -1714,6 +1790,7 @@ static SymbolId cg_initializer(Parser* p, ParseNode* node);
 static void cg_statement(Parser* p, ParseNode* node);
 static void cg_block_item_list(Parser* p, ParseNode* node);
 static void cg_block_item(Parser* p, ParseNode* node);
+static void cg_expression_statement(Parser* p, ParseNode* node);
 static void cg_jump_statement(Parser* p, ParseNode* node);
 /* 6.9 External definitions */
 static void cg_function_definition(Parser* p, ParseNode* node);
@@ -1806,6 +1883,9 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
 
     SymbolId sym_id = cg_primary_expression(p, parse_node_child(node, 0));
 
+    /* Postfix increment, decrement */
+    // TODO
+
     /* Incomplete */
 
     DEBUG_CG_FUNC_END();
@@ -1823,12 +1903,17 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
         TokenId tok_id = parse_node_token_id(parse_node_child(node, 0));
         const char* token = parser_get_token(p, tok_id);
 
-        /* Incomplete */
+        /* Prefix increment, decrement */
         if (strequ(token, "++")) {
+            // TODO codegen
+            sym_id = cg_unary_expression(p, parse_node_child(node, 1));
         }
         else if (strequ(token, "--")) {
+            // TODO codegen
+            sym_id = cg_unary_expression(p, parse_node_child(node, 1));
         }
         else if (strequ(token, "sizeof")) {
+            /* Incomplete */
         }
         else {
             /* unary-operator */
@@ -2149,9 +2234,18 @@ static SymbolId cg_initializer(Parser* p, ParseNode* node) {
 static void cg_statement(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(statement);
 
-    cg_jump_statement(p, parse_node_child(node, 0));
-
-    /* Incomplete */
+    ParseNode* child = parse_node_child(node, 0);
+    switch (parse_node_type(child)) {
+        case st_expression_statement:
+            cg_expression_statement(p, child);
+            break;
+        case st_jump_statement:
+            cg_jump_statement(p, child);
+            break;
+        default:
+            /* Incomplete */
+            break;
+    }
 
     DEBUG_CG_FUNC_END();
 }
@@ -2178,6 +2272,14 @@ static void cg_block_item(Parser* p, ParseNode* node) {
     else {
         cg_statement(p, child);
     }
+
+    DEBUG_CG_FUNC_END();
+}
+
+static void cg_expression_statement(Parser* p, ParseNode* node) {
+    DEBUG_CG_FUNC_START(expression_statement);
+
+    cg_expression(p, parse_node_child(node, 0));
 
     DEBUG_CG_FUNC_END();
 }

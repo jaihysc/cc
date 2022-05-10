@@ -1097,14 +1097,14 @@ static int parse_postfix_expression_2(Parser* p, ParseNode* parent) {
         consume_token(token);
         PARSE_MATCHED();
 
-        parse_postfix_expression(p, PARSE_CURRENT_NODE);
+        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
     }
     else if (strequ(token, "--")) {
         parser_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         PARSE_MATCHED();
 
-        parse_postfix_expression(p, PARSE_CURRENT_NODE);
+        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
     }
 
     /* Incomplete */
@@ -1837,7 +1837,10 @@ static int cg_extract_pointer(ParseNode* node);
 static TokenId cg_extract_identifier(ParseNode* node);
 static SymbolId cg_extract_symbol(Parser* p,
         ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
+/* Code generation helpers */
 static SymbolId cg_make_temporary(Parser* p, Type type);
+static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
+static void cg_increment(Parser* p, SymbolId id, int n);
 static void cg_output_token(Parser* p, SymbolId id);
 static void cg_output_type(Parser* p, SymbolId id);
 
@@ -1910,14 +1913,41 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(postfix_expression);
 
     SymbolId sym_id = cg_primary_expression(p, parse_node_child(node, 0));
+    SymbolId result_id = sym_id;
 
-    /* Postfix increment, decrement */
-    // TODO
+    /* Traverse the postfix nodes, no need for recursion
+       as they are all the same type */
+    /* Does not need to check for NULL with last_child as it always has at
+       least 1 node to return (primary expression, token node)*/
+    ParseNode* last_child = parse_node_child(node, -1);
+    while (parse_node_type(last_child) == st_postfix_expression) {
+        ParseNode* token_node = parse_node_child(last_child, 0);
+        ASSERT(token_node, "Missing token node");
+        const char* token =
+            parser_get_token(p, parse_node_token_id(token_node));
 
-    /* Incomplete */
+        /* Postfix increment, decrement */
+        if (strequ(token, "++")) {
+            SymbolId temp_id = cg_make_temporary(p, symbol_type(p, result_id));
+            cg_assign(p, temp_id, result_id);
+            result_id = temp_id;
+            cg_increment(p, sym_id, 1);
+        }
+        else if (strequ(token, "--")) {
+            SymbolId temp_id = cg_make_temporary(p, symbol_type(p, result_id));
+            cg_assign(p, temp_id, result_id);
+            result_id = temp_id;
+            cg_increment(p, sym_id, -1);
+        }
+
+        /* Incomplete */
+
+        node = last_child;
+        last_child = parse_node_child(node, -1);
+    }
 
     DEBUG_CG_FUNC_END();
-    return sym_id;
+    return result_id;
 }
 
 static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
@@ -1933,12 +1963,12 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
 
         /* Prefix increment, decrement */
         if (strequ(token, "++")) {
-            // TODO codegen
             sym_id = cg_unary_expression(p, parse_node_child(node, 1));
+            cg_increment(p, sym_id, 1);
         }
         else if (strequ(token, "--")) {
-            // TODO codegen
             sym_id = cg_unary_expression(p, parse_node_child(node, 1));
+            cg_increment(p, sym_id, -1);
         }
         else if (strequ(token, "sizeof")) {
             /* Incomplete */
@@ -2200,11 +2230,7 @@ static void cg_declaration(Parser* p, ParseNode* node) {
     /* R value assigned to l value */
     ParseNode* initializer = parse_node_child(initdecl, 1);
     SymbolId rval_id = cg_initializer(p, initializer);
-    parser_output_il(p, "mov ");
-    cg_output_token(p, lval_id);
-    parser_output_il(p, ",");
-    cg_output_token(p, rval_id);
-    parser_output_il(p, "\n");
+    cg_assign(p, lval_id, rval_id);
 
     DEBUG_CG_FUNC_END();
 }
@@ -2491,6 +2517,21 @@ static SymbolId cg_make_temporary(Parser* p, Type type) {
     cg_output_token(p, sym_id);
     parser_output_il(p, "\n");
     return sym_id;
+}
+
+/* Generates code to copy value from source into dest */
+static void cg_assign(Parser* p, SymbolId dest, SymbolId source) {
+    parser_output_il(p, "mov ");
+    cg_output_token(p, dest);
+    parser_output_il(p, ",");
+    cg_output_token(p, source);
+    parser_output_il(p, "\n");
+}
+
+/* Generates code to increment provided symbol by n*/
+static void cg_increment(Parser* p, SymbolId id, int n) {
+    const char* name = symbol_token(p, id);
+    parser_output_il(p, "add %s,%s,%d\n", name, name, n);
 }
 
 /* Outputs token for provided symbol */

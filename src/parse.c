@@ -41,6 +41,8 @@ typedef struct {
 /* 6.8 Statements and blocks */
 /* 6.9 External definitions */
 #define SYMBOL_TYPES                       \
+    SYMBOL_TYPE(root)                      \
+                                           \
     SYMBOL_TYPE(identifier)                \
     SYMBOL_TYPE(constant)                  \
     SYMBOL_TYPE(integer_constant)          \
@@ -84,7 +86,6 @@ typedef struct {
                                            \
     SYMBOL_TYPE(statement)                 \
     SYMBOL_TYPE(compound_statement)        \
-    SYMBOL_TYPE(block_item_list)           \
     SYMBOL_TYPE(block_item)                \
     SYMBOL_TYPE(expression_statement)      \
     SYMBOL_TYPE(jump_statement)            \
@@ -206,6 +207,7 @@ struct Parser {
        */
     char read_buf[MAX_TOKEN_LEN + 1];
 
+    ParseNode parse_node_root;
     ParseNode parse_node_buf[MAX_PARSE_TREE_NODE];
     int i_parse_node_buf; /* Index one past last element */
 
@@ -219,6 +221,7 @@ struct Parser {
 };
 
 static void debug_parser_buf_dump(Parser* p);
+static void debug_draw_parse_tree(Parser* p);
 static void debug_parse_node_walk(
         Parser* p, ParseNode* node,
         char* branch, int i_branch, const int max_branch_len);
@@ -299,14 +302,18 @@ static ParseLocation parser_get_parse_location(Parser* p, ParseNode* parent) {
     return location;
 }
 
-/* Sets the current location in the parse tree */
-static void parser_set_parse_location(Parser* p, ParseLocation* location) {
+static void parser_set_tree_location(Parser* p, ParseLocation* location) {
     p->i_parse_node_buf = location->i_node_buf;
 
     /* Remove excess children */
     for (int i = location->node_childs; i < MAX_PARSE_NODE_CHILD; ++i) {
         location->node->child[i] = NULL;
     }
+}
+
+/* Sets the current location in the parse tree */
+static void parser_set_parse_location(Parser* p, ParseLocation* location) {
+    parser_set_tree_location(p, location);
 
     /* Return to old file position */
     if (fseek(p->rf, location->rf_offset, SEEK_SET) != 0) {
@@ -402,15 +409,12 @@ static void debug_parser_buf_dump(Parser* p) {
 
 static void debug_draw_parse_tree(Parser* p) {
     LOG("Parse tree:\n");
-    /* Draw tree with first node since it is the top node */
-    if (p->i_parse_node_buf > 0) {
-        /* 2 characters per node */
-        int max_branch = MAX_PARSE_TREE_NODE * 2;
+    /* 2 characters per node */
+    int max_branch = MAX_PARSE_TREE_NODE * 2;
 
-        char branch[max_branch];
-        branch[0] = '\0';
-        debug_parse_node_walk(p, p->parse_node_buf, branch, 0, max_branch);
-    }
+    char branch[max_branch];
+    branch[0] = '\0';
+    debug_parse_node_walk(p, &p->parse_node_root, branch, 0, max_branch);
 }
 
 /* Prints out the parse tree
@@ -893,6 +897,13 @@ int debug_parse_func_recursion_depth = 0;
     return matched__
 /* Call if a match was made in production rule */
 #define PARSE_MATCHED() matched__ = 1
+/* Deletes child nodes of current location AND current node
+   PARSE_CURRENT_NODE can no longer be used */
+#define PARSE_TRIM_TREE()                                           \
+    if (g_debug_print_parse_recursion) {LOG("Parse tree clear\n");} \
+    if (g_debug_print_parse_tree) {debug_draw_parse_tree(p);}       \
+    parser_set_tree_location(p, &start_location__)
+
 /* Name for the pointer to the current node */
 #define PARSE_CURRENT_NODE node__
 
@@ -947,7 +958,6 @@ static int parse_initializer(Parser* p, ParseNode* parent);
 /* 6.8 Statements and blocks */
 static int parse_statement(Parser* p, ParseNode* parent);
 static int parse_compound_statement(Parser* p, ParseNode* parent);
-static int parse_block_item_list(Parser* p, ParseNode* parent);
 static int parse_block_item(Parser* p, ParseNode* parent);
 static int parse_expression_statement(Parser* p, ParseNode* parent);
 static int parse_jump_statement(Parser* p, ParseNode* parent);
@@ -955,6 +965,53 @@ static int parse_jump_statement(Parser* p, ParseNode* parent);
 static int parse_function_definition(Parser* p, ParseNode* parent);
 /* Helpers */
 static int parse_expect(Parser* p, const char* match_token);
+
+/* 6.4 Lexical elements */
+static SymbolId cg_identifier(Parser* p, ParseNode* node);
+static SymbolId cg_constant(Parser* p, ParseNode* node);
+static SymbolId cg_integer_constant(Parser* p, ParseNode* node);
+/* 6.5 Expressions */
+static SymbolId cg_primary_expression(Parser* p, ParseNode* node);
+static SymbolId cg_postfix_expression(Parser* p, ParseNode* node);
+static SymbolId cg_unary_expression(Parser* p, ParseNode* node);
+static SymbolId cg_cast_expression(Parser* p, ParseNode* node);
+static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node);
+static SymbolId cg_additive_expression(Parser* p, ParseNode* node);
+static SymbolId cg_shift_expression(Parser* p, ParseNode* node);
+static SymbolId cg_relational_expression(Parser* p, ParseNode* node);
+static SymbolId cg_equality_expression(Parser* p, ParseNode* node);
+static SymbolId cg_and_expression(Parser* p, ParseNode* node);
+static SymbolId cg_exclusive_or_expression(Parser* p, ParseNode* node);
+static SymbolId cg_inclusive_or_expression(Parser* p, ParseNode* node);
+static SymbolId cg_logical_and_expression(Parser* p, ParseNode* node);
+static SymbolId cg_logical_or_expression(Parser* p, ParseNode* node);
+static SymbolId cg_conditional_expression(Parser* p, ParseNode* node);
+static SymbolId cg_assignment_expression(Parser* p, ParseNode* node);
+static SymbolId cg_expression(Parser* p, ParseNode* node);
+/* 6.7 Declarators */
+static void cg_declaration(Parser* p, ParseNode* node);
+static void cg_parameter_list(Parser* p, ParseNode* node);
+static void cg_parameter_declaration(Parser* p, ParseNode* node);
+static SymbolId cg_initializer(Parser* p, ParseNode* node);
+/* 6.8 Statements and blocks */
+static void cg_statement(Parser* p, ParseNode* node);
+static void cg_block_item(Parser* p, ParseNode* node);
+static void cg_expression_statement(Parser* p, ParseNode* node);
+static void cg_jump_statement(Parser* p, ParseNode* node);
+/* 6.9 External definitions */
+/* Helpers */
+static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node);
+static int cg_extract_pointer(ParseNode* node);
+static TokenId cg_extract_identifier(ParseNode* node);
+static SymbolId cg_extract_symbol(Parser* p,
+        ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
+/* Code generation helpers */
+static void cg_function_signature(Parser* p, ParseNode* node);
+static SymbolId cg_make_temporary(Parser* p, Type type);
+static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
+static void cg_increment(Parser* p, SymbolId id, int n);
+static void cg_output_token(Parser* p, SymbolId id);
+static void cg_output_type(Parser* p, SymbolId id);
 
 /* identifier */
 static int parse_identifier(Parser* p, ParseNode* parent) {
@@ -1728,26 +1785,14 @@ static int parse_compound_statement(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(compound_statement);
 
     if (parse_expect(p, "{")) {
-        parse_block_item_list(p, PARSE_CURRENT_NODE);
+        /* block-item-list nodes are not needed for il generation */
+        while (parse_block_item(p, PARSE_CURRENT_NODE));
+
         if (parse_expect(p, "}")) {
             PARSE_MATCHED();
         }
     }
 
-    PARSE_FUNC_END();
-}
-
-static int parse_block_item_list(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(block_item_list);
-
-    /* Left recursion in C standard is converted to right recursion */
-    /* block-item-list -> block-item block-item-list | block-item */
-    if (!parse_block_item(p, PARSE_CURRENT_NODE)) goto exit;
-    PARSE_MATCHED();
-
-    parse_block_item_list(p, PARSE_CURRENT_NODE);
-
-exit:
     PARSE_FUNC_END();
 }
 
@@ -1761,6 +1806,8 @@ static int parse_block_item(Parser* p, ParseNode* parent) {
 
 matched:
     PARSE_MATCHED();
+    cg_block_item(p, PARSE_CURRENT_NODE);
+    PARSE_TRIM_TREE();
 
 exit:
     PARSE_FUNC_END();
@@ -1805,7 +1852,10 @@ static int parse_function_definition(Parser* p, ParseNode* parent) {
     if (!parse_declarator(p, PARSE_CURRENT_NODE) ||
             parser_has_error(p)) goto exit;
 
-    if (!parse_compound_statement(p, PARSE_CURRENT_NODE) ||
+    cg_function_signature(p, PARSE_CURRENT_NODE);
+    PARSE_TRIM_TREE();
+
+    if (!parse_compound_statement(p, parent) ||
             parser_has_error(p)) goto exit;
 
     PARSE_MATCHED();
@@ -1855,54 +1905,6 @@ int debug_cg_func_recursion_depth = 0;
     }                                                               \
     LOGF("<%d\n", debug_cg_func_recursion_depth);                   \
     } do {} while (0)
-
-/* 6.4 Lexical elements */
-static SymbolId cg_identifier(Parser* p, ParseNode* node);
-static SymbolId cg_constant(Parser* p, ParseNode* node);
-static SymbolId cg_integer_constant(Parser* p, ParseNode* node);
-/* 6.5 Expressions */
-static SymbolId cg_primary_expression(Parser* p, ParseNode* node);
-static SymbolId cg_postfix_expression(Parser* p, ParseNode* node);
-static SymbolId cg_unary_expression(Parser* p, ParseNode* node);
-static SymbolId cg_cast_expression(Parser* p, ParseNode* node);
-static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node);
-static SymbolId cg_additive_expression(Parser* p, ParseNode* node);
-static SymbolId cg_shift_expression(Parser* p, ParseNode* node);
-static SymbolId cg_relational_expression(Parser* p, ParseNode* node);
-static SymbolId cg_equality_expression(Parser* p, ParseNode* node);
-static SymbolId cg_and_expression(Parser* p, ParseNode* node);
-static SymbolId cg_exclusive_or_expression(Parser* p, ParseNode* node);
-static SymbolId cg_inclusive_or_expression(Parser* p, ParseNode* node);
-static SymbolId cg_logical_and_expression(Parser* p, ParseNode* node);
-static SymbolId cg_logical_or_expression(Parser* p, ParseNode* node);
-static SymbolId cg_conditional_expression(Parser* p, ParseNode* node);
-static SymbolId cg_assignment_expression(Parser* p, ParseNode* node);
-static SymbolId cg_expression(Parser* p, ParseNode* node);
-/* 6.7 Declarators */
-static void cg_declaration(Parser* p, ParseNode* node);
-static void cg_parameter_list(Parser* p, ParseNode* node);
-static void cg_parameter_declaration(Parser* p, ParseNode* node);
-static SymbolId cg_initializer(Parser* p, ParseNode* node);
-/* 6.8 Statements and blocks */
-static void cg_statement(Parser* p, ParseNode* node);
-static void cg_block_item_list(Parser* p, ParseNode* node);
-static void cg_block_item(Parser* p, ParseNode* node);
-static void cg_expression_statement(Parser* p, ParseNode* node);
-static void cg_jump_statement(Parser* p, ParseNode* node);
-/* 6.9 External definitions */
-static void cg_function_definition(Parser* p, ParseNode* node);
-/* Helpers */
-static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node);
-static int cg_extract_pointer(ParseNode* node);
-static TokenId cg_extract_identifier(ParseNode* node);
-static SymbolId cg_extract_symbol(Parser* p,
-        ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
-/* Code generation helpers */
-static SymbolId cg_make_temporary(Parser* p, Type type);
-static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
-static void cg_increment(Parser* p, SymbolId id, int n);
-static void cg_output_token(Parser* p, SymbolId id);
-static void cg_output_type(Parser* p, SymbolId id);
 
 static SymbolId cg_identifier(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(identifier);
@@ -2402,18 +2404,6 @@ static void cg_statement(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_END();
 }
 
-/* Traverses block item list and generates code */
-static void cg_block_item_list(Parser* p, ParseNode* node) {
-    DEBUG_CG_FUNC_START(block_item_list);
-
-    while (node != NULL) {
-        cg_block_item(p, parse_node_child(node, 0));
-        node = parse_node_child(node, 1);
-    }
-
-    DEBUG_CG_FUNC_END();
-}
-
 static void cg_block_item(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(block_item);
 
@@ -2448,37 +2438,6 @@ static void cg_jump_statement(Parser* p, ParseNode* node) {
         cg_output_token(p, exp_id);
         parser_output_il(p, "\n");
     }
-
-    DEBUG_CG_FUNC_END();
-}
-
-/* Generates il for function definition */
-static void cg_function_definition(Parser* p, ParseNode* node) {
-    DEBUG_CG_FUNC_START(function_definition);
-    ASSERT(parse_node_count_child(node) == 3, "Expected 3 children of node");
-
-    ParseNode* declspec = parse_node_child(node, 0);
-    ParseNode* declarator = parse_node_child(node, 1);
-
-    /* name is function name, type is return type */
-    SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
-    parser_output_il(p, "func ");
-    cg_output_token(p, func_id);
-    parser_output_il(p, ",");
-    cg_output_type(p, func_id);
-    parser_output_il(p, ",");
-
-    ParseNode* dirdeclarator = parse_node_child(declarator, -1);
-    ParseNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
-    ParseNode* paramtypelist = parse_node_child(dirdeclarator2, 0);
-    ParseNode* paramlist = parse_node_child(paramtypelist, 0);
-    cg_parameter_list(p, paramlist);
-    parser_output_il(p, "\n");
-
-    /* Function body */
-    ParseNode* compound_statement = parse_node_child(node, 2);
-    ParseNode* blockitemlist = parse_node_child(compound_statement, 0);
-    cg_block_item_list(p, blockitemlist);
 
     DEBUG_CG_FUNC_END();
 }
@@ -2602,6 +2561,31 @@ static SymbolId cg_extract_symbol(Parser* p,
     type.typespec = cg_extract_type_specifiers(p, declaration_specifiers_node);
     type.pointers = cg_extract_pointer(declarator_node);
     return symtab_add(p, tok_id, type);
+}
+
+/* Generates il for function-definition excluding compound-statement */
+static void cg_function_signature(Parser* p, ParseNode* node) {
+    DEBUG_CG_FUNC_START(function_definition);
+
+    ParseNode* declspec = parse_node_child(node, 0);
+    ParseNode* declarator = parse_node_child(node, 1);
+
+    /* name is function name, type is return type */
+    SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
+    parser_output_il(p, "func ");
+    cg_output_token(p, func_id);
+    parser_output_il(p, ",");
+    cg_output_type(p, func_id);
+    parser_output_il(p, ",");
+
+    ParseNode* dirdeclarator = parse_node_child(declarator, -1);
+    ParseNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
+    ParseNode* paramtypelist = parse_node_child(dirdeclarator2, 0);
+    ParseNode* paramlist = parse_node_child(paramtypelist, 0);
+    cg_parameter_list(p, paramlist);
+    parser_output_il(p, "\n");
+
+    DEBUG_CG_FUNC_END();
 }
 
 /* Creates temporary in symbol table and
@@ -2730,29 +2714,18 @@ int main(int argc, char** argv) {
         }
     }
 
-    /* Create the top level node in parse node buf */
-    if (MAX_PARSE_TREE_NODE > 0) {
-        p.i_parse_node_buf = 1;
-        int parse_success = parse_function_definition(&p, p.parse_node_buf);
+    if (!parse_function_definition(&p, &p.parse_node_root)) {
+        parser_set_error(&p, ec_syntaxerr);
+        ERRMSG("Failed to build parse tree\n");
+    }
 
-        if (g_debug_print_parse_tree) {
-            debug_draw_parse_tree(&p);
-        }
-
-        if (parse_success) {
-            if (p.i_parse_node_buf >= 2) {
-                cg_function_definition(&p, p.parse_node_buf + 1);
-            }
-        }
-        else {
-            parser_set_error(&p, ec_syntaxerr);
-            ERRMSG("Failed to build parse tree\n");
-        }
-
-        /* Debug options */
-        if (g_debug_print_buffers) {
-            debug_parser_buf_dump(&p);
-        }
+    /* Debug options */
+    if (g_debug_print_buffers) {
+        debug_parser_buf_dump(&p);
+    }
+    if (g_debug_print_parse_tree) {
+        LOG("Remaining ");
+        debug_draw_parse_tree(&p);
     }
 
     if (parser_has_error(&p)) {

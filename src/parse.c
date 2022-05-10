@@ -163,6 +163,9 @@ static const char* parse_node_token(Parser* p, ParseNode* node) {
 }
 
 typedef struct {
+    /* Remember line, char in source file */
+    int line_num;
+    int char_num;
     /* Index of next available space in parse node buffer */
     int i_node_buf;
     ParseNode* node; /* Node which may be modified */
@@ -198,6 +201,13 @@ struct Parser {
     /* Functions set error code only if an error occurred */
     /* By default this is set as ec_noerr */
     ErrorCode ecode;
+
+    /* Tracks position within input file for error messages */
+    int line_num;
+    int char_num;
+    /* Last position within input file where production was matched */
+    int last_line_num;
+    int last_char_num;
 
     /* Token read buffer, used by read_token to store token read */
     /* The read token is kept here, subsequent calls to read_token()
@@ -290,6 +300,8 @@ static ParseLocation parser_get_parse_location(Parser* p, ParseNode* parent) {
     }
 
     ParseLocation location = {
+        .line_num = p->line_num,
+        .char_num = p->char_num,
         .i_node_buf = p->i_parse_node_buf,
         .node = parent,
         .node_childs = parse_node_count_child(parent),
@@ -313,6 +325,9 @@ static void parser_set_tree_location(Parser* p, ParseLocation* location) {
 
 /* Sets the current location in the parse tree */
 static void parser_set_parse_location(Parser* p, ParseLocation* location) {
+    p->line_num = location->line_num;
+    p->char_num = location->char_num;
+
     parser_set_tree_location(p, location);
 
     /* Return to old file position */
@@ -731,6 +746,26 @@ static int tok_isidentifier(const char* str) {
 static char read_char(Parser* p) {
     /* Perhaps this can be a buffer in the future to reduce system calls */
     char c = getc(p->rf);
+
+    /* Handle line marker from preprocessor*/
+    if (p->char_num == 1) {
+        while (c == '#') {
+            getc(p->rf); /* Consume space */
+
+            /* Line number */
+            int line_num = 0;
+            while ((c = getc(p->rf)) != ' ') {
+                line_num *= 10;
+                line_num += c - '0';
+            }
+            p->line_num = line_num;
+
+            /* Consume linemarker */
+            while ((c = getc(p->rf)) != '\n');
+            c = getc(p->rf); /* First char of next line */
+        }
+    }
+
     fseek(p->rf, -1, SEEK_CUR);
     return c;
 }
@@ -749,7 +784,15 @@ static char read_char_next(Parser* p) {
 /* Advances read position to next char */
 static void consume_char(Parser* p) {
     /* Move the file position forwards */
-    getc(p->rf);
+    char c = getc(p->rf);
+
+    if (c == '\n') {
+        ++p->line_num;
+        p->char_num = 1;
+    }
+    else {
+        ++p->char_num;
+    }
 }
 
 /* Indicates the pointed to token is no longer in use */
@@ -884,16 +927,17 @@ int debug_parse_func_recursion_depth = 0;
         parser_attach_node(p, parent, st_ ## symbol_type__);            \
     int matched__ = 0
 /* Call at end on function */
-#define PARSE_FUNC_END()                                               \
-    if (g_debug_print_parse_recursion) {                               \
-    debug_parse_func_recursion_depth--;                                \
-    for (int i__ = 0; i__ < debug_parse_func_recursion_depth; ++i__) { \
-        LOG("  ");                                                     \
-    }                                                                  \
-    if (matched__) {LOG("\033[32m");} else {LOG("\033[0;1;31m");}      \
-    LOGF("<%d\033[0m\n", debug_parse_func_recursion_depth);            \
-    }                                                                  \
-    if (!matched__) {parser_set_parse_location(p, &start_location__);} \
+#define PARSE_FUNC_END()                                                   \
+    if (g_debug_print_parse_recursion) {                                   \
+    debug_parse_func_recursion_depth--;                                    \
+    for (int i__ = 0; i__ < debug_parse_func_recursion_depth; ++i__) {     \
+        LOG("  ");                                                         \
+    }                                                                      \
+    if (matched__) {LOG("\033[32m");} else {LOG("\033[0;1;31m");}          \
+    LOGF("<%d\033[0m\n", debug_parse_func_recursion_depth);                \
+    }                                                                      \
+    if (!matched__) {parser_set_parse_location(p, &start_location__);}     \
+    else {p->last_line_num = p->line_num; p->last_char_num = p->char_num;} \
     return matched__
 /* Call if a match was made in production rule */
 #define PARSE_MATCHED() matched__ = 1
@@ -2693,7 +2737,7 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
 
 int main(int argc, char** argv) {
     int rt_code = 0;
-    Parser p = {.rf = NULL, .of = NULL};
+    Parser p = {.rf = NULL, .of = NULL, .line_num = 1, .char_num = 1};
     p.ecode = ec_noerr;
 
     rt_code = handle_cli_arg(&p, argc, argv);
@@ -2716,7 +2760,8 @@ int main(int argc, char** argv) {
 
     if (!parse_function_definition(&p, &p.parse_node_root)) {
         parser_set_error(&p, ec_syntaxerr);
-        ERRMSG("Failed to build parse tree\n");
+        ERRMSGF("Failed to build parse tree. Line %d, around char %d\n",
+                p.last_line_num, p.last_char_num);
     }
 
     /* Debug options */

@@ -151,8 +151,8 @@ def run_py_file(test_name, c_file, py_file):
                 log(f"Unable to read {py_file}", Color.ERR)
 
             prog = Program(test_name, c_file)
+            log(prog.name)
             if prog.compile():
-                log('= RUN =')
                 # Globals available in the context of the test python file executed
                 f_globals = {"_prog": prog}
                 try:

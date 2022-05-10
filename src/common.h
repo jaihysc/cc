@@ -29,17 +29,51 @@
 
 #define ARRAY_SIZE(array__) (int)(sizeof(array__) / sizeof(array__[0]))
 
+/* Checks that the given strings is sorted correctly to
+   perform a binary search via strbinfind */
+static inline void strbinfind_validate(const char** strs, int str_count) {
+    /* Compare the string at i with string at i+1, n-1 times */
+    for (int i = 0; i < str_count - 1; ++i) {
+        const char* str1 = strs[i];
+        const char* str2 = strs[i+1];
+
+        int j = 0; /* String index */
+        while (1) {
+            char c1 = str1[j];
+            char c2 = str2[j];
+            ASSERTF(c1 <= c2,
+                    "Incorrectly sorted at index %d, %s %s", j, str1, str2);
+            if (c1 != '\0' && c2 == '\0') {
+                ASSERTF(0, "String 2 ended before string 1, %s %s", str1, str2);
+            }
+
+            if (c1 == '\0') {
+                break;
+            }
+            if (c1 < c2) {
+                break;
+            }
+            ++j;
+        }
+    }
+}
+
 /* Performs binary search for string */
 /* str:       c string to look for, does not need to be null terminated*/
 /* match_amt: Number of characters in str to match */
 /* strs:      pointer to c strings to look through */
 /* str_count: number of c strings in strs */
 /* Returns index where string was found, otherwise -1 */
-/* strs String sorting requirements: */
-/*   Alphabetical */
-/*   If a longer string has a prefix which matches a shorter string: */
-/*   the longer string comes after the shorter string */
+/* strs string sorting requirements:
+     Order by numeric value of first letter, smallest first. For those with
+     the same valued first letter, order by numeric value of second letter,
+     smallest first. If same letter, repeat for third letter, continue until
+     all strings sorted.
+     If a longer string has a prefix which matches a shorter string:
+     the longer string comes after the shorter string */
 static inline int strbinfind(const char* str, int match_amt, const char** strs, int str_count) {
+    strbinfind_validate(strs, str_count);
+
     int front = 0; /* Inclusive */
     int rear = str_count; /* Exclusive */
     while (front < rear) {

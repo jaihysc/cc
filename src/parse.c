@@ -270,6 +270,8 @@ static TokenId parser_add_token(Parser* p, const char* token) {
 static ParseLocation parser_get_parse_location(Parser* p, ParseNode* parent) {
     ASSERT(parent != NULL, "Parent node is null");
 
+    // TODO token buffer is not reset when backtrack, this may be a problem
+
     /* Current file position */
     long offset = ftell(p->rf);
     if (offset == -1L) {
@@ -598,6 +600,19 @@ static int tok_isunaryop(const char* str) {
     }
 }
 
+const char* token_assignment_operator[] = {
+    /* See strbinfind for ordering requirements */
+    "%=", "&=", "*=", "+=", "-=", "/=", "<<=", "=", ">>=", "^=", "|="
+};
+/* Returns 1 if token is considered an assignment operator */
+static int tok_isassignmentop(const char* token) {
+    return strbinfind(
+            token,
+            strlength(token),
+            token_assignment_operator,
+            ARRAY_SIZE(token_assignment_operator)) >= 0;
+}
+
 const char* token_storage_class_keyword[] = {
     /* See strbinfind for ordering requirements */
     "auto",
@@ -757,6 +772,15 @@ static char* read_token(Parser* p) {
             "Max token length must be at least 4 to hold C operators");
     if (isofpunctuator(c)) {
         char cn = read_char_next(p);
+        /* <= >= == != *= /= %= += -= &= ^= |= */
+        if (cn == '=') {
+            p->read_buf[0] = c;
+            p->read_buf[1] = '=';
+            p->read_buf[2] = '\0';
+            consume_char(p);
+            consume_char(p);
+            goto exit;
+        }
         /* + ++ */
         if (c == '+') {
             consume_char(p);
@@ -892,6 +916,8 @@ static int parse_logical_and_expression(Parser* p, ParseNode* parent);
 static int parse_logical_or_expression(Parser* p, ParseNode* parent);
 static int parse_conditional_expression(Parser* p, ParseNode* parent);
 static int parse_assignment_expression(Parser* p, ParseNode* parent);
+static int parse_assignment_expression_2(Parser* p, ParseNode* parent);
+static int parse_assignment_expression_3(Parser* p, ParseNode* parent);
 static int parse_expression(Parser* p, ParseNode* parent);
 /* 6.7 Declarators */
 static int parse_declaration(Parser* p, ParseNode* parent);
@@ -1370,15 +1396,41 @@ exit:
 }
 
 static int parse_assignment_expression(Parser* p, ParseNode* parent) {
+    /* For certain tokens, unary-expression can match but fail the
+       remaining production, it must backtrack to undo the unary-expression
+       to attempt another rule */
+    /* Cannot check conditional-expression first, assignment-expression may
+       match, but parent productions fail to match */
+    /* Because of how the backtrack system is implemented, the function
+       must return for backtrack to occur, thus I split the two possible
+       ways to form a production into functions */
+    if (parse_assignment_expression_3(p, parent)) return 1;
+    if (parse_assignment_expression_2(p, parent)) return 1;
+
+    return 0;
+}
+
+static int parse_assignment_expression_2(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(assignment_expression);
 
-    if (parse_conditional_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_conditional_expression(p, PARSE_CURRENT_NODE)) {
+        PARSE_MATCHED();
+    }
 
-    /* Incomplete */
+    PARSE_FUNC_END();
+}
 
-    goto exit;
+static int parse_assignment_expression_3(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(assignment_expression);
 
-matched:
+    if (!parse_unary_expression(p, PARSE_CURRENT_NODE)) goto exit;
+
+    char* token = read_token(p);
+    if (!tok_isassignmentop(token)) goto exit;
+    parser_attach_token(p, PARSE_CURRENT_NODE, token);
+    consume_token(token);
+
+    if (!parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto exit;
     PARSE_MATCHED();
 
 exit:

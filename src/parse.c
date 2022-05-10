@@ -26,6 +26,9 @@ int g_debug_print_buffers = 0;
 typedef int TokenId;
 typedef int SymbolId;
 
+typedef struct Parser Parser;
+static char* parser_get_token(Parser* p, TokenId id);
+
 typedef struct {
     TokenId tok_id;
     Type type;
@@ -153,6 +156,11 @@ static TokenId parse_node_token_id(ParseNode* node) {
     return st_to_token_id(node->type);
 }
 
+/* Retrieves token id for node */
+static const char* parse_node_token(Parser* p, ParseNode* node) {
+    return parser_get_token(p, parse_node_token_id(node));
+}
+
 typedef struct {
     /* Index of next available space in parse node buffer */
     int i_node_buf;
@@ -182,7 +190,7 @@ char* errcode_str[] = {ERROR_CODES};
 #undef ERROR_CODE
 #undef ERROR_CODES
 
-typedef struct {
+struct Parser {
     FILE* rf; /* Input file */
     FILE* of; /* Output file */
 
@@ -208,7 +216,7 @@ typedef struct {
     Symbol symtab[MAX_SYMTAB_TOKEN];
     int i_symtab; /* Index one past last element */
     int symtab_temp_num; /* Number to create unique temporary values */
-} Parser;
+};
 
 static void debug_parser_buf_dump(Parser* p);
 static void debug_parse_node_walk(
@@ -2242,12 +2250,50 @@ static SymbolId cg_conditional_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_assignment_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(assignment_expression);
 
-    SymbolId sym_id = cg_conditional_expression(p, parse_node_child(node, 0));
+    SymbolId opl_id;
+    if (parse_node_count_child(node) == 1) {
+        opl_id = cg_conditional_expression(p, parse_node_child(node, 0));
+    }
+    else {
+        ASSERT(parse_node_count_child(node) == 3, "Expected 3 children");
+        opl_id = cg_unary_expression(p, parse_node_child(node, 0));
+        SymbolId opr_id =
+            cg_assignment_expression(p, parse_node_child(node, 2));
 
-    /* Incomplete */
+        const char* token = parse_node_token(p, parse_node_child(node, 1));
+        if (strequ(token, "=")) {
+            parser_output_il(p, "mov %s,%s\n",
+                    symtab_get_token(p, opl_id), symtab_get_token(p, opr_id));
+        }
+        else {
+            const char* ins;
+            if (strequ(token, "*=")) {
+                ins = "mul";
+            }
+            else if (strequ(token, "/=")) {
+                ins = "div";
+            }
+            else if (strequ(token, "%=")) {
+                ins = "mod";
+            }
+            else if (strequ(token, "+=")) {
+                ins = "add";
+            }
+            else if (strequ(token, "-=")) {
+                ins = "sub";
+            }
+            else {
+                /* Incomplete */
+                ASSERT(0, "Unimplemented");
+            }
+            const char* opl_token = symtab_get_token(p, opl_id);
+            parser_output_il(p, "%s %s,%s,%s\n",
+                    ins, opl_token, opl_token, symtab_get_token(p, opr_id));
+        }
+    }
 
     DEBUG_CG_FUNC_END();
-    return sym_id;
+    return opl_id;
 }
 
 static SymbolId cg_expression(Parser* p, ParseNode* node) {
@@ -2485,8 +2531,8 @@ static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node) {
     while (node != NULL) {
         ParseNode* subnode = parse_node_child(node, 0);
         if (parse_node_type(subnode) == st_type_specifier) {
-            char* token = parser_get_token(p,
-                    parse_node_token_id(parse_node_child(subnode, 0)));
+            const char* token =
+                parse_node_token(p, parse_node_child(subnode, 0));
 
             /* Copy token into buffer */
             int i = 0;

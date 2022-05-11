@@ -55,6 +55,14 @@ Control flow instructions
 | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | ret         |  0,1 | Return `<arg0>s` from function if given, otherwise returns void                                                                             |
 | call        |  1+n | Call function with name `<arg0>s`, return value placed in `<arg1>s` or left as void if no return, arguments for call `<arg1+>si`            |
+| lab         |    1 | Create label with name `<arg0>`                                                                                                             |
+| jmp         |    1 | jump to `<arg0>l`                                                                                                                           |
+| jz          |    2 | jump to `<arg0>l` if `<arg1>si` == 0                                                                                                        |
+| jnz         |    2 | jump to `<arg0>l` if `<arg1>si` != 0                                                                                                        |
+| jl          |    3 | jump to `<arg0>l` if `<arg1>si` \< `<arg2>si`                                                                                               |
+| jle         |    3 | jump to `<arg0>l` if `<arg1>si` \<= `<arg2>si`                                                                                              |
+| je          |    3 | jump to `<arg0>l` if `<arg1>si` == `<arg2>si`                                                                                               |
+| jne         |    3 | jump to `<arg0>l` if `<arg1>si` != `<arg2>si`                                                                                               |
 
 Arithmetic and logical instructions
 | Instruction | Args | Summary                                                                                                                                     |
@@ -64,6 +72,7 @@ Arithmetic and logical instructions
 | sub         |    3 | `<arg0>s` = `<arg1>si` - `<arg2>si`                                                                                                         |
 | mul         |    3 | `<arg0>s` = `<arg1>si` * `<arg2>si`                                                                                                         |
 | div         |    3 | `<arg0>s` = `<arg1>si` / `<arg2>si`                                                                                                         |
+| not         |    2 | `<arg0>s` = !`<arg1>si`                                                                                                                     |
 
 - `0,1` Means 0 or 1
 - `+` Means variable number of arguments
@@ -72,6 +81,7 @@ Arithmetic and logical instructions
 - `s` after `<arg#>` means symbol
 - `i` after `<arg#>` means immediate (e.g., 0x55, 51, 0b11, 01123)
 - `t` after `<arg#>` means type
+- `l` after `<arg#>` means label
 
 ### func
 

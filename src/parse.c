@@ -9,7 +9,7 @@
 #define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
 #define MAX_PARSE_TREE_NODE 600 /* Maximum nodes in parser parse tree */
 #define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
-#define MAX_LEXEME_BUFFER_CHAR 512 /* Max characters in token buffer */
+#define MAX_TOKEN_BUFFER_CHAR 4096 /* Max characters in token buffer */
 #define MAX_SYMTAB_TOKEN 200 /* Maximum symbols in symbol table in total */
 
 /* ============================================================ */
@@ -176,12 +176,13 @@ typedef struct {
 
 /* pbufexceed: Parser buffer exceeded
    fileposfailed: Change file position indicator failed */
-#define ERROR_CODES          \
-    ERROR_CODE(noerr)        \
-    ERROR_CODE(tokbufexceed) \
-    ERROR_CODE(pbufexceed)   \
-    ERROR_CODE(syntaxerr)    \
-    ERROR_CODE(writefailed)  \
+#define ERROR_CODES           \
+    ERROR_CODE(noerr)         \
+    ERROR_CODE(tokbufexceed)  \
+    ERROR_CODE(pbufexceed)    \
+    ERROR_CODE(ptokbufexceed) \
+    ERROR_CODE(syntaxerr)     \
+    ERROR_CODE(writefailed)   \
     ERROR_CODE(fileposfailed)
 
 /* Should always be initialized to ec_noerr */
@@ -222,12 +223,14 @@ struct Parser {
     int i_parse_node_buf; /* Index one past last element */
 
     /* In future: Could save space by seeing if the token is already in buf */
-    char token_buf[MAX_LEXEME_BUFFER_CHAR];
+    char token_buf[MAX_TOKEN_BUFFER_CHAR];
     TokenId i_token_buf; /* Index one past last element */
 
     Symbol symtab[MAX_SYMTAB_TOKEN];
     int i_symtab; /* Index one past last element */
-    int symtab_temp_num; /* Number to create unique temporary values */
+    /* Number to create unique temporary/label/etc values */
+    int symtab_temp_num;
+    int symtab_label_num;
 };
 
 static void debug_parser_buf_dump(Parser* p);
@@ -239,7 +242,7 @@ static void debug_parse_node_walk(
 /* Sets error code in parser */
 static void parser_set_error(Parser* p, ErrorCode ecode) {
     p->ecode = ecode;
-    LOGF("Error set: %d\n", ecode);
+    LOGF("Error set: %d %s\n", ecode, errcode_str[ecode]);
 }
 
 /* Returns error code in parser */
@@ -273,8 +276,8 @@ static char* parser_get_token(Parser* p, TokenId id) {
 static TokenId parser_add_token(Parser* p, const char* token) {
     int token_start = p->i_token_buf;
     /* + 1 as a null terminator has to be inserted */
-    if (p->i_token_buf + strlength(token) + 1 > MAX_LEXEME_BUFFER_CHAR) {
-        parser_set_error(p, ec_pbufexceed);
+    if (p->i_token_buf + strlength(token) + 1 > MAX_TOKEN_BUFFER_CHAR) {
+        parser_set_error(p, ec_ptokbufexceed);
         return -1;
     }
     int i = 0;
@@ -560,16 +563,20 @@ static SymbolId symtab_add(Parser* p, TokenId tok_id, Type type) {
 
 /* Creates a new temporary for the current scope in symbol table */
 static SymbolId symtab_add_temporary(Parser* p, Type type) {
-    int numlen = ichar(p->symtab_temp_num);
-    /* chars for __local_, null terminator and number */
-    char token[9 + numlen];
-    strcopy("__local_", token);
-    itostr(p->symtab_temp_num, token + 8);
-    token[8 + numlen] = '\0';
+    AAPPENDI(token, "__local_", p->symtab_temp_num);
     ++p->symtab_temp_num;
 
     TokenId tok_id = parser_add_token(p, token);
     return symtab_add(p, tok_id, type);
+}
+
+/* Creates a new label for the current scope in symbol table */
+static SymbolId symtab_add_label(Parser* p) {
+    AAPPENDI(token, "__label_", p->symtab_label_num);
+    ++p->symtab_label_num;
+
+    TokenId tok_id = parser_add_token(p, token);
+    return symtab_add(p, tok_id, type_label);
 }
 
 /* Retrieves the token associated with symbol id from symbol table*/
@@ -1043,6 +1050,7 @@ static SymbolId cg_extract_symbol(Parser* p,
 /* Code generation helpers */
 static void cg_function_signature(Parser* p, ParseNode* node);
 static SymbolId cg_make_temporary(Parser* p, Type type);
+static SymbolId cg_make_label(Parser* p);
 static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
 static void cg_increment(Parser* p, SymbolId id, int n);
 static void cg_output_token(Parser* p, SymbolId id);
@@ -2084,9 +2092,9 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(unary_expression);
 
-    SymbolId sym_id;
+    SymbolId result_id;
     if (parse_node_count_child(node) == 1) {
-        sym_id = cg_postfix_expression(p, parse_node_child(node, 0));
+        result_id = cg_postfix_expression(p, parse_node_child(node, 0));
     }
     else {
         TokenId tok_id = parse_node_token_id(parse_node_child(node, 0));
@@ -2094,12 +2102,12 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
 
         /* Prefix increment, decrement */
         if (strequ(token, "++")) {
-            sym_id = cg_unary_expression(p, parse_node_child(node, 1));
-            cg_increment(p, sym_id, 1);
+            result_id = cg_unary_expression(p, parse_node_child(node, 1));
+            cg_increment(p, result_id, 1);
         }
         else if (strequ(token, "--")) {
-            sym_id = cg_unary_expression(p, parse_node_child(node, 1));
-            cg_increment(p, sym_id, -1);
+            result_id = cg_unary_expression(p, parse_node_child(node, 1));
+            cg_increment(p, result_id, -1);
         }
         else if (strequ(token, "sizeof")) {
             /* Incomplete */
@@ -2108,20 +2116,22 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
             /* unary-operator */
             SymbolId operand_1 =
                 cg_cast_expression(p, parse_node_child(node, 1));
-            sym_id = cg_make_temporary(p, symbol_type(p, operand_1));
+            result_id = cg_make_temporary(p, symbol_type(p, operand_1));
 
             char op = token[0]; /* Unary operator only single token */
             switch (op) {
                 case '-':
                     /* Negative by multiplying by -1 */
                     parser_output_il(p, "mul ");
-                    cg_output_token(p, sym_id);
+                    cg_output_token(p, result_id);
                     parser_output_il(p, ",");
                     cg_output_token(p, operand_1);
                     parser_output_il(p, ",-1\n");
                     break;
                 case '!':
-                    // TODO
+                    parser_output_il(p, "not %s,%s\n",
+                            symtab_get_token(p, result_id),
+                            symtab_get_token(p, operand_1));
                     break;
                 default:
                     ASSERT(0, "Unimplemented");
@@ -2130,7 +2140,7 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
     }
 
     DEBUG_CG_FUNC_END();
-    return sym_id;
+    return result_id;
 }
 
 static SymbolId cg_cast_expression(Parser* p, ParseNode* node) {
@@ -2290,23 +2300,78 @@ static SymbolId cg_inclusive_or_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_logical_and_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(logical_and_expression);
 
-    SymbolId sym_id = cg_inclusive_or_expression(p, parse_node_child(node, 0));
+    SymbolId result_id;
+    if (parse_node_count_child(node) == 1) {
+        /* Not a logical and (&&), do nothing */
+        result_id = cg_inclusive_or_expression(p, parse_node_child(node, 0));
+    }
+    else {
+        /* Compute short-circuit logical and */
+        SymbolId label_false_id = cg_make_label(p);
+        SymbolId label_end_id = cg_make_label(p);
+        result_id = cg_make_temporary(p, type_bool);
+        do {
+            SymbolId sym_id =
+                cg_inclusive_or_expression(p, parse_node_child(node, 0));
+            parser_output_il(p, "jz %s,%s\n",
+                    symtab_get_token(p, label_false_id),
+                    symtab_get_token(p, sym_id));
 
-    /* Incomplete */
+            node = parse_node_child(node, 1);
+        }
+        while (node != NULL);
+
+        /* True */
+        parser_output_il(p, "mov %s,1\n", symtab_get_token(p, result_id));
+        parser_output_il(p, "jmp %s\n", symtab_get_token(p, label_end_id));
+        /* False */
+        parser_output_il(p, "lab %s\n", symtab_get_token(p, label_false_id));
+        parser_output_il(p, "mov %s,0\n", symtab_get_token(p, result_id));
+
+        parser_output_il(p, "lab %s\n", symtab_get_token(p, label_end_id));
+    }
 
     DEBUG_CG_FUNC_END();
-    return sym_id;
+    return result_id;
 }
 
 static SymbolId cg_logical_or_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(logical_or_expression);
 
-    SymbolId sym_id = cg_logical_and_expression(p, parse_node_child(node, 0));
+    SymbolId result_id;
+    if (parse_node_count_child(node) == 1) {
+        /* Not a logical or (||), do nothing */
+        result_id = cg_logical_and_expression(p, parse_node_child(node, 0));
+    }
+    else {
+        /* Compute short-circuit logical or */
+        SymbolId label_true_id = cg_make_label(p);
+        SymbolId label_end_id = cg_make_label(p);
+        result_id = cg_make_temporary(p, type_bool);
+        do {
+            SymbolId sym_id =
+                cg_logical_and_expression(p, parse_node_child(node, 0));
+            parser_output_il(p, "jnz %s,%s\n",
+                    symtab_get_token(p, label_true_id),
+                    symtab_get_token(p, sym_id));
 
-    /* Incomplete */
+            node = parse_node_child(node, 1);
+        }
+        while (node != NULL);
+
+        /* False */
+        parser_output_il(p, "mov %s,0\n", symtab_get_token(p, result_id));
+        parser_output_il(p, "jmp %s\n", symtab_get_token(p, label_end_id));
+        /* True */
+        parser_output_il(p, "lab %s\n", symtab_get_token(p, label_true_id));
+        parser_output_il(p, "mov %s,1\n", symtab_get_token(p, result_id));
+
+        parser_output_il(p, "lab %s\n", symtab_get_token(p, label_end_id));
+    }
+
 
     DEBUG_CG_FUNC_END();
-    return sym_id;
+    return result_id;
 }
 
 static SymbolId cg_conditional_expression(Parser* p, ParseNode* node) {
@@ -2670,6 +2735,17 @@ static SymbolId cg_make_temporary(Parser* p, Type type) {
     cg_output_token(p, sym_id);
     parser_output_il(p, "\n");
     return sym_id;
+}
+
+static SymbolId cg_make_label(Parser* p) {
+    SymbolId label_id = symtab_add_label(p);
+
+    parser_output_il(p, "def ");
+    cg_output_type(p, label_id);
+    parser_output_il(p, " ");
+    cg_output_token(p, label_id);
+    parser_output_il(p, "\n");
+    return label_id;
 }
 
 /* Generates code to copy value from source into dest */

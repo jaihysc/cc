@@ -187,6 +187,15 @@ static inline void itostr(int i, char* buf) {
     }
 }
 
+/* Creates a c string on the stack with name,
+   has given prefix string with number appended */
+#define AAPPENDI(name__, prefix__, num__)                \
+    int numlen__ = ichar(num__);                         \
+    char name__[(int)sizeof(prefix__) + numlen__];       \
+    strcopy(prefix__, name__);                           \
+    itostr(num__, name__ + (int)sizeof(prefix__) - 1);   \
+    name__[(int)sizeof(prefix__) - 1 + numlen__] = '\0'
+
 #define TYPE_SPECIFIERS  \
     TYPE_SPECIFIER(void) \
     TYPE_SPECIFIER(i8)   \
@@ -216,6 +225,11 @@ typedef struct {
     TypeSpecifiers typespec;
     int pointers;
 } Type;
+
+/* Type for booleans */
+Type type_bool = {.typespec = ts_i32, .pointers = 0};
+/* Type for labels */
+Type type_label = {.typespec = ts_void, .pointers = 0};
 
 /* Converts a string into a type */
 static inline Type type_from_str(const char* str) {

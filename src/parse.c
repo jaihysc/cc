@@ -836,33 +836,24 @@ static char* read_token(Parser* p) {
             consume_char(p);
             goto exit;
         }
-        /* + ++ */
-        if (c == '+') {
-            consume_char(p);
-            p->read_buf[0] = '+';
-            if (cn == '+') {
+
+        /* Handle double char punctuators
+           + ++ - -- & && | || */
+        char chars[] = {'+', '-', '&', '|'};
+        for (int i = 0; i < ARRAY_SIZE(chars); ++i) {
+            if (c == chars[i]) {
                 consume_char(p);
-                p->read_buf[1] = '+';
-                p->read_buf[2] = '\0';
+                p->read_buf[0] = chars[i];
+                if (cn == chars[i]) {
+                    consume_char(p);
+                    p->read_buf[1] = chars[i];
+                    p->read_buf[2] = '\0';
+                }
+                else {
+                    p->read_buf[1] = '\0';
+                }
+                goto exit;
             }
-            else {
-                p->read_buf[1] = '\0';
-            }
-            goto exit;
-        }
-        /* - -- */
-        if (c == '-') {
-            consume_char(p);
-            p->read_buf[0] = '-';
-            if (cn == '-') {
-                consume_char(p);
-                p->read_buf[1] = '-';
-                p->read_buf[2] = '\0';
-            }
-            else {
-                p->read_buf[1] = '\0';
-            }
-            goto exit;
         }
 
         /* TODO For now, treat everything else as token */
@@ -1379,13 +1370,32 @@ exit:
 static int parse_relational_expression(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(relational_expression);
 
-    if (parse_shift_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    /* Left recursion in C standard is converted to right recursion */
+    /* relational-expression
+        -> shift-expression
+         | shift-expression < relational-expression
+         | shift-expression > relational-expression
+         | shift-expression <= relational-expression
+         | shift-expression >= relational-expression*/
 
-    /* Incomplete */
+    if (!parse_shift_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
-    goto exit;
-
-matched:
+    if (parse_expect(p, "<")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "<");
+        if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (parse_expect(p, ">")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, ">");
+        if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (parse_expect(p, "<=")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "<=");
+        if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (parse_expect(p, ">=")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, ">=");
+        if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
     PARSE_MATCHED();
 
 exit:
@@ -1395,13 +1405,22 @@ exit:
 static int parse_equality_expression(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(equality_expression);
 
-    if (parse_relational_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    /* Left recursion in C standard is converted to right recursion */
+    /* equality-expression
+        -> relational-expression
+         | relational-expression == equality-expression
+         | relational-expression != equality-expression */
 
-    /* Incomplete */
+    if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
-    goto exit;
-
-matched:
+    if (parse_expect(p, "==")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "==");
+        if (!parse_equality_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
+    else if (parse_expect(p, "!=")) {
+        parser_attach_token(p, PARSE_CURRENT_NODE, "!=");
+        if (!parse_equality_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
     PARSE_MATCHED();
 
 exit:
@@ -1459,13 +1478,16 @@ exit:
 static int parse_logical_and_expression(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(logical_and_expression);
 
-    if (parse_inclusive_or_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    /* Left recursion in C standard is converted to right recursion */
+    /* logical-and-expression
+        -> inclusive-or-expression
+         | inclusive-or-expression && logical-and-expression */
 
-    /* Incomplete */
+    if (!parse_inclusive_or_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
-    goto exit;
-
-matched:
+    if (parse_expect(p, "&&")) {
+        if (!parse_logical_and_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
     PARSE_MATCHED();
 
 exit:
@@ -1475,13 +1497,16 @@ exit:
 static int parse_logical_or_expression(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(logical_or_expression);
 
-    if (parse_logical_and_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    /* Left recursion in C standard is converted to right recursion */
+    /* logical-or-expression
+        -> logical-and-expression
+         | logical-and-expression || logical-or-expression */
 
-    /* Incomplete */
+    if (!parse_logical_and_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
-    goto exit;
-
-matched:
+    if (parse_expect(p, "||")) {
+        if (!parse_logical_or_expression(p, PARSE_CURRENT_NODE)) goto exit;
+    }
     PARSE_MATCHED();
 
 exit:
@@ -2095,7 +2120,9 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
                     cg_output_token(p, operand_1);
                     parser_output_il(p, ",-1\n");
                     break;
-
+                case '!':
+                    // TODO
+                    break;
                 default:
                     ASSERT(0, "Unimplemented");
             }

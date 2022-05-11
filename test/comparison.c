@@ -1,7 +1,7 @@
 int main(int argc, char** argv) {
-    int a = argc == 2;
+    int a = argc == 2 == 1;
     int b = argc != 2;
-    int c = argc < 2;
+    int c = argc < 2 < 2;
     int d = argc <= 2;
     int e = argc > 2;
     int f = argc >= 2;

@@ -414,6 +414,9 @@ static void debug_dump(Parser* p) {
 static void cg_arithmetic(
         Parser* p,
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins);
+static void cg_cmpsetcc(
+        Parser* p,
+        SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* set);
 static void cg_testjmpcc(
         Parser* p,
         SymbolId label_id, SymbolId op1_id, const char* jmp);
@@ -432,6 +435,10 @@ static void cg_validate_equal_size3(Parser* p,
 /* See strbinfind for ordering requirements */
 #define INSTRUCTIONS  \
     INSTRUCTION(add)  \
+    INSTRUCTION(ce)   \
+    INSTRUCTION(cl)   \
+    INSTRUCTION(cle)  \
+    INSTRUCTION(cne)  \
     INSTRUCTION(def)  \
     INSTRUCTION(div)  \
     INSTRUCTION(func) \
@@ -459,6 +466,54 @@ static INSTRUCTION_HANDLER(add) {
     SymbolId op2_id = symtab_find(p, pparg[2]);
 
     cg_arithmetic(p, lval_id, op1_id, op2_id, "add");
+}
+
+static INSTRUCTION_HANDLER(ce) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+
+    cg_cmpsetcc(p, lval_id, op1_id, op2_id, "sete");
+}
+
+static INSTRUCTION_HANDLER(cl) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+
+    cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setl");
+}
+
+static INSTRUCTION_HANDLER(cle) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+
+    cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setle");
+}
+
+static INSTRUCTION_HANDLER(cne) {
+    if (arg_count != 3) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId op2_id = symtab_find(p, pparg[2]);
+
+    cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setne");
 }
 
 static INSTRUCTION_HANDLER(def) {
@@ -735,6 +790,34 @@ static void cg_arithmetic(
     parser_output_asm(p, "%s %s,%s\n",
         ins,
         reg_str(reg_get(op1_reg, bytes)), reg_str(reg_get(op2_reg, bytes)));
+    cg_mov_fromr(p, op1_reg, dest_id);
+}
+
+/* Generates code to necessary instructions to implement logical operators:
+   1. Compares (op1 cmp op2)
+   2. Performs the indicated conditional set using the results from comparison
+   3. Zero extends result (0 or 1) to bytes of destination
+   3. Moves the result to destination */
+static void cg_cmpsetcc(
+        Parser* p,
+        SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* set) {
+    cg_validate_equal_size3(p, dest_id, op1_id, op2_id);
+
+    GRegister op1_reg = reg_a;
+    GRegister op2_reg = reg_c;
+    Symbol* dest = symtab_get(p, dest_id);
+    int bytes = type_bytes(symbol_type(dest));
+    const char* op1_reg_name = reg_get_str(op1_reg, bytes);
+    const char* op1_reg_lower_name = reg_get_str(op1_reg, 1);
+
+    cg_mov_tor(p, op1_id, op1_reg);
+    cg_mov_tor(p, op2_id, op2_reg);
+    parser_output_asm(p, "cmp %s,%s\n",
+        op1_reg_name, reg_get_str(op2_reg, bytes));
+    parser_output_asm(p, "%s %s\n", set, op1_reg_lower_name);
+    if (bytes > 1) {
+        parser_output_asm(p, "movzx %s,%s\n", op1_reg_name, op1_reg_lower_name);
+    }
     cg_mov_fromr(p, op1_reg, dest_id);
 }
 

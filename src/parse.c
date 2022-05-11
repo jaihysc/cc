@@ -2245,23 +2245,91 @@ static SymbolId cg_shift_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(relational_expression);
 
-    SymbolId sym_id = cg_shift_expression(p, parse_node_child(node, 0));
+    SymbolId operand_1 = cg_shift_expression(p, parse_node_child(node, 0));
+    ParseNode* operator = parse_node_child(node, 1);
+    node = parse_node_child(node, 2);
+    while (node != NULL) {
+        /* TODO in the future these logical operations must
+           all return type int */
+        SymbolId operand_2 =
+            cg_shift_expression(p, parse_node_child(node, 0));
+        SymbolId operand_temp =
+            cg_make_temporary(p, symbol_type(p, operand_1));
 
-    /* Incomplete */
+        const char* operator_token = parse_node_token(p, operator);
+        if (strequ(operator_token, "<")) {
+            parser_output_il(p, "cl %s,%s,%s\n",
+                    symtab_get_token(p, operand_temp),
+                    symtab_get_token(p, operand_1),
+                    symtab_get_token(p, operand_2));
+        }
+        else if (strequ(operator_token, "<=")) {
+            parser_output_il(p, "cle %s,%s,%s\n",
+                    symtab_get_token(p, operand_temp),
+                    symtab_get_token(p, operand_1),
+                    symtab_get_token(p, operand_2));
+        }
+        else if (strequ(operator_token, ">")) {
+            parser_output_il(p, "cl %s,%s,%s\n",
+                    symtab_get_token(p, operand_temp),
+                    symtab_get_token(p, operand_2),
+                    symtab_get_token(p, operand_1));
+        }
+        else {
+            ASSERT(strequ(operator_token, ">="), "Invalid token");
+            parser_output_il(p, "cle %s,%s,%s\n",
+                    symtab_get_token(p, operand_temp),
+                    symtab_get_token(p, operand_2),
+                    symtab_get_token(p, operand_1));
+        }
+
+        operand_1 = operand_temp;
+        operator = parse_node_child(node, 1);
+        node = parse_node_child(node, 2);
+    }
+    ASSERT(operator == NULL,
+            "Trailing operator without shift-expression");
 
     DEBUG_CG_FUNC_END();
-    return sym_id;
+    return operand_1;
 }
 
 static SymbolId cg_equality_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(equality_expression);
 
-    SymbolId sym_id = cg_relational_expression(p, parse_node_child(node, 0));
+    SymbolId operand_1 = cg_relational_expression(p, parse_node_child(node, 0));
+    ParseNode* operator = parse_node_child(node, 1);
+    node = parse_node_child(node, 2);
+    while (node != NULL) {
+        SymbolId operand_2 =
+            cg_relational_expression(p, parse_node_child(node, 0));
+        SymbolId operand_temp =
+            cg_make_temporary(p, symbol_type(p, operand_1));
 
-    /* Incomplete */
+        const char* operator_token = parse_node_token(p, operator);
+        if (strequ(operator_token, "==")) {
+            parser_output_il(p, "ce %s,%s,%s\n",
+                    symtab_get_token(p, operand_temp),
+                    symtab_get_token(p, operand_1),
+                    symtab_get_token(p, operand_2));
+        }
+        else {
+            ASSERT(strequ(operator_token, "!="), "Invalid token");
+            parser_output_il(p, "cne %s,%s,%s\n",
+                    symtab_get_token(p, operand_temp),
+                    symtab_get_token(p, operand_1),
+                    symtab_get_token(p, operand_2));
+        }
+
+        operand_1 = operand_temp;
+        operator = parse_node_child(node, 1);
+        node = parse_node_child(node, 2);
+    }
+    ASSERT(operator == NULL,
+            "Trailing operator without relational-expression");
 
     DEBUG_CG_FUNC_END();
-    return sym_id;
+    return operand_1;
 }
 
 static SymbolId cg_and_expression(Parser* p, ParseNode* node) {

@@ -59,10 +59,6 @@ Control flow instructions
 | jmp         |    1 | jump to `<arg0>l`                                                                                                                           |
 | jz          |    2 | jump to `<arg0>l` if `<arg1>si` == 0                                                                                                        |
 | jnz         |    2 | jump to `<arg0>l` if `<arg1>si` != 0                                                                                                        |
-| jl          |    3 | jump to `<arg0>l` if `<arg1>si` \< `<arg2>si`                                                                                               |
-| jle         |    3 | jump to `<arg0>l` if `<arg1>si` \<= `<arg2>si`                                                                                              |
-| je          |    3 | jump to `<arg0>l` if `<arg1>si` == `<arg2>si`                                                                                               |
-| jne         |    3 | jump to `<arg0>l` if `<arg1>si` != `<arg2>si`                                                                                               |
 
 Arithmetic and logical instructions
 | Instruction | Args | Summary                                                                                                                                     |
@@ -73,6 +69,10 @@ Arithmetic and logical instructions
 | mul         |    3 | `<arg0>s` = `<arg1>si` * `<arg2>si`                                                                                                         |
 | div         |    3 | `<arg0>s` = `<arg1>si` / `<arg2>si`                                                                                                         |
 | not         |    2 | `<arg0>s` = !`<arg1>si`                                                                                                                     |
+| cl          |    3 | `<arg0>l` = `<arg1>si` \< `<arg2>si`                                                                                                        |
+| cle         |    3 | `<arg0>l` = `<arg1>si` \<= `<arg2>si`                                                                                                       |
+| ce          |    3 | `<arg0>l` = `<arg1>si` == `<arg2>si`                                                                                                        |
+| cne         |    3 | `<arg0>l` = `<arg1>si` != `<arg2>si`                                                                                                        |
 
 - `0,1` Means 0 or 1
 - `+` Means variable number of arguments

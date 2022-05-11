@@ -3,12 +3,6 @@
  Generated output x86-64 assembly (imm3)
 */
 
-/*
- Discard the curly braces at the very end
- Create a stack for the scopes, do something on scope end
- Create a context struct (current context (scope, etc))
-*/
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -367,7 +361,7 @@ static int symtab_get_offset(Parser* p, SymbolId sym_id) {
     for (int i = 0; i <= sym_id; ++i) {
         Symbol* sym = p->symbol[i_scope] + i;
         if (symbol_on_stack(sym)) {
-            offset -= type_bytes(symbol_type(sym));
+            offset -= symbol_bytes(sym);
         }
     }
     return offset;
@@ -529,7 +523,7 @@ static INSTRUCTION_HANDLER(def) {
     Symbol* sym = symtab_get(p, symtab_add(p, type_from_str(type), name));
 
     /* Don't output asm for labels */
-    int bytes = type_bytes(symbol_type(sym));
+    int bytes = symbol_bytes(sym);
     if (bytes != 0) {
         parser_output_asm(p, "sub rsp,%d\n", bytes);
     }
@@ -712,11 +706,11 @@ static INSTRUCTION_HANDLER(not) {
 
     Symbol* rval = symtab_get(p, rval_id);
     GRegister reg = reg_a; /* Where to store intermediate value */
-
-    cg_mov_tor(p, rval_id, reg);
     int bytes = symbol_bytes(rval);
     const char* reg_name = reg_get_str(reg_a, bytes);
     const char* reg_lower_name = reg_get_str(reg_a, 1);
+
+    cg_mov_tor(p, rval_id, reg);
     parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
     parser_output_asm(p, "setz %s\n", reg_lower_name);
 
@@ -741,9 +735,9 @@ static INSTRUCTION_HANDLER(ret) {
         goto exit;
     }
 
-    int bytes = type_bytes(symbol_type(sym));
+    int bytes = symbol_bytes(sym);
     /* Return integer types in rax */
-    parser_output_asm(p, "mov %s,", reg_str(reg_get(reg_a, bytes)));
+    parser_output_asm(p, "mov %s,", reg_get_str(reg_a, bytes));
     cg_ref_symbol(p, sym_id);
     parser_output_asm(p, "\n");
 
@@ -783,21 +777,22 @@ static void cg_arithmetic(
     GRegister op1_reg = reg_a;
     GRegister op2_reg = reg_c;
     Symbol* dest = symtab_get(p, dest_id);
-    int bytes = type_bytes(symbol_type(dest));
+    int bytes = symbol_bytes(dest);
 
     cg_mov_tor(p, op1_id, op1_reg);
     cg_mov_tor(p, op2_id, op2_reg);
     parser_output_asm(p, "%s %s,%s\n",
         ins,
-        reg_str(reg_get(op1_reg, bytes)), reg_str(reg_get(op2_reg, bytes)));
+        reg_get_str(op1_reg, bytes), reg_get_str(op2_reg, bytes));
     cg_mov_fromr(p, op1_reg, dest_id);
 }
 
-/* Generates code to necessary instructions to implement logical operators:
-   1. Compares (op1 cmp op2)
-   2. Performs the indicated conditional set using the results from comparison
-   3. Zero extends result (0 or 1) to bytes of destination
-   3. Moves the result to destination */
+/* Generates the necessary instructions to implement logical operators:
+   1. Moves both operands into registers
+   2. Compares (op1 cmp op2)
+   3. Performs the indicated conditional set using the results from comparison
+   4. Zero extends result (0 or 1) to bytes of destination
+   5. Moves the result to destination */
 static void cg_cmpsetcc(
         Parser* p,
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* set) {
@@ -806,7 +801,7 @@ static void cg_cmpsetcc(
     GRegister op1_reg = reg_a;
     GRegister op2_reg = reg_c;
     Symbol* dest = symtab_get(p, dest_id);
-    int bytes = type_bytes(symbol_type(dest));
+    int bytes = symbol_bytes(dest);
     const char* op1_reg_name = reg_get_str(op1_reg, bytes);
     const char* op1_reg_lower_name = reg_get_str(op1_reg, 1);
 
@@ -821,18 +816,19 @@ static void cg_cmpsetcc(
     cg_mov_fromr(p, op1_reg, dest_id);
 }
 
-/* Generates code to test op1 and perform a conditional jump
-   indicated by jmp to label */
+/* Generates the necessary instructions to implement conditional jump
+   1. Moves operand into register
+   2. Tests (op1, op1)
+   3. Performs the conditional jump to label using the results from test */
 static void cg_testjmpcc(
         Parser* p,
         SymbolId label_id, SymbolId op1_id, const char* jmp) {
     GRegister reg = reg_a;
-
     Symbol* label = symtab_get(p, label_id);
     Symbol* op1 = symtab_get(p, op1_id);
+    const char* reg_name = reg_get_str(reg, symbol_bytes(op1));
 
     cg_mov_tor(p, op1_id, reg);
-    const char* reg_name = reg_get_str(reg, symbol_bytes(op1));
     parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
     parser_output_asm(p, "%s %s\n", jmp, symbol_name(label));
 }
@@ -845,24 +841,24 @@ static void cg_divide(
     GRegister op2_reg = reg_c;
 
     Symbol* op1 = symtab_get(p, op1_id);
-    int bytes = type_bytes(symbol_type(op1));
+    int bytes = symbol_bytes(op1);
 
     cg_mov_tor(p, op1_id, reg_a);
     cg_mov_tor(p, op2_id, op2_reg);
     /* dx has to be zeroed, other it is interpreted as part of dividend */
     parser_output_asm(p, "xor %s,%s\n",
-            reg_str(reg_get(reg_d, bytes)),
-            reg_str(reg_get(reg_d, bytes)));
+            reg_get_str(reg_d, bytes),
+            reg_get_str(reg_d, bytes));
 
-    parser_output_asm(p, "%s %s\n", ins, reg_str(reg_get(op2_reg, bytes)));
+    parser_output_asm(p, "%s %s\n", ins, reg_get_str(op2_reg, bytes));
 }
 
 /* Generates code for reg/mem -> reg */
 static void cg_mov_tor(Parser* p, SymbolId source, GRegister dest) {
     Symbol* sym = symtab_get(p, source);
-    int bytes = type_bytes(symbol_type(sym));
+    int bytes = symbol_bytes(sym);
 
-    parser_output_asm(p, "mov %s,", reg_str(reg_get(dest, bytes)));
+    parser_output_asm(p, "mov %s,", reg_get_str(dest, bytes));
     cg_ref_symbol(p, source);
     parser_output_asm(p, "\n");
 }
@@ -870,11 +866,11 @@ static void cg_mov_tor(Parser* p, SymbolId source, GRegister dest) {
 /* Generates code for reg -> reg/mem */
 static void cg_mov_fromr(Parser* p, GRegister source, SymbolId dest) {
     Symbol* sym = symtab_get(p, dest);
-    int bytes = type_bytes(symbol_type(sym));
+    int bytes = symbol_bytes(sym);
 
     parser_output_asm(p, "mov ");
     cg_ref_symbol(p, dest);
-    parser_output_asm(p, ",%s\n", reg_str(reg_get(source, bytes)));
+    parser_output_asm(p, ",%s\n", reg_get_str(source, bytes));
 }
 
 /* Generates assembly code to reference symbol
@@ -889,7 +885,7 @@ static void cg_ref_symbol(Parser* p, SymbolId sym_id) {
             sign = '-';
             abs_offset = -abs_offset;
         }
-        const char* size_dir = asm_size_directive(type_bytes(symbol_type(sym)));
+        const char* size_dir = asm_size_directive(symbol_bytes(sym));
         parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
     }
     else if (symbol_is_constant(sym)) {
@@ -936,8 +932,7 @@ static void cg_validate_equal_size2(Parser* p,
         SymbolId lval_id, SymbolId rval_id) {
     Symbol* lval = symtab_get(p, lval_id);
     Symbol* rval = symtab_get(p, rval_id);
-    ASSERT(type_bytes(symbol_type(lval)) == type_bytes(symbol_type(rval)),
-            "Non equal type sizes");
+    ASSERT(symbol_bytes(lval) == symbol_bytes(rval), "Non equal type sizes");
 }
 
 /* Asserts the given symbols are the same size */
@@ -946,10 +941,8 @@ static void cg_validate_equal_size3(Parser* p,
     Symbol* lval = symtab_get(p, lval_id);
     Symbol* op1 = symtab_get(p, op1_id);
     Symbol* op2 = symtab_get(p, op2_id);
-    ASSERT(type_bytes(symbol_type(lval)) == type_bytes(symbol_type(op1)),
-            "Non equal type sizes");
-    ASSERT(type_bytes(symbol_type(op1)) == type_bytes(symbol_type(op2)),
-            "Non equal type sizes");
+    ASSERT(symbol_bytes(lval) == symbol_bytes(op1), "Non equal type sizes");
+    ASSERT(symbol_bytes(op1) == symbol_bytes(op2), "Non equal type sizes");
 }
 
 /* Index of string is instruction handler index */

@@ -1,5 +1,4 @@
-// Tests arithmetic operations
-
+// Assignment operators
 int main(int argc, char** argv) {
     int a = 500;
     a = 0;

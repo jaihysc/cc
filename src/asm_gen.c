@@ -30,6 +30,45 @@ int g_debug_print_buffers = 0;
 
 /* All the registers in x86-64 (just 8 byte ones for now) */
 #define X86_REGISTERS  \
+    X86_REGISTER(al)   \
+    X86_REGISTER(bl)   \
+    X86_REGISTER(cl)   \
+    X86_REGISTER(dl)   \
+    X86_REGISTER(sil)  \
+    X86_REGISTER(dil)  \
+    X86_REGISTER(bpl)  \
+    X86_REGISTER(spl)  \
+    X86_REGISTER(r8b)  \
+    X86_REGISTER(r9b)  \
+    X86_REGISTER(r10b) \
+    X86_REGISTER(r11b) \
+    X86_REGISTER(r12b) \
+    X86_REGISTER(r13b) \
+    X86_REGISTER(r14b) \
+    X86_REGISTER(r15b) \
+                       \
+    X86_REGISTER(ah)   \
+    X86_REGISTER(bh)   \
+    X86_REGISTER(ch)   \
+    X86_REGISTER(dh)   \
+                       \
+    X86_REGISTER(ax)   \
+    X86_REGISTER(bx)   \
+    X86_REGISTER(cx)   \
+    X86_REGISTER(dx)   \
+    X86_REGISTER(si)   \
+    X86_REGISTER(di)   \
+    X86_REGISTER(bp)   \
+    X86_REGISTER(sp)   \
+    X86_REGISTER(r8w)  \
+    X86_REGISTER(r9w)  \
+    X86_REGISTER(r10w) \
+    X86_REGISTER(r11w) \
+    X86_REGISTER(r12w) \
+    X86_REGISTER(r13w) \
+    X86_REGISTER(r14w) \
+    X86_REGISTER(r15w) \
+                       \
     X86_REGISTER(eax)  \
     X86_REGISTER(ebx)  \
     X86_REGISTER(ecx)  \
@@ -46,6 +85,7 @@ int g_debug_print_buffers = 0;
     X86_REGISTER(r13d) \
     X86_REGISTER(r14d) \
     X86_REGISTER(r15d) \
+                       \
     X86_REGISTER(rax)  \
     X86_REGISTER(rbx)  \
     X86_REGISTER(rcx)  \
@@ -80,11 +120,17 @@ typedef enum {
 } GRegister;
 
 /* Returns the name to access a given register with the indicates size
-   e.g., reg_a*/
+   -1 for upper byte (ah), 1 for lower byte (al) */
 static Register reg_get(GRegister greg, int bytes) {
+    const Register reg_1l[] = {reg_al, reg_bl, reg_cl, reg_dl};
+    const Register reg_1h[] = {reg_ah, reg_bh, reg_ch, reg_dh};
     const Register reg_4[] = {reg_eax, reg_ebx, reg_ecx, reg_edx};
     const Register reg_8[] = {reg_rax, reg_rbx, reg_rcx, reg_rdx};
     switch (bytes) {
+        case 1:
+            return reg_1l[greg];
+        case -1:
+            return reg_1h[greg];
         case 4:
             return reg_4[greg];
         case 8:
@@ -98,6 +144,12 @@ static Register reg_get(GRegister greg, int bytes) {
 static const char* reg_str(Register reg) {
     ASSERT(reg >= 0, "Invalid register");
     return reg_strings[reg];
+}
+
+/* Returns the cstr of the register corresponding to the provided
+   register with the indicated size */
+static const char* reg_get_str(GRegister greg, int bytes) {
+    return reg_str(reg_get(greg, bytes));
 }
 
 /* ============================================================ */
@@ -191,6 +243,13 @@ static void symbol_make_constant(Symbol* sym) {
     sym->reg = reg_none;
 }
 
+/* Returns bytes for symbol */
+static int symbol_bytes(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return type_bytes(sym->type);
+}
+
+
 typedef struct {
     ErrorCode ecode;
 
@@ -226,6 +285,17 @@ static void parser_set_error(Parser* p, ErrorCode ecode) {
 
 /* Writes provided assembly using format string and va_args into output */
 static void parser_output_asm(Parser* p, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    if (vfprintf(p->of, fmt, args) < 0) {
+        parser_set_error(p, ec_writefailed);
+    }
+    va_end(args);
+}
+
+/* Writes comment using format string and va_args into output */
+static void parser_output_comment(Parser* p, const char* fmt, ...) {
+    parser_output_asm(p, "                                           ; ");
     va_list args;
     va_start(args, fmt);
     if (vfprintf(p->of, fmt, args) < 0) {
@@ -344,6 +414,9 @@ static void debug_dump(Parser* p) {
 static void cg_arithmetic(
         Parser* p,
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins);
+static void cg_testjmpcc(
+        Parser* p,
+        SymbolId label_id, SymbolId op1_id, const char* jmp);
 static void cg_divide(
         Parser* p, SymbolId op1_id, SymbolId op2_id,
         const char* ins);
@@ -362,9 +435,14 @@ static void cg_validate_equal_size3(Parser* p,
     INSTRUCTION(def)  \
     INSTRUCTION(div)  \
     INSTRUCTION(func) \
+    INSTRUCTION(jmp)  \
+    INSTRUCTION(jnz)  \
+    INSTRUCTION(jz)   \
+    INSTRUCTION(lab)  \
     INSTRUCTION(mod)  \
     INSTRUCTION(mov)  \
     INSTRUCTION(mul)  \
+    INSTRUCTION(not)  \
     INSTRUCTION(ret)  \
     INSTRUCTION(sub)
 typedef void(*InstructionHandler) (Parser*, char**, int);
@@ -380,7 +458,6 @@ static INSTRUCTION_HANDLER(add) {
     SymbolId op1_id = symtab_find(p, pparg[1]);
     SymbolId op2_id = symtab_find(p, pparg[2]);
 
-    parser_output_asm(p, "; add %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
     cg_arithmetic(p, lval_id, op1_id, op2_id, "add");
 }
 
@@ -396,8 +473,11 @@ static INSTRUCTION_HANDLER(def) {
 
     Symbol* sym = symtab_get(p, symtab_add(p, type_from_str(type), name));
 
-    parser_output_asm(p, "; def %s\n", pparg[0]);
-    parser_output_asm(p, "sub rsp,%d\n", type_bytes(symbol_type(sym)));
+    /* Don't output asm for labels */
+    int bytes = type_bytes(symbol_type(sym));
+    if (bytes != 0) {
+        parser_output_asm(p, "sub rsp,%d\n", bytes);
+    }
 }
 
 static INSTRUCTION_HANDLER(div) {
@@ -412,7 +492,6 @@ static INSTRUCTION_HANDLER(div) {
     SymbolId op2_id = symtab_find(p, pparg[2]);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
-    parser_output_asm(p, "; div %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
     cg_divide(p, op1_id, op2_id, "idiv");
     cg_mov_fromr(p, reg_a, lval_id);
 }
@@ -479,6 +558,50 @@ exit:
     return;
 }
 
+static INSTRUCTION_HANDLER(jmp) {
+    if (arg_count != 1) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+
+    SymbolId label_id = symtab_find(p, pparg[0]);
+    Symbol* label = symtab_get(p, label_id);
+
+    parser_output_asm(p, "jmp %s\n", symbol_name(label));
+}
+
+static INSTRUCTION_HANDLER(jnz) {
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+
+    SymbolId label_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+
+    cg_testjmpcc(p, label_id, op1_id, "jnz");
+}
+
+static INSTRUCTION_HANDLER(jz) {
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+
+    SymbolId label_id = symtab_find(p, pparg[0]);
+    SymbolId op1_id = symtab_find(p, pparg[1]);
+
+    cg_testjmpcc(p, label_id, op1_id, "jz");
+}
+
+static INSTRUCTION_HANDLER(lab) {
+    if (arg_count != 1) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    parser_output_asm(p, "%s:\n", pparg[0]);
+}
+
 static INSTRUCTION_HANDLER(mod) {
     if (arg_count != 3) {
         parser_set_error(p, ec_badargs);
@@ -492,7 +615,6 @@ static INSTRUCTION_HANDLER(mod) {
     SymbolId op2_id = symtab_find(p, pparg[2]);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
-    parser_output_asm(p, "; mod %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
     cg_divide(p, op1_id, op2_id, "idiv");
     cg_mov_fromr(p, reg_d, lval_id);
 }
@@ -507,7 +629,6 @@ static INSTRUCTION_HANDLER(mov) {
     SymbolId rval_id = symtab_find(p, pparg[1]);
     cg_validate_equal_size2(p, lval_id, rval_id);
 
-    parser_output_asm(p, "; mov %s,%s\n", pparg[0], pparg[1]);
     cg_mov_tor(p, rval_id, reg_a);
     cg_mov_fromr(p, reg_a, lval_id);
 }
@@ -521,8 +642,35 @@ static INSTRUCTION_HANDLER(mul) {
     SymbolId op1_id = symtab_find(p, pparg[1]);
     SymbolId op2_id = symtab_find(p, pparg[2]);
 
-    parser_output_asm(p, "; mul %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
     cg_arithmetic(p, lval_id, op1_id, op2_id, "imul");
+}
+
+static INSTRUCTION_HANDLER(not) {
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+
+    SymbolId lval_id = symtab_find(p, pparg[0]);
+    SymbolId rval_id = symtab_find(p, pparg[1]);
+    cg_validate_equal_size2(p, lval_id, rval_id);
+
+    Symbol* rval = symtab_get(p, rval_id);
+    GRegister reg = reg_a; /* Where to store intermediate value */
+
+    cg_mov_tor(p, rval_id, reg);
+    int bytes = symbol_bytes(rval);
+    const char* reg_name = reg_get_str(reg_a, bytes);
+    const char* reg_lower_name = reg_get_str(reg_a, 1);
+    parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
+    parser_output_asm(p, "setz %s\n", reg_lower_name);
+
+    /* Setz only sets 1 byte, thus the the remaining register
+       has to be cleared to obtain 1 or 0 */
+    if (bytes > 1) {
+        parser_output_asm(p, "movzx %s,%s\n", reg_name, reg_lower_name);
+    }
+    cg_mov_fromr(p, reg, lval_id);
 }
 
 static INSTRUCTION_HANDLER(ret) {
@@ -563,7 +711,6 @@ static INSTRUCTION_HANDLER(sub) {
     SymbolId op1_id = symtab_find(p, pparg[1]);
     SymbolId op2_id = symtab_find(p, pparg[2]);
 
-    parser_output_asm(p, "; sub %s,%s,%s\n", pparg[0], pparg[1], pparg[2]);
     cg_arithmetic(p, lval_id, op1_id, op2_id, "sub");
 }
 
@@ -589,6 +736,22 @@ static void cg_arithmetic(
         ins,
         reg_str(reg_get(op1_reg, bytes)), reg_str(reg_get(op2_reg, bytes)));
     cg_mov_fromr(p, op1_reg, dest_id);
+}
+
+/* Generates code to test op1 and perform a conditional jump
+   indicated by jmp to label */
+static void cg_testjmpcc(
+        Parser* p,
+        SymbolId label_id, SymbolId op1_id, const char* jmp) {
+    GRegister reg = reg_a;
+
+    Symbol* label = symtab_get(p, label_id);
+    Symbol* op1 = symtab_get(p, op1_id);
+
+    cg_mov_tor(p, op1_id, reg);
+    const char* reg_name = reg_get_str(reg, symbol_bytes(op1));
+    parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
+    parser_output_asm(p, "%s %s\n", jmp, symbol_name(label));
 }
 
 /* Places op1 and op2 in the appropriate locations for op1 / op2
@@ -743,7 +906,7 @@ static void parse(Parser* p) {
                 goto exit;
             }
             else if (ch == '\n') {
-                /* LOGF("Instruction buffer:\n%.*s\nArgument buffer:\n%.*s\n", i_ins, ins, i_arg, arg); */
+                parser_output_comment(p, "%.*s %.*s\n", i_ins, ins, i_arg, arg);
 
                 /* Separate each arg into array of pointers below, pass the array */
                 int arg_count = 0;

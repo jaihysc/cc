@@ -95,5 +95,12 @@ SymbolId cg_<nonterminal-name>(Parser*, ParseNode*)
 
 To add new symbols into the symbol table, a special function `cg_extract_symbol(Parser*, ParseNode*, ParseNode*)` is used as a symbol requires type and identifier which come from different nodes. This special function takes in both nodes and performs the necessary operations. The standard `cg_<nonterminal-name>` functions such as `cg_identifier` can be used for accessing symbols as they return the symbol's `SymbolId`.
 
-Within function-definition, intermediate code is generated at each sequence point. As it will never need to backtrack to a point prior to the sequence point, allowing for the parse tree to be cleared and intermediate code to be generated as it cannot change anymore.
+Intermediate code is generated at the following locations. They are chosen as it has been determined that the parser will never need to backtrack to a point prior to the location, allowing for the parse tree to be cleared and intermediate code to be generated as it cannot change anymore.
+
+- function-definition, prior to compound-statement
+- block-item, when production complete
+- selection-statement, rule 1, if ( expression ) `GENERATE` statement `GENERATE`
+- selection-statement, rule 2, if ( expression ) `GENERATE` statement `GENERATE` else statement `GENERATE`
+
+selection-statement must generate after expression as statement may generate code (otherwise the instructions are in the wrong order).
 

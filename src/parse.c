@@ -88,6 +88,7 @@ typedef struct {
     SYMBOL_TYPE(compound_statement)        \
     SYMBOL_TYPE(block_item)                \
     SYMBOL_TYPE(expression_statement)      \
+    SYMBOL_TYPE(selection_statement)       \
     SYMBOL_TYPE(jump_statement)            \
                                            \
     SYMBOL_TYPE(function_definition)
@@ -218,6 +219,9 @@ struct Parser {
        */
     char read_buf[MAX_TOKEN_LEN + 1];
 
+    /* Ensure root above node buffer for pointer arithmetic to work
+       (e.g., calculating index of node). Root treated as index -1
+       | root | node1 | node 2 | ... */
     ParseNode parse_node_root;
     ParseNode parse_node_buf[MAX_PARSE_TREE_NODE];
     int i_parse_node_buf; /* Index one past last element */
@@ -317,21 +321,17 @@ static ParseLocation parser_get_parse_location(Parser* p, ParseNode* parent) {
     return location;
 }
 
-static void parser_set_tree_location(Parser* p, ParseLocation* location) {
+/* Sets the current location in the parse tree */
+static void parser_set_parse_location(Parser* p, ParseLocation* location) {
+    p->line_num = location->line_num;
+    p->char_num = location->char_num;
+
     p->i_parse_node_buf = location->i_node_buf;
 
     /* Remove excess children */
     for (int i = location->node_childs; i < MAX_PARSE_NODE_CHILD; ++i) {
         location->node->child[i] = NULL;
     }
-}
-
-/* Sets the current location in the parse tree */
-static void parser_set_parse_location(Parser* p, ParseLocation* location) {
-    p->line_num = location->line_num;
-    p->char_num = location->char_num;
-
-    parser_set_tree_location(p, location);
 
     /* Return to old file position */
     if (fseek(p->rf, location->rf_offset, SEEK_SET) != 0) {
@@ -389,6 +389,19 @@ static ParseNode* parser_attach_token(Parser* p, ParseNode* parent, const char* 
         return NULL;
     }
     return parser_attach_node(p, parent, st_from_token_id(tok_id));
+}
+
+/* Removes the children of node from the parse tree */
+static void parser_detach_node_child(Parser* p, ParseNode* node) {
+    ASSERT(node != NULL, "Parse node is null");
+
+    /* Remove children */
+    for (int i = 0; i < MAX_PARSE_NODE_CHILD; ++i) {
+        node->child[i] = NULL;
+    }
+    /* Free memory of children */
+    int i_node = node - p->parse_node_buf; /* Index current node */
+    p->i_parse_node_buf = i_node + 1;
 }
 
 /* Prints out contents of parser buffers */
@@ -939,12 +952,11 @@ int debug_parse_func_recursion_depth = 0;
     return matched__
 /* Call if a match was made in production rule */
 #define PARSE_MATCHED() matched__ = 1
-/* Deletes child nodes of current location AND current node
-   PARSE_CURRENT_NODE can no longer be used */
+/* Deletes child nodes of current location */
 #define PARSE_TRIM_TREE()                                           \
     if (g_debug_print_parse_recursion) {LOG("Parse tree clear\n");} \
     if (g_debug_print_parse_tree) {debug_draw_parse_tree(p);}       \
-    parser_set_tree_location(p, &start_location__)
+    parser_detach_node_child(p, node__);
 
 /* Name for the pointer to the current node */
 #define PARSE_CURRENT_NODE node__
@@ -1002,6 +1014,7 @@ static int parse_statement(Parser* p, ParseNode* parent);
 static int parse_compound_statement(Parser* p, ParseNode* parent);
 static int parse_block_item(Parser* p, ParseNode* parent);
 static int parse_expression_statement(Parser* p, ParseNode* parent);
+static int parse_selection_statement(Parser* p, ParseNode* parent);
 static int parse_jump_statement(Parser* p, ParseNode* parent);
 /* 6.9 External definitions */
 static int parse_function_definition(Parser* p, ParseNode* parent);
@@ -1846,8 +1859,12 @@ exit:
 static int parse_statement(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(statement);
 
-    if (parse_jump_statement(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_compound_statement(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_expression_statement(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_selection_statement(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_jump_statement(p, PARSE_CURRENT_NODE)) goto matched;
+
+    /* Incomplete */
 
     goto exit;
 
@@ -1863,7 +1880,10 @@ static int parse_compound_statement(Parser* p, ParseNode* parent) {
 
     if (parse_expect(p, "{")) {
         /* block-item-list nodes are not needed for il generation */
-        while (parse_block_item(p, PARSE_CURRENT_NODE));
+        while (parse_block_item(p, PARSE_CURRENT_NODE)) {
+            cg_block_item(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+            PARSE_TRIM_TREE();
+        }
 
         if (parse_expect(p, "}")) {
             PARSE_MATCHED();
@@ -1883,8 +1903,6 @@ static int parse_block_item(Parser* p, ParseNode* parent) {
 
 matched:
     PARSE_MATCHED();
-    cg_block_item(p, PARSE_CURRENT_NODE);
-    PARSE_TRIM_TREE();
 
 exit:
     PARSE_FUNC_END();
@@ -1897,6 +1915,87 @@ static int parse_expression_statement(Parser* p, ParseNode* parent) {
     if (!parse_expect(p, ";")) goto exit;
 
     PARSE_MATCHED();
+
+exit:
+    PARSE_FUNC_END();
+}
+
+static int parse_selection_statement(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(selection_statement);
+
+    /* Generate as follows: (if only, no else):
+       evaluate expression
+       jz false
+         code when true
+       false: */
+    /* Generate as follows: (if else):
+       evaluate expression
+       jz false
+         code when true
+         jmp end
+       false:
+         code when false
+       end: */
+
+    /* Validate that the production matches if "if" seen
+       as it is not possible to backtrack after il generation and
+       parse tree is cleared */
+
+    if (!parse_expect(p, "if")) goto exit;
+    if (!parse_expect(p, "(")) {
+        ERRMSG("Expected '('\n");
+        goto syntaxerr;
+    }
+    if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+        ERRMSG("Expected expession\n");
+        goto syntaxerr;
+    }
+    if (!parse_expect(p, ")")) {
+        ERRMSG("Expected ')'\n");
+        goto syntaxerr;
+    }
+
+    SymbolId lab_false_id = cg_make_label(p);
+
+    SymbolId exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+    PARSE_TRIM_TREE();
+    parser_output_il(p, "jz %s,%s\n",
+            symtab_get_token(p, lab_false_id), symtab_get_token(p, exp_id));
+
+    if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+        ERRMSG("Expected statement\n");
+        goto syntaxerr;
+    }
+
+    cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+    PARSE_TRIM_TREE();
+
+    if (parse_expect(p, "else")) {
+        SymbolId lab_end_id = cg_make_label(p);
+        parser_output_il(p, "jmp %s\n", symtab_get_token(p, lab_end_id));
+        parser_output_il(p, "lab %s\n", symtab_get_token(p, lab_false_id));
+
+        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+            ERRMSG("Expected statement\n");
+            goto syntaxerr;
+        }
+
+        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+        PARSE_TRIM_TREE();
+
+        parser_output_il(p, "lab %s\n", symtab_get_token(p, lab_end_id));
+    }
+    else {
+        parser_output_il(p, "lab %s\n", symtab_get_token(p, lab_false_id));
+    }
+
+    /* Incomplete */
+
+    PARSE_MATCHED();
+    goto exit;
+
+syntaxerr:
+    parser_set_error(p, ec_syntaxerr);
 
 exit:
     PARSE_FUNC_END();
@@ -1932,7 +2031,7 @@ static int parse_function_definition(Parser* p, ParseNode* parent) {
     cg_function_signature(p, PARSE_CURRENT_NODE);
     PARSE_TRIM_TREE();
 
-    if (!parse_compound_statement(p, parent) ||
+    if (!parse_compound_statement(p, PARSE_CURRENT_NODE) ||
             parser_has_error(p)) goto exit;
 
     PARSE_MATCHED();
@@ -2596,6 +2695,9 @@ static void cg_statement(Parser* p, ParseNode* node) {
     switch (parse_node_type(child)) {
         case st_expression_statement:
             cg_expression_statement(p, child);
+            break;
+        case st_selection_statement:
+            /* If generates il itself */
             break;
         case st_jump_statement:
             cg_jump_statement(p, child);

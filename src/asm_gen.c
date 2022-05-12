@@ -11,7 +11,6 @@
 #define MAX_INSTRUCTION_LEN 256
 #define MAX_ARG_LEN 2048   /* Excludes null terminator */
 #define MAX_ARGS 256
-#define MAX_SCOPE_DEPTH 16 /* Max number of scopes */
 #define MAX_SCOPE_LEN 50   /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
 
 /* ============================================================ */
@@ -173,7 +172,6 @@ static const char* asm_size_directive(int bytes) {
     ERROR_CODE(noerr)          \
     ERROR_CODE(insbufexceed)   \
     ERROR_CODE(argbufexceed)   \
-    ERROR_CODE(scopedepexceed) \
     ERROR_CODE(scopelenexceed) \
     ERROR_CODE(invalidins)     \
     ERROR_CODE(invalidinsop)   \
@@ -250,15 +248,9 @@ typedef struct {
     FILE* rf; /* Input file */
     FILE* of; /* Generated code goes in this file */
 
-    /* [Array of scopes][Array of symbols in each scope] */
-    /* First scope element is highest scope (most global) */
     /* First symbol element is earliest in occurrence */
-    Symbol symbol[MAX_SCOPE_DEPTH][MAX_SCOPE_LEN];
-
-    /* One past end of latest(deepest) scope. */
-    int i_scope;
-    /* One past end of each scope indexed by i_scope */
-    int i_symbol[MAX_SCOPE_DEPTH];
+    Symbol symbol[MAX_SCOPE_LEN];
+    int i_symbol; /* Index one past end of scope */
 } Parser;
 
 /* Return 1 if error is set, else 0 */
@@ -301,26 +293,13 @@ static void parser_output_comment(Parser* p, const char* fmt, ...) {
 static SymbolId symtab_add(Parser* p, Type type, const char* name);
 static Symbol* symtab_get(Parser* p, SymbolId sym_id);
 
-/* Sets up a new symbol scope*/
-static void symtab_new_scope(Parser* p) {
-    if (p->i_scope >= MAX_SCOPE_DEPTH) {
-        parser_set_error(p, ec_scopedepexceed);
-        return;
-    }
-    /* Scope may have been previously used, reset index for symbol */
-    p->i_symbol[p->i_scope] = 0;
-    ++p->i_scope;
-}
-
 /* Retrieves symbol with given name from symbol table
    Null if not found */
 static SymbolId symtab_find(Parser* p, const char* name) {
-    for (int i_scope = p->i_scope - 1; i_scope >= 0; --i_scope) {
-        for (int i = 0; i < p->i_symbol[i_scope]; ++i) {
-            Symbol* symbol = p->symbol[i_scope] + i;
-            if (strequ(symbol->name, name)) {
-                return i;
-            }
+    for (int i = 0; i < p->i_symbol; ++i) {
+        Symbol* symbol = p->symbol + i;
+        if (strequ(symbol->name, name)) {
+            return i;
         }
     }
 
@@ -329,7 +308,6 @@ static SymbolId symtab_find(Parser* p, const char* name) {
        '-' for negative numbers */
     if (('0' <= name[0] && name[0] <= '9') || name[0] == '-') {
         /* TODO calculate size of constant, assume integer for now */
-        ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
         Type type = {.typespec = ts_i32};
         SymbolId sym_id = symtab_add(p, type, name);
         symbol_make_constant(symtab_get(p, sym_id));
@@ -343,23 +321,18 @@ static SymbolId symtab_find(Parser* p, const char* name) {
 }
 
 static Symbol* symtab_get(Parser* p, SymbolId sym_id) {
-    ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
     ASSERT(sym_id >= 0, "Invalid symbol id");
-    ASSERT(sym_id < p->i_symbol[0], "Symbol id out of range");
-    return p->symbol[0] + sym_id;
+    ASSERT(sym_id < p->i_symbol, "Symbol id out of range");
+    return p->symbol + sym_id;
 }
 
 /* Returns offset from base pointer to access symbol on the stack */
 static int symtab_get_offset(Parser* p, SymbolId sym_id) {
-    int offset = 0;
-    /* For current scope only for now
-       Crossing scopes requires SymbolId to also identify scope */
-    ASSERT(p->i_scope == 1, "Only 1 scope supported surrently");
     ASSERT(sym_id >= 0, "Symbol not found");
 
-    int i_scope = 0;
+    int offset = 0;
     for (int i = 0; i <= sym_id; ++i) {
-        Symbol* sym = p->symbol[i_scope] + i;
+        Symbol* sym = p->symbol + i;
         if (symbol_on_stack(sym)) {
             offset -= symbol_bytes(sym);
         }
@@ -370,13 +343,12 @@ static int symtab_get_offset(Parser* p, SymbolId sym_id) {
 /* Adds symbol created with given arguments to symbol table
    Returns the added symbol */
 static SymbolId symtab_add(Parser* p, Type type, const char* name) {
-    if (p->i_symbol[p->i_scope] >= MAX_SCOPE_LEN) {
+    if (p->i_symbol >= MAX_SCOPE_LEN) {
         parser_set_error(p, ec_scopelenexceed);
         return -1;
     }
-    int current_scope = p->i_scope - 1;
-    int i_sym = p->i_symbol[current_scope]++;
-    Symbol* sym = p->symbol[current_scope] + i_sym;
+    int i_sym = p->i_symbol++;
+    Symbol* sym = p->symbol + i_sym;
 
     sym->type = type;
     strcopy(name, sym->name);
@@ -386,18 +358,15 @@ static SymbolId symtab_add(Parser* p, Type type, const char* name) {
 
 /* Dumps contents stored in parser */
 static void debug_dump(Parser* p) {
-    LOGF("Scopes: [%d]\n", p->i_scope);
-    for (int i = 0; i < p->i_scope; ++i) {
-        LOGF("  [%d]\n", p->i_symbol[i]);
-        for (int j = 0; j < p->i_symbol[i]; ++j) {
-            Symbol* sym = p->symbol[i] + j;
-            Type type = symbol_type(sym);
-            LOGF("    %s", type_specifiers_str(type.typespec));
-            for (int k = 0; k < type.pointers; ++k) {
-                LOG("*");
-            }
-            LOGF(" %s %d\n", symbol_name(sym), symbol_location(sym));
+    LOGF("Symbol table: [%d]\n", p->i_symbol);
+    for (int i = 0; i < p->i_symbol; ++i) {
+        Symbol* sym = p->symbol + i;
+        Type type = symbol_type(sym);
+        LOGF("  %s", type_specifiers_str(type.typespec));
+        for (int j = 0; j < type.pointers; ++j) {
+            LOG("*");
         }
+        LOGF(" %s %d\n", symbol_name(sym), symbol_location(sym));
     }
 }
 
@@ -1099,9 +1068,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    /* Global scope */
-    symtab_new_scope(&p);
-    if (parser_has_error(&p)) goto exit;
     parse(&p);
 
 exit:

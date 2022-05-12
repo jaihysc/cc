@@ -10,7 +10,8 @@
 #define MAX_PARSE_TREE_NODE 600 /* Maximum nodes in parser parse tree */
 #define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
 #define MAX_TOKEN_BUFFER_CHAR 4096 /* Max characters in token buffer */
-#define MAX_SYMTAB_TOKEN 200 /* Maximum symbols in symbol table in total */
+#define MAX_SCOPES 16 /* Max number of scopes */
+#define MAX_SCOPE_LEN 200   /* Max symbols per scope */
 
 /* ============================================================ */
 /* Parser global configuration */
@@ -24,7 +25,18 @@ int g_debug_print_buffers = 0;
 /* Parser data structure + functions */
 
 typedef int TokenId;
-typedef int SymbolId;
+typedef struct {
+    int scope; /* Index of scope */
+    int index; /* Index of symbol in scope */
+} SymbolId;
+
+/* Used to indicate invalid symbol */
+SymbolId symid_invalid = {.index = -1};
+
+/* Return 1 if the SymbolId is valid, 0 otherwise */
+static int symid_valid(SymbolId sym_id) {
+    return sym_id.index != -1;
+}
 
 typedef struct Parser Parser;
 static char* parser_get_token(Parser* p, TokenId id);
@@ -33,6 +45,18 @@ typedef struct {
     TokenId tok_id;
     Type type;
 } Symbol;
+
+/* Returns token for symbol */
+static char* symbol_token(Parser* p, Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return parser_get_token(p, sym->tok_id);
+}
+
+/* Returns type for symbol */
+static Type symbol_type(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->type;
+}
 
 /* Sorted by Annex A */
 /* 6.4 Lexical elements */
@@ -177,13 +201,15 @@ typedef struct {
 
 /* pbufexceed: Parser buffer exceeded
    fileposfailed: Change file position indicator failed */
-#define ERROR_CODES           \
-    ERROR_CODE(noerr)         \
-    ERROR_CODE(tokbufexceed)  \
-    ERROR_CODE(pbufexceed)    \
-    ERROR_CODE(ptokbufexceed) \
-    ERROR_CODE(syntaxerr)     \
-    ERROR_CODE(writefailed)   \
+#define ERROR_CODES            \
+    ERROR_CODE(noerr)          \
+    ERROR_CODE(tokbufexceed)   \
+    ERROR_CODE(pbufexceed)     \
+    ERROR_CODE(ptokbufexceed)  \
+    ERROR_CODE(scopedepexceed) \
+    ERROR_CODE(scopelenexceed) \
+    ERROR_CODE(syntaxerr)      \
+    ERROR_CODE(writefailed)    \
     ERROR_CODE(fileposfailed)
 
 /* Should always be initialized to ec_noerr */
@@ -230,8 +256,11 @@ struct Parser {
     char token_buf[MAX_TOKEN_BUFFER_CHAR];
     TokenId i_token_buf; /* Index one past last element */
 
-    Symbol symtab[MAX_SYMTAB_TOKEN];
-    int i_symtab; /* Index one past last element */
+    /* First scope is most global
+       First symbol element is earliest in occurrence */
+    Symbol symtab[MAX_SCOPES][MAX_SCOPE_LEN];
+    int i_scope; /* Index one past end of latest(deepest) scope. */
+    int i_symbol[MAX_SCOPES]; /* Index one past last element for each scope */
     /* Number to create unique temporary/label/etc values */
     int symtab_temp_num;
     int symtab_label_num;
@@ -428,13 +457,18 @@ static void debug_parser_buf_dump(Parser* p) {
     }
 
     LOG("Symbol table:\n");
-    for (int i = 0; i < p->i_symtab; ++i) {
-        Symbol tok = p->symtab[i];
-        LOGF("%d %s ", i, type_specifiers_str(tok.type.typespec));
-        for (int j = 0; j < tok.type.pointers; ++j) {
-            LOG("*");
+    LOGF("Scopes: [%d]\n", p->i_scope);
+    for (int i = 0; i < p->i_scope; ++i) {
+        LOGF("  %d [%d]\n", i, p->i_symbol[i]);
+        for (int j = 0; j < p->i_symbol[i]; ++j) {
+            Symbol* sym = p->symtab[i] + j;
+            Type type = symbol_type(sym);
+            LOGF("    %d %s", j, type_specifiers_str(type.typespec));
+            for (int k = 0; k < type.pointers; ++k) {
+                LOG("*");
+            }
+            LOGF(" %s\n", symbol_token(p, sym));
         }
-        LOGF("%s\n", parser_get_token(p, tok.tok_id));
     }
 }
 
@@ -505,39 +539,55 @@ static void debug_parse_node_walk(
     }
 }
 
-/* Moves to the last (higher) scope */
-/* static void symtab_ascend(Parser* p) {
-} */
+/* Sets up a new symbol scope to be used */
+static void symtab_push_scope(Parser* p) {
+    if (p->i_scope >= MAX_SCOPES) {
+        parser_set_error(p, ec_scopedepexceed);
+        return;
+    }
+    /* Scope may have been previously used, reset index for symbol */
+    p->i_symbol[p->i_scope] = 0;
+    ++p->i_scope;
+}
 
-/* Moves to a new scope within the current scope */
-/* static void symtab_descend(Parser* p) {
-} */
+/* Removes current symbol scope, now uses the last scope */
+static void symtab_pop_scope(Parser* p) {
+    ASSERT(p->i_scope > 0, "No scope after popping first scope");
+    --p->i_scope;
+}
+
 
 /* Finds provided token in symbol table, closest scope first
    -1 if not found */
 static SymbolId symtab_find(Parser* p, TokenId tok_id) {
-    char* lex_1 = parser_get_token(p, tok_id);
-    for (int i = 0; i < p->i_symtab; ++i) {
-        char* lex_2 = parser_get_token(p, p->symtab[i].tok_id);
-        if (strequ(lex_1, lex_2)) {
-            return i;
+    const char* tok = parser_get_token(p, tok_id);
+    SymbolId id;
+
+    for (int i_scope = p->i_scope - 1; i_scope >= 0; --i_scope) {
+        for (int i = 0; i < p->i_symbol[i_scope]; ++i) {
+            Symbol* sym = p->symtab[i_scope] + i;
+            if (strequ(symbol_token(p, sym), tok)) {
+                id.scope = i_scope;
+                id.index = i;
+                return id;
+            }
         }
     }
-    return -1;
+    return symid_invalid;
 }
 
 /* Returns token for symbol */
 static const char* symtab_get_token(Parser* p, SymbolId sym_id) {
-    ASSERT(sym_id >= 0, "Token id out of range");
-    ASSERT(sym_id < p->i_symtab, "Token id out of range");
-    return p->token_buf + p->symtab[sym_id].tok_id;
+    ASSERT(symid_valid(sym_id), "Invalid symbol id");
+    ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
+    return p->token_buf + p->symtab[sym_id.scope][sym_id.index].tok_id;
 }
 
 /* Returns data type for symbol */
 static Type symtab_get_type(Parser* p, SymbolId sym_id) {
-    ASSERT(sym_id >= 0, "Token id out of range");
-    ASSERT(sym_id < p->i_symtab, "Token id out of range");
-    return p->symtab[sym_id].type;
+    ASSERT(symid_valid(sym_id), "Invalid symbol id");
+    ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
+    return p->symtab[sym_id.scope][sym_id.index].type;
 }
 
 /* In the future the parser has to generate the symbol table to
@@ -546,30 +596,35 @@ static Type symtab_get_type(Parser* p, SymbolId sym_id) {
 /* Adds provided token index and type into symbol table */
 static SymbolId symtab_add(Parser* p, TokenId tok_id, Type type) {
     /* Check if already exists in current scope */
-    SymbolId id = symtab_find(p, tok_id);
-    if (id >= 0) {
+    SymbolId found_id = symtab_find(p, tok_id);
+    if (symid_valid(found_id)) {
         const char* name = parser_get_token(p, tok_id);
 
         /* Special handling for constants, duplicates can exist */
         if ('0' <= name[0] && name[0] <= '9') {
-            ASSERT(type_equal(symtab_get_type(p, id), type),
+            ASSERT(type_equal(symtab_get_type(p, found_id), type),
                     "Same constant name with different types");
-            return id;
+            return found_id;
         }
 
-        ERRMSGF("Symbol already exists %s", name);
-        return -1;
+        ERRMSGF("Symbol already exists %s\n", name);
+        return symid_invalid;
     }
 
     /* Add new symbol */
-    if (id >= MAX_SYMTAB_TOKEN) {
+    SymbolId id;
+    id.scope = p->i_scope - 1;
+    id.index = p->i_symbol[id.scope];
+    if (id.scope >= MAX_SCOPE_LEN) {
         parser_set_error(p, ec_pbufexceed);
-        return -1;
+        return symid_invalid;
     }
-    id = p->i_symtab++;
 
-    p->symtab[id].tok_id = tok_id;
-    p->symtab[id].type = type;
+    Symbol* sym = p->symtab[id.scope] + id.index;
+    ++p->i_symbol[id.scope];
+
+    sym->tok_id = tok_id;
+    sym->type = type;
 
     return id;
 }
@@ -592,14 +647,14 @@ static SymbolId symtab_add_label(Parser* p) {
     return symtab_add(p, tok_id, type_label);
 }
 
-/* Retrieves the token associated with symbol id from symbol table*/
-static const char* symbol_token(Parser* p, SymbolId id) {
-    return p->token_buf + p->symtab[id].tok_id;
+/* Retrieves the token associated with symbol id from symbol table */
+static const char* symtab_token(Parser* p, SymbolId id) {
+    return p->token_buf + p->symtab[id.scope][id.index].tok_id;
 }
 
-/* Retrieves the type associated with symbol id from symbol table*/
-static Type symbol_type(Parser* p, SymbolId id) {
-    return p->symtab[id].type;
+/* Retrieves the type associated with symbol id from symbol table */
+static Type symtab_type(Parser* p, SymbolId id) {
+    return p->symtab[id.scope][id.index].type;
 }
 
 /* ============================================================ */
@@ -2088,7 +2143,7 @@ static SymbolId cg_identifier(Parser* p, ParseNode* node) {
     ParseNode* token_node = parse_node_child(node, 0);
     TokenId tok_id = parse_node_token_id(token_node);
     SymbolId sym_id = symtab_find(p, tok_id);
-    ASSERT(sym_id >= 0, "Failed to find identifier");
+    ASSERT(symid_valid(sym_id), "Failed to find identifier");
 
     DEBUG_CG_FUNC_END();
     return sym_id;
@@ -2126,7 +2181,7 @@ static SymbolId cg_integer_constant(Parser* p, ParseNode* node) {
 static SymbolId cg_primary_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(primary_expression);
 
-    SymbolId sym_id = 0;
+    SymbolId sym_id;
     ParseNode* child = parse_node_child(node, 0);
     if (parse_node_type(child) == st_identifier) {
         sym_id = cg_identifier(p, child);
@@ -2166,13 +2221,13 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
 
         /* Postfix increment, decrement */
         if (strequ(token, "++")) {
-            SymbolId temp_id = cg_make_temporary(p, symbol_type(p, result_id));
+            SymbolId temp_id = cg_make_temporary(p, symtab_type(p, result_id));
             cg_assign(p, temp_id, result_id);
             result_id = temp_id;
             cg_increment(p, sym_id, 1);
         }
         else if (strequ(token, "--")) {
-            SymbolId temp_id = cg_make_temporary(p, symbol_type(p, result_id));
+            SymbolId temp_id = cg_make_temporary(p, symtab_type(p, result_id));
             cg_assign(p, temp_id, result_id);
             result_id = temp_id;
             cg_increment(p, sym_id, -1);
@@ -2215,7 +2270,7 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
             /* unary-operator */
             SymbolId operand_1 =
                 cg_cast_expression(p, parse_node_child(node, 1));
-            result_id = cg_make_temporary(p, symbol_type(p, operand_1));
+            result_id = cg_make_temporary(p, symtab_type(p, operand_1));
 
             char op = token[0]; /* Unary operator only single token */
             switch (op) {
@@ -2263,7 +2318,7 @@ static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node) {
     while (node != NULL) {
         SymbolId operand_2 = cg_cast_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            cg_make_temporary(p, symbol_type(p, operand_1));
+            cg_make_temporary(p, symtab_type(p, operand_1));
 
         /* Operator can only be of 3 possible types */
         char* operator_token =
@@ -2304,7 +2359,7 @@ static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
         SymbolId operand_2 =
             cg_multiplicative_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            cg_make_temporary(p, symbol_type(p, operand_1));
+            cg_make_temporary(p, symtab_type(p, operand_1));
 
         /* Operator can only be of 2 possible types */
         char* operator_token =
@@ -2353,7 +2408,7 @@ static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
         SymbolId operand_2 =
             cg_shift_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            cg_make_temporary(p, symbol_type(p, operand_1));
+            cg_make_temporary(p, symtab_type(p, operand_1));
 
         const char* operator_token = parse_node_token(p, operator);
         if (strequ(operator_token, "<")) {
@@ -2403,7 +2458,7 @@ static SymbolId cg_equality_expression(Parser* p, ParseNode* node) {
         SymbolId operand_2 =
             cg_relational_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            cg_make_temporary(p, symbol_type(p, operand_1));
+            cg_make_temporary(p, symtab_type(p, operand_1));
 
         const char* operator_token = parse_node_token(p, operator);
         if (strequ(operator_token, "==")) {
@@ -2929,7 +2984,7 @@ static void cg_assign(Parser* p, SymbolId dest, SymbolId source) {
 
 /* Generates code to increment provided symbol by n*/
 static void cg_increment(Parser* p, SymbolId id, int n) {
-    const char* name = symbol_token(p, id);
+    const char* name = symtab_token(p, id);
     parser_output_il(p, "add %s,%s,%d\n", name, name, n);
 }
 

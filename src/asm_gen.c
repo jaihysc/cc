@@ -293,6 +293,17 @@ static void parser_output_comment(Parser* p, const char* fmt, ...) {
 static SymbolId symtab_add(Parser* p, Type type, const char* name);
 static Symbol* symtab_get(Parser* p, SymbolId sym_id);
 
+/* Returns 1 if name is within symbol table, 0 otherwise */
+static int symtab_contains(Parser* p, const char* name) {
+    for (int i = 0; i < p->i_symbol; ++i) {
+        Symbol* symbol = p->symbol + i;
+        if (strequ(symbol->name, name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Retrieves symbol with given name from symbol table
    Null if not found */
 static SymbolId symtab_find(Parser* p, const char* name) {
@@ -343,6 +354,8 @@ static int symtab_get_offset(Parser* p, SymbolId sym_id) {
 /* Adds symbol created with given arguments to symbol table
    Returns the added symbol */
 static SymbolId symtab_add(Parser* p, Type type, const char* name) {
+    ASSERTF(!symtab_contains(p, name), "Duplicate symbol %s", name);
+
     if (p->i_symbol >= MAX_SCOPE_LEN) {
         parser_set_error(p, ec_scopelenexceed);
         return -1;

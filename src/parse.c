@@ -257,10 +257,13 @@ struct Parser {
     TokenId i_token_buf; /* Index one past last element */
 
     /* First scope is most global
-       First symbol element is earliest in occurrence */
+       First symbol element is earliest in occurrence
+       Constants always use the first scope (at index 0) */
     Symbol symtab[MAX_SCOPES][MAX_SCOPE_LEN];
     int i_scope; /* Index one past end of latest(deepest) scope. */
     int i_symbol[MAX_SCOPES]; /* Index one past last element for each scope */
+    /* Number to uniquely identify every scope created */
+    int symtab_scope_num;
     /* Number to create unique temporary/label/etc values */
     int symtab_temp_num;
     int symtab_label_num;
@@ -541,6 +544,10 @@ static void debug_parse_node_walk(
 
 /* Sets up a new symbol scope to be used */
 static void symtab_push_scope(Parser* p) {
+    if (g_debug_print_parse_recursion) {
+        LOGF("Push scope. Depth %d, Number %d\n", p->i_scope, p->symtab_scope_num);
+    }
+
     if (p->i_scope >= MAX_SCOPES) {
         parser_set_error(p, ec_scopedepexceed);
         return;
@@ -548,29 +555,46 @@ static void symtab_push_scope(Parser* p) {
     /* Scope may have been previously used, reset index for symbol */
     p->i_symbol[p->i_scope] = 0;
     ++p->i_scope;
+    ++p->symtab_scope_num;
 }
 
 /* Removes current symbol scope, now uses the last scope */
 static void symtab_pop_scope(Parser* p) {
     ASSERT(p->i_scope > 0, "No scope after popping first scope");
+
     --p->i_scope;
+    if (g_debug_print_parse_recursion) {
+        LOGF("Pop scope at depth %d\n", p->i_scope);
+    }
+    if (g_debug_print_buffers) {
+        debug_parser_buf_dump(p);
+    }
 }
 
 
-/* Finds provided token in symbol table, closest scope first
-   -1 if not found */
-static SymbolId symtab_find(Parser* p, TokenId tok_id) {
+/* Finds provided token within indicated scope
+   Returns symid_invalid if not found */
+static SymbolId symtab_find_scoped(Parser* p, int i_scope, TokenId tok_id) {
     const char* tok = parser_get_token(p, tok_id);
-    SymbolId id;
+    for (int i = 0; i < p->i_symbol[i_scope]; ++i) {
+        Symbol* sym = p->symtab[i_scope] + i;
+        if (strequ(symbol_token(p, sym), tok)) {
+            SymbolId id;
+            id.scope = i_scope;
+            id.index = i;
+            return id;
+        }
+    }
+    return symid_invalid;
+}
 
+/* Finds provided token in symbol table, closest scope first
+   Returns symid_invalid if not found */
+static SymbolId symtab_find(Parser* p, TokenId tok_id) {
     for (int i_scope = p->i_scope - 1; i_scope >= 0; --i_scope) {
-        for (int i = 0; i < p->i_symbol[i_scope]; ++i) {
-            Symbol* sym = p->symtab[i_scope] + i;
-            if (strequ(symbol_token(p, sym), tok)) {
-                id.scope = i_scope;
-                id.index = i;
-                return id;
-            }
+        SymbolId found_id = symtab_find_scoped(p, i_scope, tok_id);
+        if (symid_valid(found_id)) {
+            return found_id;
         }
     }
     return symid_invalid;
@@ -590,38 +614,41 @@ static Type symtab_get_type(Parser* p, SymbolId sym_id) {
     return p->symtab[sym_id.scope][sym_id.index].type;
 }
 
-/* In the future the parser has to generate the symbol table to
-   provide context for parsing */
-
-/* Adds provided token index and type into symbol table */
+/* Adds provided token index and type into symbol table,
+   returns SymbolId of added symbol */
 static SymbolId symtab_add(Parser* p, TokenId tok_id, Type type) {
-    /* Check if already exists in current scope */
-    SymbolId found_id = symtab_find(p, tok_id);
-    if (symid_valid(found_id)) {
-        const char* name = parser_get_token(p, tok_id);
+    ASSERT(p->i_scope > 0, "No scope exists");
+    int curr_scope = p->i_scope - 1;
+    const char* name = parser_get_token(p, tok_id);
 
-        /* Special handling for constants, duplicates can exist */
-        if ('0' <= name[0] && name[0] <= '9') {
-            ASSERT(type_equal(symtab_get_type(p, found_id), type),
+    /* Special handling for constants: Duplicates can exist */
+    if ('0' <= name[0] && name[0] <= '9') {
+        SymbolId const_id = symtab_find_scoped(p, 0, tok_id);
+        if (symid_valid(const_id)) {
+            ASSERT(type_equal(symtab_get_type(p, const_id), type),
                     "Same constant name with different types");
-            return found_id;
+            return const_id;
         }
-
+        /* Use index 0 for adding constants */
+        curr_scope = 0;
+    }
+    /* Normal symbols can not have duplicates in same scope */
+    else if (symid_valid(symtab_find_scoped(p, curr_scope, tok_id))) {
         ERRMSGF("Symbol already exists %s\n", name);
         return symid_invalid;
     }
 
-    /* Add new symbol */
+    /* Add new symbol to current scope */
     SymbolId id;
-    id.scope = p->i_scope - 1;
-    id.index = p->i_symbol[id.scope];
-    if (id.scope >= MAX_SCOPE_LEN) {
+    id.scope = curr_scope;
+    id.index = p->i_symbol[curr_scope];
+    if (id.index >= MAX_SCOPE_LEN) {
         parser_set_error(p, ec_pbufexceed);
         return symid_invalid;
     }
 
-    Symbol* sym = p->symtab[id.scope] + id.index;
-    ++p->i_symbol[id.scope];
+    Symbol* sym = p->symtab[curr_scope] + id.index;
+    ++p->i_symbol[curr_scope];
 
     sym->tok_id = tok_id;
     sym->type = type;
@@ -1934,17 +1961,23 @@ static int parse_compound_statement(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(compound_statement);
 
     if (parse_expect(p, "{")) {
+        symtab_push_scope(p);
         /* block-item-list nodes are not needed for il generation */
         while (parse_block_item(p, PARSE_CURRENT_NODE)) {
             cg_block_item(p, parse_node_child(PARSE_CURRENT_NODE, 0));
             PARSE_TRIM_TREE();
         }
 
-        if (parse_expect(p, "}")) {
-            PARSE_MATCHED();
+        if (!parse_expect(p, "}")) {
+            ERRMSG("Expected '}' to end compound statement\n");
+            parser_set_error(p, ec_syntaxerr);
+            goto exit;
         }
+        PARSE_MATCHED();
+        symtab_pop_scope(p);
     }
 
+exit:
     PARSE_FUNC_END();
 }
 
@@ -2017,6 +2050,7 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
     parser_output_il(p, "jz %s,%s\n",
             symtab_get_token(p, lab_false_id), symtab_get_token(p, exp_id));
 
+    symtab_push_scope(p);
     if (!parse_statement(p, PARSE_CURRENT_NODE)) {
         ERRMSG("Expected statement\n");
         goto syntaxerr;
@@ -2024,12 +2058,14 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
 
     cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
     PARSE_TRIM_TREE();
+    symtab_pop_scope(p);
 
     if (parse_expect(p, "else")) {
         SymbolId lab_end_id = cg_make_label(p);
         parser_output_il(p, "jmp %s\n", symtab_get_token(p, lab_end_id));
         parser_output_il(p, "lab %s\n", symtab_get_token(p, lab_false_id));
 
+        symtab_push_scope(p);
         if (!parse_statement(p, PARSE_CURRENT_NODE)) {
             ERRMSG("Expected statement\n");
             goto syntaxerr;
@@ -2037,6 +2073,7 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
 
         cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
         PARSE_TRIM_TREE();
+        symtab_pop_scope(p);
 
         parser_output_il(p, "lab %s\n", symtab_get_token(p, lab_end_id));
     }
@@ -3086,11 +3123,14 @@ int main(int argc, char** argv) {
         }
     }
 
+    symtab_push_scope(&p);
     if (!parse_function_definition(&p, &p.parse_node_root)) {
         parser_set_error(&p, ec_syntaxerr);
         ERRMSGF("Failed to build parse tree. Line %d, around char %d\n",
                 p.last_line_num, p.last_char_num);
     }
+    symtab_pop_scope(&p);
+    ASSERT(p.i_scope == 0, "Scopes not empty on parse end");
 
     /* Debug options */
     if (g_debug_print_buffers) {

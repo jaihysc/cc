@@ -45,7 +45,7 @@ static char* parser_get_token(Parser* p, TokenId id);
 typedef struct {
     TokenId tok_id;
     Type type;
-    int scope_depth; /* Returns number of SUBscopes this symbol is of (start at 0) */
+    int scope_num; /* Guaranteed to be unique for each scope */
 } Symbol;
 
 /* Returns token for symbol */
@@ -60,9 +60,9 @@ static Type symbol_type(Symbol* sym) {
     return sym->type;
 }
 
-/* Returns number of SUBscopes this symbol is of (starts at ) */
-static int symbol_scope_depth(Symbol* sym) {
-    return sym->scope_depth;
+/* Returns number guaranteed to be unique for each scope */
+static int symbol_scope_num(Symbol* sym) {
+    return sym->scope_num;
 }
 
 /* Sorted by Annex A */
@@ -269,6 +269,8 @@ struct Parser {
     Symbol symtab[MAX_SCOPES][MAX_SCOPE_LEN];
     int i_scope; /* Index one past end of latest(deepest) scope. */
     int i_symbol[MAX_SCOPES]; /* Index one past last element for each scope */
+    /* Number to uniquely identify every scope created */
+    int symtab_scope_num;
     /* Number to create unique temporary/label/etc values */
     int symtab_temp_num;
     int symtab_label_num;
@@ -540,7 +542,7 @@ static void debug_parse_node_walk(
 /* Sets up a new symbol scope to be used */
 static void symtab_push_scope(Parser* p) {
     if (g_debug_print_parse_recursion) {
-        LOGF("Push scope. Depth %d", p->i_scope);
+        LOGF("Push scope. Depth %d, Number %d\n", p->i_scope, p->symtab_scope_num);
     }
 
     if (p->i_scope >= MAX_SCOPES) {
@@ -550,6 +552,7 @@ static void symtab_push_scope(Parser* p) {
     /* Scope may have been previously used, reset index for symbol */
     p->i_symbol[p->i_scope] = 0;
     ++p->i_scope;
+    ++p->symtab_scope_num;
 }
 
 /* Removes current symbol scope, now uses the last scope */
@@ -608,11 +611,11 @@ static Type symtab_get_type(Parser* p, SymbolId sym_id) {
     return symbol_type(p->symtab[sym_id.scope] + sym_id.index);
 }
 
-/* Returns scope number for SymbolId */
+/* Returns number guaranteed to be unique for each scope for SymbolId*/
 static int symtab_get_scope_num(Parser* p, SymbolId sym_id) {
     ASSERT(symid_valid(sym_id), "Invalid symbol id");
     ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
-    return symbol_scope_depth(p->symtab[sym_id.scope] + sym_id.index);
+    return symbol_scope_num(p->symtab[sym_id.scope] + sym_id.index);
 }
 
 /* Adds provided token index and type to the indicated scope
@@ -642,7 +645,14 @@ static SymbolId symtab_add_scoped(Parser* p,
 
     sym->tok_id = tok_id;
     sym->type = type;
-    sym->scope_depth = i_scope;
+
+    /* Indicate global scope for parser_output_il */
+    if (i_scope == 0) {
+        sym->scope_num = 0;
+    }
+    else {
+        sym->scope_num = p->symtab_scope_num;
+    }
 
     return id;
 }
@@ -712,9 +722,10 @@ static int parser_output_ili(Parser* p, const char* str) {
    Returns 1 if successful, 0 if not */
 static int parser_output_ils(Parser* p, SymbolId sym_id) {
     int scope_num = symtab_get_scope_num(p, sym_id);
+    /* symtab_add sets scope num to 0 for global scope */
     if (scope_num > 0) {
         return fprintf(p->of, "_Z%d%s",
-            symtab_get_scope_num(p, sym_id), symtab_get_token(p, sym_id)) >= 0;
+            scope_num, symtab_get_token(p, sym_id)) >= 0;
     }
     else {
         /* No prefix for global scope as constants sit in global scope */

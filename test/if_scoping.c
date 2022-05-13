@@ -13,6 +13,15 @@ int main(int argc, char** argv) {
         int a = 9;
         a = 10;
     }
+    // Check symbols at same scope depth is not seen as duplicates
+    {
+        int a = 11;
+        a = 12;
+        {
+            int a = 13;
+            a = 14;
+        }
+    }
 
     return a;
 }

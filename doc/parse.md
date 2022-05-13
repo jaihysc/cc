@@ -4,6 +4,10 @@ The parser utilizes recursive descent with 1 token lookahead to determine the pr
 
 ## Concepts
 
+### Output symbols
+
+The parser prepends `_Z<scope-number>` for all symbols within scopes other than the global (file) scope to identify shadowed symbols. Globals have no prefixes as constants are placed in global scope and passed directly to the assembler, thus they cannot have prefixes. Parser generated temporaries are of the form `_Z<scope-number>__t<temporary-number>`, labels `_Z<scope-number>__t<label-number>`.
+
 ### Output file formats (Unimplemented)
 
 The parser generates multiple output files with prefix `imm2`, ending with `_<name>` depending on the data listed below:

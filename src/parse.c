@@ -28,6 +28,7 @@ typedef int TokenId;
 typedef struct {
     int scope; /* Index of scope */
     int index; /* Index of symbol in scope */
+
 } SymbolId;
 
 /* Used to indicate invalid symbol */
@@ -44,6 +45,7 @@ static char* parser_get_token(Parser* p, TokenId id);
 typedef struct {
     TokenId tok_id;
     Type type;
+    int scope_depth; /* Returns number of SUBscopes this symbol is of (start at 0) */
 } Symbol;
 
 /* Returns token for symbol */
@@ -56,6 +58,11 @@ static char* symbol_token(Parser* p, Symbol* sym) {
 static Type symbol_type(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->type;
+}
+
+/* Returns number of SUBscopes this symbol is of (starts at ) */
+static int symbol_scope_depth(Symbol* sym) {
+    return sym->scope_depth;
 }
 
 /* Sorted by Annex A */
@@ -262,8 +269,6 @@ struct Parser {
     Symbol symtab[MAX_SCOPES][MAX_SCOPE_LEN];
     int i_scope; /* Index one past end of latest(deepest) scope. */
     int i_symbol[MAX_SCOPES]; /* Index one past last element for each scope */
-    /* Number to uniquely identify every scope created */
-    int symtab_scope_num;
     /* Number to create unique temporary/label/etc values */
     int symtab_temp_num;
     int symtab_label_num;
@@ -289,16 +294,6 @@ static ErrorCode parser_get_error(Parser* p) {
 /* Returns 1 if error is set, 0 otherwise */
 static int parser_has_error(Parser* p) {
     return p->ecode != ec_noerr;
-}
-
-/* Writes provided IL using format string and va_args into output */
-static void parser_output_il(Parser* p, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    if (vfprintf(p->of, fmt, args) < 0) {
-        parser_set_error(p, ec_writefailed);
-    }
-    va_end(args);
 }
 
 /* Returns token at given index */
@@ -545,7 +540,7 @@ static void debug_parse_node_walk(
 /* Sets up a new symbol scope to be used */
 static void symtab_push_scope(Parser* p) {
     if (g_debug_print_parse_recursion) {
-        LOGF("Push scope. Depth %d, Number %d\n", p->i_scope, p->symtab_scope_num);
+        LOGF("Push scope. Depth %d", p->i_scope);
     }
 
     if (p->i_scope >= MAX_SCOPES) {
@@ -555,7 +550,6 @@ static void symtab_push_scope(Parser* p) {
     /* Scope may have been previously used, reset index for symbol */
     p->i_symbol[p->i_scope] = 0;
     ++p->i_scope;
-    ++p->symtab_scope_num;
 }
 
 /* Removes current symbol scope, now uses the last scope */
@@ -600,18 +594,25 @@ static SymbolId symtab_find(Parser* p, TokenId tok_id) {
     return symid_invalid;
 }
 
-/* Returns token for symbol */
+/* Returns token for SymbolId */
 static const char* symtab_get_token(Parser* p, SymbolId sym_id) {
     ASSERT(symid_valid(sym_id), "Invalid symbol id");
     ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
-    return p->token_buf + p->symtab[sym_id.scope][sym_id.index].tok_id;
+    return symbol_token(p, p->symtab[sym_id.scope] + sym_id.index);
 }
 
-/* Returns data type for symbol */
+/* Returns type for SymbolId */
 static Type symtab_get_type(Parser* p, SymbolId sym_id) {
     ASSERT(symid_valid(sym_id), "Invalid symbol id");
     ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
-    return p->symtab[sym_id.scope][sym_id.index].type;
+    return symbol_type(p->symtab[sym_id.scope] + sym_id.index);
+}
+
+/* Returns scope number for SymbolId */
+static int symtab_get_scope_num(Parser* p, SymbolId sym_id) {
+    ASSERT(symid_valid(sym_id), "Invalid symbol id");
+    ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
+    return symbol_scope_depth(p->symtab[sym_id.scope] + sym_id.index);
 }
 
 /* Adds provided token index and type into symbol table,
@@ -652,13 +653,14 @@ static SymbolId symtab_add(Parser* p, TokenId tok_id, Type type) {
 
     sym->tok_id = tok_id;
     sym->type = type;
+    sym->scope_depth = curr_scope;
 
     return id;
 }
 
 /* Creates a new temporary for the current scope in symbol table */
 static SymbolId symtab_add_temporary(Parser* p, Type type) {
-    AAPPENDI(token, "__local_", p->symtab_temp_num);
+    AAPPENDI(token, "__t", p->symtab_temp_num);
     ++p->symtab_temp_num;
 
     TokenId tok_id = parser_add_token(p, token);
@@ -667,21 +669,121 @@ static SymbolId symtab_add_temporary(Parser* p, Type type) {
 
 /* Creates a new label for the current scope in symbol table */
 static SymbolId symtab_add_label(Parser* p) {
-    AAPPENDI(token, "__label_", p->symtab_label_num);
+    AAPPENDI(token, "__l", p->symtab_label_num);
     ++p->symtab_label_num;
 
     TokenId tok_id = parser_add_token(p, token);
     return symtab_add(p, tok_id, type_label);
 }
 
-/* Retrieves the token associated with symbol id from symbol table */
-static const char* symtab_token(Parser* p, SymbolId id) {
-    return p->token_buf + p->symtab[id.scope][id.index].tok_id;
+/* Handles format specifier $d
+   Prints int as string
+   Returns 1 if successful, 0 if not */
+static int parser_output_ild(Parser* p, int i) {
+    return fprintf(p->of, "%d", i) >= 0;
 }
 
-/* Retrieves the type associated with symbol id from symbol table */
-static Type symtab_type(Parser* p, SymbolId id) {
-    return p->symtab[id.scope][id.index].type;
+/* Handles format specifier $i
+   Prints char* as string
+   Returns 1 if successful, 0 if not */
+static int parser_output_ili(Parser* p, const char* str) {
+    return fprintf(p->of, "%s", str) >= 0;
+}
+
+/* Handles format specifier $s
+   Prints Symbol as string
+   Returns 1 if successful, 0 if not */
+static int parser_output_ils(Parser* p, SymbolId sym_id) {
+    int scope_num = symtab_get_scope_num(p, sym_id);
+    if (scope_num > 0) {
+        return fprintf(p->of, "_Z%d%s",
+            symtab_get_scope_num(p, sym_id), symtab_get_token(p, sym_id)) >= 0;
+    }
+    else {
+        /* No prefix for global scope as constants sit in global scope */
+        return fprintf(p->of, "%s", symtab_get_token(p, sym_id)) >= 0;
+    }
+}
+
+/* Handles format specifier $t
+   Prints Symbol Type as string
+   Returns 1 if successful, 0 if not */
+static int parser_output_ilt(Parser* p, SymbolId sym_id) {
+    Type type = symtab_get_type(p, sym_id);
+    if (fprintf(p->of, "%s", type_specifiers_str(type.typespec)) < 0)
+        goto error;
+    for (int i = 0; i < type.pointers; ++i) {
+        if (fprintf(p->of, "*") < 0) goto error;
+    }
+    return 1;
+
+error:
+    return 0;
+}
+
+/* Writes provided IL using CUSTOM format string (See below) and va_args
+   into output
+   Format string: The format specifier is replaced with a result
+   Format specifier | Parameter | Result
+    $d                int         Integer as string
+    $i                char*       String (Think Instruction)
+    $s                SymbolId    Name of symbol
+    $t                Type        Type as a string
+*/
+static void parser_output_il(Parser* p, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+
+    /* Scans format string as follows:
+        Prints from fmt until format specifier
+        Move fmt to after format specifier
+        Continue until null terminator */
+    int i = 0;
+    char c;
+    while ((c = fmt[i]) != '\0') {
+        if (c == '$') {
+            /* Print string from fmt until current position */
+            if (fprintf(p->of, "%.*s", i, fmt) < 0) goto error;
+            char format_c = fmt[++i];
+            ASSERT(format_c != '\0', "Expected format specifier char");
+
+            /* Reposition to keep scanning */
+            fmt += i + 1; /* Char after format_c */
+            i = 0;
+
+            int success;
+            switch (format_c) {
+                case 'd':
+                    success = parser_output_ild(p, va_arg(args, int));
+                    break;
+                case 'i':
+                    success = parser_output_ili(p, va_arg(args, char*));
+                    break;
+                case 's':
+                    success = parser_output_ils(p, va_arg(args, SymbolId));
+                    break;
+                case 't':
+                    success = parser_output_ilt(p, va_arg(args, SymbolId));
+                    break;
+                default:
+                    ASSERT(0, "Unrecognized format specifier char");
+            }
+            if (!success) goto error;
+        }
+        else {
+            ++i;
+        }
+    }
+    /* Print out remaining format string */
+    if (fprintf(p->of, "%.*s", i, fmt) < 0) goto error;
+
+    goto exit;
+
+error:
+    parser_set_error(p, ec_writefailed);
+
+exit:
+    va_end(args);
 }
 
 /* ============================================================ */
@@ -1148,8 +1250,6 @@ static SymbolId cg_make_temporary(Parser* p, Type type);
 static SymbolId cg_make_label(Parser* p);
 static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
 static void cg_increment(Parser* p, SymbolId id, int n);
-static void cg_output_token(Parser* p, SymbolId id);
-static void cg_output_type(Parser* p, SymbolId id);
 
 /* identifier */
 static int parse_identifier(Parser* p, ParseNode* parent) {
@@ -2047,8 +2147,7 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
 
     SymbolId exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
     PARSE_TRIM_TREE();
-    parser_output_il(p, "jz %s,%s\n",
-            symtab_get_token(p, lab_false_id), symtab_get_token(p, exp_id));
+    parser_output_il(p, "jz $s,$s\n", lab_false_id, exp_id);
 
     symtab_push_scope(p);
     if (!parse_statement(p, PARSE_CURRENT_NODE)) {
@@ -2062,8 +2161,8 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
 
     if (parse_expect(p, "else")) {
         SymbolId lab_end_id = cg_make_label(p);
-        parser_output_il(p, "jmp %s\n", symtab_get_token(p, lab_end_id));
-        parser_output_il(p, "lab %s\n", symtab_get_token(p, lab_false_id));
+        parser_output_il(p, "jmp $s\n", lab_end_id);
+        parser_output_il(p, "lab $s\n", lab_false_id);
 
         symtab_push_scope(p);
         if (!parse_statement(p, PARSE_CURRENT_NODE)) {
@@ -2075,10 +2174,10 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
         PARSE_TRIM_TREE();
         symtab_pop_scope(p);
 
-        parser_output_il(p, "lab %s\n", symtab_get_token(p, lab_end_id));
+        parser_output_il(p, "lab $s\n", lab_end_id);
     }
     else {
-        parser_output_il(p, "lab %s\n", symtab_get_token(p, lab_false_id));
+        parser_output_il(p, "lab $s\n", lab_false_id);
     }
 
     /* Incomplete */
@@ -2258,13 +2357,13 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
 
         /* Postfix increment, decrement */
         if (strequ(token, "++")) {
-            SymbolId temp_id = cg_make_temporary(p, symtab_type(p, result_id));
+            SymbolId temp_id = cg_make_temporary(p, symtab_get_type(p, result_id));
             cg_assign(p, temp_id, result_id);
             result_id = temp_id;
             cg_increment(p, sym_id, 1);
         }
         else if (strequ(token, "--")) {
-            SymbolId temp_id = cg_make_temporary(p, symtab_type(p, result_id));
+            SymbolId temp_id = cg_make_temporary(p, symtab_get_type(p, result_id));
             cg_assign(p, temp_id, result_id);
             result_id = temp_id;
             cg_increment(p, sym_id, -1);
@@ -2307,22 +2406,16 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
             /* unary-operator */
             SymbolId operand_1 =
                 cg_cast_expression(p, parse_node_child(node, 1));
-            result_id = cg_make_temporary(p, symtab_type(p, operand_1));
+            result_id = cg_make_temporary(p, symtab_get_type(p, operand_1));
 
             char op = token[0]; /* Unary operator only single token */
             switch (op) {
                 case '-':
                     /* Negative by multiplying by -1 */
-                    parser_output_il(p, "mul ");
-                    cg_output_token(p, result_id);
-                    parser_output_il(p, ",");
-                    cg_output_token(p, operand_1);
-                    parser_output_il(p, ",-1\n");
+                    parser_output_il(p, "mul $s,$s,-1\n", result_id, operand_1);
                     break;
                 case '!':
-                    parser_output_il(p, "not %s,%s\n",
-                            symtab_get_token(p, result_id),
-                            symtab_get_token(p, operand_1));
+                    parser_output_il(p, "not $s,$s\n", result_id, operand_1);
                     break;
                 default:
                     ASSERT(0, "Unimplemented");
@@ -2355,7 +2448,7 @@ static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node) {
     while (node != NULL) {
         SymbolId operand_2 = cg_cast_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            cg_make_temporary(p, symtab_type(p, operand_1));
+            cg_make_temporary(p, symtab_get_type(p, operand_1));
 
         /* Operator can only be of 3 possible types */
         char* operator_token =
@@ -2367,11 +2460,8 @@ static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node) {
         else if (strequ(operator_token, "%")) {
             instruction = "mod";
         }
-        parser_output_il(p, "%s %s,%s,%s\n",
-                instruction,
-                symtab_get_token(p, operand_temp),
-                symtab_get_token(p, operand_1),
-                symtab_get_token(p, operand_2));
+        parser_output_il(p, "$i $s,$s,$s\n",
+                instruction, operand_temp, operand_1, operand_2);
 
         operand_1 = operand_temp;
         operator = parse_node_child(node, 1);
@@ -2396,7 +2486,7 @@ static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
         SymbolId operand_2 =
             cg_multiplicative_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            cg_make_temporary(p, symtab_type(p, operand_1));
+            cg_make_temporary(p, symtab_get_type(p, operand_1));
 
         /* Operator can only be of 2 possible types */
         char* operator_token =
@@ -2405,11 +2495,8 @@ static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
         if (strequ(operator_token, "-")) {
             instruction = "sub";
         }
-        parser_output_il(p, "%s %s,%s,%s\n",
-                instruction,
-                symtab_get_token(p, operand_temp),
-                symtab_get_token(p, operand_1),
-                symtab_get_token(p, operand_2));
+        parser_output_il(p, "$i $s,$s,$s\n",
+                instruction, operand_temp, operand_1, operand_2);
 
         operand_1 = operand_temp;
         operator = parse_node_child(node, 1);
@@ -2445,33 +2532,25 @@ static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
         SymbolId operand_2 =
             cg_shift_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            cg_make_temporary(p, symtab_type(p, operand_1));
+            cg_make_temporary(p, symtab_get_type(p, operand_1));
 
         const char* operator_token = parse_node_token(p, operator);
         if (strequ(operator_token, "<")) {
-            parser_output_il(p, "cl %s,%s,%s\n",
-                    symtab_get_token(p, operand_temp),
-                    symtab_get_token(p, operand_1),
-                    symtab_get_token(p, operand_2));
+            parser_output_il(p, "cl $s,$s,$s\n",
+                    operand_temp, operand_1, operand_2);
         }
         else if (strequ(operator_token, "<=")) {
-            parser_output_il(p, "cle %s,%s,%s\n",
-                    symtab_get_token(p, operand_temp),
-                    symtab_get_token(p, operand_1),
-                    symtab_get_token(p, operand_2));
+            parser_output_il(p, "cle $s,$s,$s\n",
+                    operand_temp, operand_1, operand_2);
         }
         else if (strequ(operator_token, ">")) {
-            parser_output_il(p, "cl %s,%s,%s\n",
-                    symtab_get_token(p, operand_temp),
-                    symtab_get_token(p, operand_2),
-                    symtab_get_token(p, operand_1));
+            parser_output_il(p, "cl $s,$s,$s\n",
+                    operand_temp, operand_2, operand_1);
         }
         else {
             ASSERT(strequ(operator_token, ">="), "Invalid token");
-            parser_output_il(p, "cle %s,%s,%s\n",
-                    symtab_get_token(p, operand_temp),
-                    symtab_get_token(p, operand_2),
-                    symtab_get_token(p, operand_1));
+            parser_output_il(p, "cle $s,$s,$s\n",
+                    operand_temp, operand_2, operand_1);
         }
 
         operand_1 = operand_temp;
@@ -2495,21 +2574,17 @@ static SymbolId cg_equality_expression(Parser* p, ParseNode* node) {
         SymbolId operand_2 =
             cg_relational_expression(p, parse_node_child(node, 0));
         SymbolId operand_temp =
-            cg_make_temporary(p, symtab_type(p, operand_1));
+            cg_make_temporary(p, symtab_get_type(p, operand_1));
 
         const char* operator_token = parse_node_token(p, operator);
         if (strequ(operator_token, "==")) {
-            parser_output_il(p, "ce %s,%s,%s\n",
-                    symtab_get_token(p, operand_temp),
-                    symtab_get_token(p, operand_1),
-                    symtab_get_token(p, operand_2));
+            parser_output_il(p, "ce $s,$s,$s\n",
+                    operand_temp, operand_1, operand_2);
         }
         else {
             ASSERT(strequ(operator_token, "!="), "Invalid token");
-            parser_output_il(p, "cne %s,%s,%s\n",
-                    symtab_get_token(p, operand_temp),
-                    symtab_get_token(p, operand_1),
-                    symtab_get_token(p, operand_2));
+            parser_output_il(p, "cne $s,$s,$s\n",
+                    operand_temp, operand_1, operand_2);
         }
 
         operand_1 = operand_temp;
@@ -2572,22 +2647,20 @@ static SymbolId cg_logical_and_expression(Parser* p, ParseNode* node) {
         do {
             SymbolId sym_id =
                 cg_inclusive_or_expression(p, parse_node_child(node, 0));
-            parser_output_il(p, "jz %s,%s\n",
-                    symtab_get_token(p, label_false_id),
-                    symtab_get_token(p, sym_id));
+            parser_output_il(p, "jz $s,$s\n", label_false_id, sym_id);
 
             node = parse_node_child(node, 1);
         }
         while (node != NULL);
 
         /* True */
-        parser_output_il(p, "mov %s,1\n", symtab_get_token(p, result_id));
-        parser_output_il(p, "jmp %s\n", symtab_get_token(p, label_end_id));
+        parser_output_il(p, "mov $s,1\n", result_id);
+        parser_output_il(p, "jmp $s\n", label_end_id);
         /* False */
-        parser_output_il(p, "lab %s\n", symtab_get_token(p, label_false_id));
-        parser_output_il(p, "mov %s,0\n", symtab_get_token(p, result_id));
+        parser_output_il(p, "lab $s\n", label_false_id);
+        parser_output_il(p, "mov $s,0\n", result_id);
 
-        parser_output_il(p, "lab %s\n", symtab_get_token(p, label_end_id));
+        parser_output_il(p, "lab $s\n", label_end_id);
     }
 
     DEBUG_CG_FUNC_END();
@@ -2610,22 +2683,20 @@ static SymbolId cg_logical_or_expression(Parser* p, ParseNode* node) {
         do {
             SymbolId sym_id =
                 cg_logical_and_expression(p, parse_node_child(node, 0));
-            parser_output_il(p, "jnz %s,%s\n",
-                    symtab_get_token(p, label_true_id),
-                    symtab_get_token(p, sym_id));
+            parser_output_il(p, "jnz $s,$s\n", label_true_id, sym_id);
 
             node = parse_node_child(node, 1);
         }
         while (node != NULL);
 
         /* False */
-        parser_output_il(p, "mov %s,0\n", symtab_get_token(p, result_id));
-        parser_output_il(p, "jmp %s\n", symtab_get_token(p, label_end_id));
+        parser_output_il(p, "mov $s,0\n", result_id);
+        parser_output_il(p, "jmp $s\n", label_end_id);
         /* True */
-        parser_output_il(p, "lab %s\n", symtab_get_token(p, label_true_id));
-        parser_output_il(p, "mov %s,1\n", symtab_get_token(p, result_id));
+        parser_output_il(p, "lab $s\n", label_true_id);
+        parser_output_il(p, "mov $s,1\n", result_id);
 
-        parser_output_il(p, "lab %s\n", symtab_get_token(p, label_end_id));
+        parser_output_il(p, "lab $s\n", label_end_id);
     }
 
 
@@ -2659,8 +2730,7 @@ static SymbolId cg_assignment_expression(Parser* p, ParseNode* node) {
 
         const char* token = parse_node_token(p, parse_node_child(node, 1));
         if (strequ(token, "=")) {
-            parser_output_il(p, "mov %s,%s\n",
-                    symtab_get_token(p, opl_id), symtab_get_token(p, opr_id));
+            parser_output_il(p, "mov $s,$s\n", opl_id, opr_id);
         }
         else {
             const char* ins;
@@ -2683,9 +2753,7 @@ static SymbolId cg_assignment_expression(Parser* p, ParseNode* node) {
                 /* Incomplete */
                 ASSERT(0, "Unimplemented");
             }
-            const char* opl_token = symtab_get_token(p, opl_id);
-            parser_output_il(p, "%s %s,%s,%s\n",
-                    ins, opl_token, opl_token, symtab_get_token(p, opr_id));
+            parser_output_il(p, "$i $s,$s,$s\n", ins, opl_id, opl_id, opr_id);
         }
     }
 
@@ -2716,11 +2784,7 @@ static void cg_declaration(Parser* p, ParseNode* node) {
 
     /* L value */
     SymbolId lval_id = cg_extract_symbol(p, declspec, declarator);
-    parser_output_il(p, "def ");
-    cg_output_type(p, lval_id);
-    parser_output_il(p, " ");
-    cg_output_token(p, lval_id);
-    parser_output_il(p, "\n");
+    parser_output_il(p, "def $t $s\n", lval_id, lval_id);
 
     /* R value assigned to l value */
     ParseNode* initializer = parse_node_child(initdecl, 1);
@@ -2760,9 +2824,7 @@ static void cg_parameter_declaration(Parser* p, ParseNode* node) {
     ParseNode* declarator = parse_node_child(node, 1);
     SymbolId id = cg_extract_symbol(p, declspec, declarator);
 
-    cg_output_type(p, id);
-    parser_output_il(p, " ");
-    cg_output_token(p, id);
+    parser_output_il(p, "$t $s", id, id);
 
     DEBUG_CG_FUNC_END();
 }
@@ -2832,9 +2894,7 @@ static void cg_jump_statement(Parser* p, ParseNode* node) {
 
     if (strequ(jmp_token, "return")) {
         SymbolId exp_id = cg_expression(p, parse_node_child(node, 1));
-        parser_output_il(p, "ret ");
-        cg_output_token(p, exp_id);
-        parser_output_il(p, "\n");
+        parser_output_il(p, "ret $s\n", exp_id);
     }
 
     DEBUG_CG_FUNC_END();
@@ -2970,11 +3030,7 @@ static void cg_function_signature(Parser* p, ParseNode* node) {
 
     /* name is function name, type is return type */
     SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
-    parser_output_il(p, "func ");
-    cg_output_token(p, func_id);
-    parser_output_il(p, ",");
-    cg_output_type(p, func_id);
-    parser_output_il(p, ",");
+    parser_output_il(p, "func $s,$t,", func_id, func_id);
 
     ParseNode* dirdeclarator = parse_node_child(declarator, -1);
     ParseNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
@@ -2991,52 +3047,25 @@ static void cg_function_signature(Parser* p, ParseNode* node) {
 static SymbolId cg_make_temporary(Parser* p, Type type) {
     SymbolId sym_id = symtab_add_temporary(p, type);
 
-    parser_output_il(p, "def ");
-    cg_output_type(p, sym_id);
-    parser_output_il(p, " ");
-    cg_output_token(p, sym_id);
-    parser_output_il(p, "\n");
+    parser_output_il(p, "def $t $s\n", sym_id, sym_id);
     return sym_id;
 }
 
 static SymbolId cg_make_label(Parser* p) {
     SymbolId label_id = symtab_add_label(p);
 
-    parser_output_il(p, "def ");
-    cg_output_type(p, label_id);
-    parser_output_il(p, " ");
-    cg_output_token(p, label_id);
-    parser_output_il(p, "\n");
+    parser_output_il(p, "def $t $s\n", label_id, label_id);
     return label_id;
 }
 
 /* Generates code to copy value from source into dest */
 static void cg_assign(Parser* p, SymbolId dest, SymbolId source) {
-    parser_output_il(p, "mov ");
-    cg_output_token(p, dest);
-    parser_output_il(p, ",");
-    cg_output_token(p, source);
-    parser_output_il(p, "\n");
+    parser_output_il(p, "mov $s,$s\n", dest, source);
 }
 
 /* Generates code to increment provided symbol by n*/
 static void cg_increment(Parser* p, SymbolId id, int n) {
-    const char* name = symtab_token(p, id);
-    parser_output_il(p, "add %s,%s,%d\n", name, name, n);
-}
-
-/* Outputs token for provided symbol */
-static void cg_output_token(Parser* p, SymbolId id) {
-    parser_output_il(p, symtab_get_token(p, id));
-}
-
-/* Outputs type for provided symbol */
-static void cg_output_type(Parser* p, SymbolId id) {
-    Type type = symtab_get_type(p, id);
-    parser_output_il(p, type_specifiers_str(type.typespec));
-    for (int i = 0; i < type.pointers; ++i) {
-        parser_output_il(p, "*");
-    }
+    parser_output_il(p, "add $s,$s,$d\n", id, id, n);
 }
 
 /* ============================================================ */

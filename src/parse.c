@@ -615,11 +615,42 @@ static int symtab_get_scope_num(Parser* p, SymbolId sym_id) {
     return symbol_scope_depth(p->symtab[sym_id.scope] + sym_id.index);
 }
 
+/* Adds provided token index and type to the indicated scope
+   within the symbol table,
+   Returns SymbolId of added symbol, or symid_invalid if it already exists */
+static SymbolId symtab_add_scoped(Parser* p,
+        int i_scope, TokenId tok_id, Type type) {
+    ASSERT(p->i_scope > 0, "Invalid scope");
+
+    /* Normal symbols can not have duplicates in same scope */
+    if (symid_valid(symtab_find_scoped(p, i_scope, tok_id))) {
+        const char* name = parser_get_token(p, tok_id);
+        ERRMSGF("Symbol already exists %s\n", name);
+        return symid_invalid;
+    }
+
+    SymbolId id;
+    id.scope = i_scope;
+    id.index = p->i_symbol[i_scope];
+    if (id.index >= MAX_SCOPE_LEN) {
+        parser_set_error(p, ec_pbufexceed);
+        return symid_invalid;
+    }
+
+    Symbol* sym = p->symtab[i_scope] + id.index;
+    ++p->i_symbol[i_scope];
+
+    sym->tok_id = tok_id;
+    sym->type = type;
+    sym->scope_depth = i_scope;
+
+    return id;
+}
+
 /* Adds provided token index and type into symbol table,
-   returns SymbolId of added symbol */
+   Has special handling for constants, always added to scope index 0
+   Returns SymbolId of added symbol, or symid_invalid if it already exists */
 static SymbolId symtab_add(Parser* p, TokenId tok_id, Type type) {
-    ASSERT(p->i_scope > 0, "No scope exists");
-    int curr_scope = p->i_scope - 1;
     const char* name = parser_get_token(p, tok_id);
 
     /* Special handling for constants: Duplicates can exist */
@@ -631,31 +662,15 @@ static SymbolId symtab_add(Parser* p, TokenId tok_id, Type type) {
             return const_id;
         }
         /* Use index 0 for adding constants */
-        curr_scope = 0;
-    }
-    /* Normal symbols can not have duplicates in same scope */
-    else if (symid_valid(symtab_find_scoped(p, curr_scope, tok_id))) {
-        ERRMSGF("Symbol already exists %s\n", name);
-        return symid_invalid;
+        /* Note this is a little wasteful since it is rechecking
+           if the symbol exists */
+        return symtab_add_scoped(p, 0, tok_id, type);
     }
 
     /* Add new symbol to current scope */
-    SymbolId id;
-    id.scope = curr_scope;
-    id.index = p->i_symbol[curr_scope];
-    if (id.index >= MAX_SCOPE_LEN) {
-        parser_set_error(p, ec_pbufexceed);
-        return symid_invalid;
-    }
-
-    Symbol* sym = p->symtab[curr_scope] + id.index;
-    ++p->i_symbol[curr_scope];
-
-    sym->tok_id = tok_id;
-    sym->type = type;
-    sym->scope_depth = curr_scope;
-
-    return id;
+    ASSERT(p->i_scope > 0, "No scope exists");
+    int curr_scope = p->i_scope - 1;
+    return symtab_add_scoped(p, curr_scope, tok_id, type);
 }
 
 /* Creates a new temporary for the current scope in symbol table */
@@ -673,7 +688,9 @@ static SymbolId symtab_add_label(Parser* p) {
     ++p->symtab_label_num;
 
     TokenId tok_id = parser_add_token(p, token);
-    return symtab_add(p, tok_id, type_label);
+    ASSERT(p->i_scope >= 2, "No function scope");
+    /* Scope at index 1 is function scope */
+    return symtab_add_scoped(p, 1, tok_id, type_label);
 }
 
 /* Handles format specifier $d

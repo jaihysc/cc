@@ -374,7 +374,7 @@ static void parser_set_parse_location(Parser* p, ParseLocation* location) {
 
 /* Attaches a node of type st onto the provided parent node
    Returns the attached node */
-static ParseNode* parser_attach_node(Parser* p, ParseNode* parent, SymbolType st) {
+static ParseNode* tree_attach_node(Parser* p, ParseNode* parent, SymbolType st) {
     ASSERT(parent != NULL, "Parse tree parent node is null");
 
     if (p->i_parse_node_buf >= MAX_PARSE_TREE_NODE) {
@@ -410,18 +410,18 @@ static ParseNode* parser_attach_node(Parser* p, ParseNode* parent, SymbolType st
 
 /* Attaches a token node onto the provided parent node
    Returns the attached node */
-static ParseNode* parser_attach_token(Parser* p, ParseNode* parent, const char* token) {
+static ParseNode* tree_attach_token(Parser* p, ParseNode* parent, const char* token) {
     ASSERT(parent != NULL, "Parse tree parent node is null");
 
     TokenId tok_id = parser_add_token(p, token);
     if (parser_has_error(p)) {
         return NULL;
     }
-    return parser_attach_node(p, parent, st_from_token_id(tok_id));
+    return tree_attach_node(p, parent, st_from_token_id(tok_id));
 }
 
 /* Removes the children of node from the parse tree */
-static void parser_detach_node_child(Parser* p, ParseNode* node) {
+static void tree_detach_node_child(Parser* p, ParseNode* node) {
     ASSERT(node != NULL, "Parse node is null");
 
     /* Remove children */
@@ -1147,7 +1147,7 @@ int debug_parse_func_recursion_depth = 0;
     ParseLocation start_location__ =                                    \
         parser_get_parse_location(p, parent);                           \
     ParseNode* node__ =                                                 \
-        parser_attach_node(p, parent, st_ ## symbol_type__);            \
+        tree_attach_node(p, parent, st_ ## symbol_type__);              \
     int matched__ = 0
 /* Call at end on function */
 #define PARSE_FUNC_END()                                                   \
@@ -1168,7 +1168,7 @@ int debug_parse_func_recursion_depth = 0;
 #define PARSE_TRIM_TREE()                                           \
     if (g_debug_print_parse_recursion) {LOG("Parse tree clear\n");} \
     if (g_debug_print_parse_tree) {debug_draw_parse_tree(p);}       \
-    parser_detach_node_child(p, node__);
+    tree_detach_node_child(p, node__)
 
 /* Name for the pointer to the current node */
 #define PARSE_CURRENT_NODE node__
@@ -1287,7 +1287,7 @@ static int parse_identifier(Parser* p, ParseNode* parent) {
     if (parser_has_error(p)) goto exit;
 
     if (tok_isidentifier(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         PARSE_MATCHED();
         goto exit;
@@ -1353,7 +1353,7 @@ static int parse_decimal_constant(Parser* p, ParseNode* parent) {
         c = token[i];
     }
 
-    parser_attach_token(p, PARSE_CURRENT_NODE, token);
+    tree_attach_token(p, PARSE_CURRENT_NODE, token);
     consume_token(token);
     PARSE_MATCHED();
 
@@ -1388,7 +1388,7 @@ static int parse_octal_constant(Parser* p, ParseNode* parent) {
         c = token[i];
     }
 
-    parser_attach_token(p, PARSE_CURRENT_NODE, token);
+    tree_attach_token(p, PARSE_CURRENT_NODE, token);
     consume_token(token);
     PARSE_MATCHED();
 
@@ -1450,14 +1450,14 @@ static int parse_postfix_expression_2(Parser* p, ParseNode* parent) {
 
     /* Postfix increment, decrement */
     if (strequ(token, "++")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         PARSE_MATCHED();
 
         parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
     }
     else if (strequ(token, "--")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         PARSE_MATCHED();
 
@@ -1478,17 +1478,17 @@ static int parse_unary_expression(Parser* p, ParseNode* parent) {
 
     /* Prefix increment, decrement */
     if (strequ(token, "++")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         if (!parse_unary_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (strequ(token, "--")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         if (!parse_unary_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (tok_isunaryop(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
@@ -1536,15 +1536,15 @@ static int parse_multiplicative_expression(Parser* p, ParseNode* parent) {
     if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "*")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "*");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "*");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "/")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "/");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "/");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "%")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "%");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "%");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
 
@@ -1568,11 +1568,11 @@ static int parse_additive_expression(Parser* p, ParseNode* parent) {
     if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "+")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "+");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "+");
         if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     if (parse_expect(p, "-")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "-");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "-");
         if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
 
@@ -1612,19 +1612,19 @@ static int parse_relational_expression(Parser* p, ParseNode* parent) {
     if (!parse_shift_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "<")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "<");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "<");
         if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, ">")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, ">");
+        tree_attach_token(p, PARSE_CURRENT_NODE, ">");
         if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "<=")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "<=");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "<=");
         if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, ">=")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, ">=");
+        tree_attach_token(p, PARSE_CURRENT_NODE, ">=");
         if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     PARSE_MATCHED();
@@ -1645,11 +1645,11 @@ static int parse_equality_expression(Parser* p, ParseNode* parent) {
     if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "==")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "==");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "==");
         if (!parse_equality_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "!=")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "!=");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "!=");
         if (!parse_equality_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     PARSE_MATCHED();
@@ -1792,7 +1792,7 @@ static int parse_assignment_expression_3(Parser* p, ParseNode* parent) {
 
     char* token = read_token(p);
     if (!tok_isassignmentop(token)) goto exit;
-    parser_attach_token(p, PARSE_CURRENT_NODE, token);
+    tree_attach_token(p, PARSE_CURRENT_NODE, token);
     consume_token(token);
 
     if (!parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto exit;
@@ -1885,7 +1885,7 @@ static int parse_storage_class_specifier(Parser* p, ParseNode* parent) {
     char* token = read_token(p);
     if (parser_has_error(p)) goto exit;
     if (tok_isstoreclass(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         PARSE_MATCHED();
     }
@@ -1900,7 +1900,7 @@ static int parse_type_specifier(Parser* p, ParseNode* parent) {
     char* token = read_token(p);
     if (parser_has_error(p)) goto exit;
     if (tok_istypespec(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         PARSE_MATCHED();
     }
@@ -1915,7 +1915,7 @@ static int parse_type_qualifier(Parser* p, ParseNode* parent) {
     char* token = read_token(p);
     if (parser_has_error(p)) goto exit;
     if (tok_istypequal(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         PARSE_MATCHED();
     }
@@ -1930,7 +1930,7 @@ static int parse_function_specifier(Parser* p, ParseNode* parent) {
     char* token = read_token(p);
     if (parser_has_error(p)) goto exit;
     if (tok_isfuncspec(token)) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, token);
+        tree_attach_token(p, PARSE_CURRENT_NODE, token);
         consume_token(token);
         PARSE_MATCHED();
     }
@@ -2224,7 +2224,7 @@ static int parse_jump_statement(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(jump_statement);
 
     if (parse_expect(p, "return")) {
-        parser_attach_token(p, PARSE_CURRENT_NODE, "return");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "return");
         parse_expression(p, PARSE_CURRENT_NODE);
         if (parse_expect(p, ";")) goto matched;
     }

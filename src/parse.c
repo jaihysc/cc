@@ -2248,7 +2248,96 @@ exit:
 static int parse_iteration_statement(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(iteration_statement);
 
-    if (parse_expect(p, "for")) {
+    if (parse_expect(p, "while")) {
+        /* Generate as follows:
+           eval expr1
+           jz end
+           loop:
+           statement
+           eval expr1
+           jnz loop
+           end: */
+        if (!parse_expect(p, "(")) {
+            ERRMSG("Expected '('\n");
+            goto syntaxerr;
+        }
+        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+            ERRMSG("Expected expression\n");
+            goto syntaxerr;
+        }
+        if (!parse_expect(p, ")")) {
+            ERRMSG("Expected ')'\n");
+            goto syntaxerr;
+        }
+
+        SymbolId lab_end_id = cg_make_label(p);
+        SymbolId lab_loop_id = cg_make_label(p);
+        SymbolId exp_id =
+            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+        parser_output_il(p, "jz $s,$s\n", lab_end_id, exp_id);
+        parser_output_il(p, "lab $s\n", lab_loop_id);
+
+        symtab_push_scope(p);
+        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+            ERRMSG("Expected statement\n");
+            goto syntaxerr;
+        }
+        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 1));
+        symtab_pop_scope(p);
+
+        exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+        parser_output_il(p, "jnz $s,$s\n", lab_loop_id, exp_id);
+        parser_output_il(p, "lab $s\n", lab_end_id);
+        PARSE_TRIM_TREE();
+
+        PARSE_MATCHED();
+    }
+    else if (parse_expect(p, "do")) {
+        /* Generate as follows:
+           loop:
+           statement
+           eval expr1
+           jnz loop */
+        SymbolId lab_loop_id = cg_make_label(p);
+        parser_output_il(p, "lab $s\n", lab_loop_id);
+
+        symtab_push_scope(p);
+        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+            ERRMSG("Expected statement\n");
+            goto syntaxerr;
+        }
+        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+        symtab_pop_scope(p);
+        PARSE_TRIM_TREE();
+
+        if (!parse_expect(p, "while")) {
+            ERRMSG("Expected 'while'\n");
+            goto syntaxerr;
+        }
+        if (!parse_expect(p, "(")) {
+            ERRMSG("Expected '('\n");
+            goto syntaxerr;
+        }
+        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+            ERRMSG("Expected expression\n");
+            goto syntaxerr;
+        }
+        if (!parse_expect(p, ")")) {
+            ERRMSG("Expected ')'\n");
+            goto syntaxerr;
+        }
+        if (!parse_expect(p, ";")) {
+            ERRMSG("Expected ';'\n");
+            goto syntaxerr;
+        }
+        SymbolId exp_id =
+            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+        parser_output_il(p, "jnz $s,$s\n", lab_loop_id, exp_id);
+        PARSE_TRIM_TREE();
+
+        PARSE_MATCHED();
+    }
+    else if (parse_expect(p, "for")) {
         /* Generate as follows:
            expr1 / declaration
            eval expr2

@@ -120,6 +120,7 @@ static int symbol_scope_num(Symbol* sym) {
     SYMBOL_TYPE(block_item)                \
     SYMBOL_TYPE(expression_statement)      \
     SYMBOL_TYPE(selection_statement)       \
+    SYMBOL_TYPE(iteration_statement)       \
     SYMBOL_TYPE(jump_statement)            \
                                            \
     SYMBOL_TYPE(function_definition)
@@ -845,6 +846,23 @@ static int isofpunctuator(char c) {
 
 /* C keyword handling */
 
+/* Returns 1 if string is considered as a keyword, 0 otherwise */
+static int tok_iskeyword(const char* token) {
+    const char* token_keyword[] = {
+        "_Bool", "_Complex", "_Imaginary",
+        "auto", "break", "case", "char", "const", "continue", "default", "do",
+        "double", "else", "enum", "extern", "float", "for", "goto", "if",
+        "inline", "int", "long", "register", "restrict", "return", "short",
+        "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+        "unsigned", "void", "volatile", "while"
+    };
+    return strbinfind(
+            token,
+            strlength(token),
+            token_keyword,
+            ARRAY_SIZE(token_keyword)) >= 0;
+}
+
 /* Returns 1 if string is considered a unary operator */
 static int tok_isunaryop(const char* str) {
     if (strlength(str) != 1) {
@@ -859,6 +877,7 @@ static int tok_isunaryop(const char* str) {
     }
 }
 
+/* TODO why declare these in global scope? Move them to be a part of their function */
 const char* token_assignment_operator[] = {
     /* See strbinfind for ordering requirements */
     "%=", "&=", "*=", "+=", "-=", "/=", "<<=", "=", ">>=", "^=", "|="
@@ -932,6 +951,10 @@ static int tok_isfuncspec(const char* str) {
 
 /* Returns 1 if token c string is an identifier */
 static int tok_isidentifier(const char* str) {
+    if (tok_iskeyword(str)) {
+        return 0;
+    }
+
     char c = str[0];
     if (c == '\0') {
         return 0;
@@ -1227,6 +1250,7 @@ static int parse_compound_statement(Parser* p, ParseNode* parent);
 static int parse_block_item(Parser* p, ParseNode* parent);
 static int parse_expression_statement(Parser* p, ParseNode* parent);
 static int parse_selection_statement(Parser* p, ParseNode* parent);
+static int parse_iteration_statement(Parser* p, ParseNode* parent);
 static int parse_jump_statement(Parser* p, ParseNode* parent);
 /* 6.9 External definitions */
 static int parse_function_definition(Parser* p, ParseNode* parent);
@@ -2072,6 +2096,7 @@ static int parse_statement(Parser* p, ParseNode* parent) {
     if (parse_compound_statement(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_expression_statement(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_selection_statement(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_iteration_statement(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_jump_statement(p, PARSE_CURRENT_NODE)) goto matched;
 
     /* Incomplete */
@@ -2211,6 +2236,106 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
     /* Incomplete */
 
     PARSE_MATCHED();
+    goto exit;
+
+syntaxerr:
+    parser_set_error(p, ec_syntaxerr);
+
+exit:
+    PARSE_FUNC_END();
+}
+
+static int parse_iteration_statement(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(iteration_statement);
+
+    if (parse_expect(p, "for")) {
+        /* Generate as follows:
+           expr1 / declaration
+           eval expr2
+           jz end
+           loop:
+           statement
+           expr3
+           eval expr2
+           jnz loop
+           end: */
+
+        symtab_push_scope(p); /* Scope for declaration */
+        if (!parse_expect(p, "(")) {
+            ERRMSG("Expected '('\n");
+            goto syntaxerr;
+        }
+
+        /* expression-1 or declaration */
+        if (parse_expression(p, PARSE_CURRENT_NODE)) {
+            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+            if (!parse_expect(p, ";")) {
+                ERRMSG("Expected ';'\n");
+                goto syntaxerr;
+            }
+            PARSE_TRIM_TREE();
+        }
+        else if (parse_declaration(p, PARSE_CURRENT_NODE)) {
+            cg_declaration(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+            PARSE_TRIM_TREE();
+        }
+        else {
+            ERRMSG("Expected expression or declaration\n");
+            goto syntaxerr;
+        }
+
+        /* expression-2 (Controlling expression)
+           Stored as child 0 */
+        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+            ERRMSG("Expected expession\n");
+            goto syntaxerr;
+        }
+        if (!parse_expect(p, ";")) {
+            ERRMSG("Expected ';'\n");
+            goto syntaxerr;
+        }
+
+        /* expression-3
+           Stored as child 1 */
+        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+            ERRMSG("Expected expession\n");
+            goto syntaxerr;
+        }
+        if (!parse_expect(p, ")")) {
+            ERRMSG("Expected ')'\n");
+            goto syntaxerr;
+        }
+
+        SymbolId lab_end_id = cg_make_label(p);
+        SymbolId lab_loop_id = cg_make_label(p);
+        SymbolId exp2_id =
+            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+        parser_output_il(p, "jz $s,$s\n", lab_end_id, exp2_id);
+        parser_output_il(p, "lab $s\n", lab_loop_id);
+
+        symtab_push_scope(p);
+        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+            ERRMSG("Expected statement\n");
+            goto syntaxerr;
+        }
+        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 2));
+        symtab_pop_scope(p);
+
+        /* expression-3 (At loop end)
+           expression-2 (Controlling expression) */
+        cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 1));
+        exp2_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+        PARSE_TRIM_TREE();
+        parser_output_il(p, "jnz $s,$s\n", lab_loop_id, exp2_id);
+        parser_output_il(p, "lab $s\n", lab_end_id);
+
+        symtab_pop_scope(p); /* Scope for declaration */
+
+        PARSE_MATCHED();
+    }
+
+    /* Incomplete */
+
     goto exit;
 
 syntaxerr:

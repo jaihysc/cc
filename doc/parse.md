@@ -105,6 +105,8 @@ Intermediate code is generated at the following locations. They are chosen as it
 - block-item, when production complete
 - selection-statement, rule 1, if ( expression ) `GENERATE` statement `GENERATE`
 - selection-statement, rule 2, if ( expression ) `GENERATE` statement `GENERATE` else statement `GENERATE`
+- iteration-statement, for rule 1, for ( expression-1 `GENERATE` ; expression-2 `GENERATE` ; expression-3 ) statement `GENERATE`
+- iteration-statement, for rule 2, for ( declaration `GENERATE` expression-2 `GENERATE` ; expression-3 ) statement `GENERATE`
 
-selection-statement must generate after expression as statement may generate code (otherwise the instructions are in the wrong order).
+selection-statement, iteration-statement must generate after expression as statement may generate code (otherwise the instructions are in the wrong order).
 

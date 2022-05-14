@@ -8,8 +8,8 @@
 #include <stdarg.h>
 #include "common.h"
 
-#define MAX_INSTRUCTION_LEN 256
-#define MAX_ARG_LEN 2048   /* Excludes null terminator */
+#define MAX_INSTRUCTION_LEN 256 /* Includes null terminator */
+#define MAX_ARG_LEN 2048   /* Includes null terminator */
 #define MAX_ARGS 256
 #define MAX_SCOPE_LEN 50   /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
 
@@ -178,6 +178,7 @@ static const char* asm_size_directive(int bytes) {
     ERROR_CODE(badargs)        \
     ERROR_CODE(badmain)        \
     ERROR_CODE(writefailed)    \
+    ERROR_CODE(seekfailed)     \
     ERROR_CODE(unknownsym)
 
 #define ERROR_CODE(name__) ec_ ## name__,
@@ -188,10 +189,6 @@ char* errcode_str[] = {ERROR_CODES};
 #undef ERROR_CODE
 #undef ERROR_CODES
 
-typedef enum {
-    ps_rdins = 0,
-    ps_rdarg
-} PState;
 typedef int SymbolId;
 typedef struct {
     Type type;
@@ -248,9 +245,19 @@ typedef struct {
     FILE* rf; /* Input file */
     FILE* of; /* Generated code goes in this file */
 
+    /* For one function only for now */
+
     /* First symbol element is earliest in occurrence */
     Symbol symbol[MAX_SCOPE_LEN];
     int i_symbol; /* Index one past end of scope */
+    int stack_bytes; /* Bytes stack needs */
+
+    /* Instruction, argument */
+    char ins[MAX_INSTRUCTION_LEN];
+    int ins_len;
+    char arg[MAX_ARG_LEN];
+    char* arg_table[MAX_ARGS]; /* Points to beginning of each argument */
+    int arg_count; /* Number of arguments */
 } Parser;
 
 /* Return 1 if error is set, else 0 */
@@ -266,7 +273,7 @@ static ErrorCode parser_get_error(Parser* p) {
 /* Sets error in parser */
 static void parser_set_error(Parser* p, ErrorCode ecode) {
     p->ecode = ecode;
-    LOGF("Error set %d\n", ecode);
+    LOGF("Error set %d %s\n", ecode, errcode_str[ecode]);
 }
 
 /* Writes provided assembly using format string and va_args into output */
@@ -503,12 +510,7 @@ static INSTRUCTION_HANDLER(def) {
     cg_extract_param(pparg[0], type, name);
 
     Symbol* sym = symtab_get(p, symtab_add(p, type_from_str(type), name));
-
-    /* Don't output asm for labels */
-    int bytes = symbol_bytes(sym);
-    if (bytes != 0) {
-        parser_output_asm(p, "sub rsp,%d\n", bytes);
-    }
+    p->stack_bytes += symbol_bytes(sym);
 }
 
 static INSTRUCTION_HANDLER(div) {
@@ -584,7 +586,10 @@ static INSTRUCTION_HANDLER(func) {
         "mov rbp,rsp\n",
         pparg[0]
     );
-
+    /* Reserve stack space */
+    if (p->stack_bytes != 0) {
+        parser_output_asm(p, "sub rsp,%d\n", p->stack_bytes);
+    }
 exit:
     return;
 }
@@ -935,77 +940,136 @@ const char* instruction_handler_index[] = {INSTRUCTIONS};
 const InstructionHandler instruction_handler_table[] = {INSTRUCTIONS};
 #undef INSTRUCTION
 
+/* Repositions file to begin reading from the beginning */
+static void seek_to_start(Parser* p) {
+    if (fseek(p->rf, 0, SEEK_SET) != 0) {
+        parser_set_error(p, ec_seekfailed);
+        return;
+    }
+}
 
-static void parse(Parser* p) {
-    char ins[MAX_INSTRUCTION_LEN];
-    int i_ins = 0; /* Points to end of ins buffer */
-    char arg[MAX_ARG_LEN + 1]; /* Needs to be 1 longer for final null terminator */
-    int i_arg = 0; /* Points to end of arg buffer */
-
-    PState state = ps_rdins;
-    char ch;
-    while((ch = getc(p->rf)) != EOF) {
-        if (state == ps_rdins) {
-            if (i_ins == MAX_INSTRUCTION_LEN) {
-                parser_set_error(p, ec_insbufexceed);
-                goto exit;
-            }
-            else if (ch == ' ') {
-                state = ps_rdarg;
-            }
-            else {
-                ins[i_ins] = ch;
-                i_ins++;
-            }
+/* Reads one instruction and its arguments,
+   the result is stored in the parser
+   Returns 1 if successfully read, 0 if EOF or error */
+static int read_instruction(Parser* p) {
+    /* Read instruction */
+    p->ins_len = 0;
+    char c;
+    while(1) {
+        c = getc(p->rf);
+        if (c == EOF) {
+            p->ins[p->ins_len] = '\0';
+            return 0;
         }
-        else if (state == ps_rdarg) {
-            if (i_arg == MAX_ARG_LEN) {
-                parser_set_error(p, ec_argbufexceed);
-                goto exit;
-            }
-            else if (ch == '\n') {
-                parser_output_comment(p, "%.*s %.*s\n", i_ins, ins, i_arg, arg);
-
-                /* Separate each arg into array of pointers below, pass the array */
-                int arg_count = 0;
-                char* arg_table[MAX_ARGS];
-                for (int i = 0; i < i_arg; ++i) {
-                    arg_table[arg_count] = arg + i;
-                    arg_count++;
-                    do {
-                        ++i;
-                        if (arg[i] == ',') {
-                            break;
-                        }
-                    }
-                    while (i < i_arg);
-                    arg[i] = '\0';
-                }
-
-                /* Run handler for instruction */
-                int i_handler = strbinfind(ins, i_ins, instruction_handler_index, ARRAY_SIZE(instruction_handler_index));
-                if (i_handler < 0) {
-                    parser_set_error(p, ec_invalidins);
-                    goto exit;
-                }
-                instruction_handler_table[i_handler](p, arg_table, arg_count);
-
-                /* Prepare for reading new instruction again */
-                i_ins = 0;
-                i_arg = 0;
-                state = ps_rdins;
-            }
-            else {
-                arg[i_arg] = ch;
-                i_arg++;
-            }
+        if (c == '\n') {
+            p->ins[p->ins_len] = '\0';
+            return 1;
         }
-        /* Check, maybe need to exit in error */
-        if (parser_has_error(p)) goto exit;
+        if (c == ' ') {
+            p->ins[p->ins_len] = '\0';
+            break;
+        }
+        /* Also need space for null terminator */
+        if (p->ins_len >= MAX_INSTRUCTION_LEN - 1) {
+            p->ins[p->ins_len] = '\0';
+            parser_set_error(p, ec_insbufexceed);
+            return 0;
+        }
+        p->ins[p->ins_len] = c;
+        ++p->ins_len;
     }
 
-exit:
-    return;
+    /* Read argument
+       Arguments are stored together in one buffer
+       With \0 between them, arg_table[i] points to the beginning
+       of each argument */
+    /* Add argument to argument list upon seeing its beginning,
+       guaranteed one argument since space seen */
+    p->arg_count = 0;
+    if (p->arg_count >= MAX_ARGS) {
+        parser_set_error(p, ec_argbufexceed);
+        return 0;
+    }
+    p->arg_table[0] = p->arg;
+    ++p->arg_count;
+
+    int i = 0;
+    while(1) {
+        c = getc(p->rf);
+        if (c == EOF) {
+            p->arg[i] = '\0';
+            return 0;
+        }
+        if (c == '\n') {
+            p->arg[i] = '\0';
+            return 1;
+        }
+
+        if (c == ',') {
+            p->arg[i] = '\0';
+            if (p->arg_count >= MAX_ARGS) {
+                parser_set_error(p, ec_argbufexceed);
+                return 0;
+            }
+            p->arg_table[p->arg_count] = p->arg + i + 1;
+            ++p->arg_count;
+        }
+        else {
+            /* -1 as also need space for null terminator */
+            if (i >= MAX_ARG_LEN - 1) {
+                parser_set_error(p, ec_argbufexceed);
+                p->arg[i] = '\0';
+                return 0;
+            }
+            p->arg[i] = c;
+        }
+        ++i;
+    }
+}
+
+static void parse(Parser* p) {
+    /* Pass one */
+    while (read_instruction(p)) {
+        /* Maybe think of a better way to implement
+           def such that:
+           def runs in pass 1
+           Pass 2 does not mark def as an error */
+        if (strequ(p->ins, "def")) {
+            handler_def(p, p->arg_table, p->arg_count);
+        }
+        if (parser_has_error(p)) return;
+    }
+    /* Pass two */
+    seek_to_start(p);
+    if (parser_has_error(p)) return;
+    while (read_instruction(p)) {
+        if (strequ(p->ins, "def")) {
+            continue;
+        }
+
+        parser_output_comment(p, "%s", p->ins);
+        if (0 < p->arg_count) {
+            parser_output_asm(p, " %s", p->arg_table[0]);
+        }
+        for (int i = 1; i < p->arg_count; ++i) {
+            parser_output_asm(p, ",%s", p->arg_table[i]);
+        }
+        parser_output_asm(p, "\n");
+
+        /* Run handler for instruction */
+        int i_handler = strbinfind(
+                p->ins,
+                p->ins_len,
+                instruction_handler_index,
+                ARRAY_SIZE(instruction_handler_index));
+        if (i_handler < 0) {
+            ERRMSGF("Unrecognized instruction %s\n", p->ins);
+            parser_set_error(p, ec_invalidins);
+            return;
+        }
+        instruction_handler_table[i_handler](p, p->arg_table, p->arg_count);
+        if (parser_has_error(p)) return;
+    }
 }
 
 /* Parses cli args and processes them */

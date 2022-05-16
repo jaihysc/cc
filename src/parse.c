@@ -145,6 +145,16 @@ static TokenId st_to_token_id(SymbolType type) {
     return -type - 1;
 }
 
+/* SymbolCat: The category(purpose) a symbol serves
+   e.g., label for end of loop body */
+typedef enum {
+    /* Label placed right before condition check to loop loop/exit */
+    sc_lab_loopbodyend = 0,
+    /* Label placed after loop */
+    sc_lab_loopend,
+    sc_count
+} SymbolCat;
+
 typedef struct ParseNode {
     struct ParseNode* child[MAX_PARSE_NODE_CHILD];
     SymbolType type;
@@ -275,7 +285,39 @@ struct Parser {
     /* Number to create unique temporary/label/etc values */
     int symtab_temp_num;
     int symtab_label_num;
+
+    /* Stack for symbol category, push and pop with
+       symtab_push_cat()
+       symtab_pop_cat()
+       Use MAX_SCOPES as maximum for now, only need to push at most once
+       per scope */
+    SymbolId symtab_cat[sc_count][MAX_SCOPES];
+    int i_symtab_cat[sc_count]; /* Points one last last element */
 };
+
+/* Pushes symbol onto symbol category stack */
+static void symtab_push_cat(Parser* p, SymbolCat cat, SymbolId sym) {
+    if (p->i_symtab_cat[cat] >= MAX_SCOPES) {
+        ASSERTF(0, "Pushed too many symbol for symbol category %d", cat);
+    }
+    int i = p->i_symtab_cat[cat];
+    ++p->i_symtab_cat[cat];
+    p->symtab_cat[cat][i] = sym;
+}
+
+/* Pops symbol from top of symbol category stack */
+static void symtab_pop_cat(Parser* p, SymbolCat cat) {
+    ASSERTF(p->i_symtab_cat[cat] > 0,
+            "No symbol in symbol category %d to pop", cat);
+    --p->i_symtab_cat[cat];
+}
+
+/* Returns the last symbol for symbol category (top of stack) */
+static SymbolId symtab_last_cat(Parser* p, SymbolCat cat) {
+    ASSERTF(p->i_symtab_cat[cat] > 0,
+            "No symbol on symbol category %d stack", cat);
+    return p->symtab_cat[cat][p->i_symtab_cat[cat] - 1];
+}
 
 static void debug_parser_buf_dump(Parser* p);
 static void debug_draw_parse_tree(Parser* p);
@@ -2254,6 +2296,7 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
            jz end
            loop:
            statement
+           loop_body_end:
            eval expr1
            jnz loop
            end: */
@@ -2270,8 +2313,12 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
             goto syntaxerr;
         }
 
-        SymbolId lab_end_id = cg_make_label(p);
         SymbolId lab_loop_id = cg_make_label(p);
+        SymbolId lab_body_end_id = cg_make_label(p);
+        SymbolId lab_end_id = cg_make_label(p);
+        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
+        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
+
         SymbolId exp_id =
             cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
         parser_output_il(p, "jz $s,$s\n", lab_end_id, exp_id);
@@ -2284,6 +2331,10 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         }
         cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 1));
         symtab_pop_scope(p);
+        symtab_pop_cat(p, sc_lab_loopbodyend);
+        symtab_pop_cat(p, sc_lab_loopend);
+
+        parser_output_il(p, "lab $s\n", lab_body_end_id);
 
         exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
         parser_output_il(p, "jnz $s,$s\n", lab_loop_id, exp_id);
@@ -2296,9 +2347,16 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         /* Generate as follows:
            loop:
            statement
+           loop_body_end:
            eval expr1
-           jnz loop */
+           jnz loop
+           end: */
         SymbolId lab_loop_id = cg_make_label(p);
+        SymbolId lab_body_end_id = cg_make_label(p);
+        SymbolId lab_end_id = cg_make_label(p);
+        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
+        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
+
         parser_output_il(p, "lab $s\n", lab_loop_id);
 
         symtab_push_scope(p);
@@ -2307,8 +2365,13 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
             goto syntaxerr;
         }
         cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        symtab_pop_scope(p);
         PARSE_TRIM_TREE();
+
+        symtab_pop_scope(p);
+        symtab_pop_cat(p, sc_lab_loopbodyend);
+        symtab_pop_cat(p, sc_lab_loopend);
+
+        parser_output_il(p, "lab $s\n", lab_body_end_id);
 
         if (!parse_expect(p, "while")) {
             ERRMSG("Expected 'while'\n");
@@ -2335,6 +2398,8 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         parser_output_il(p, "jnz $s,$s\n", lab_loop_id, exp_id);
         PARSE_TRIM_TREE();
 
+        parser_output_il(p, "lab $s\n", lab_end_id);
+
         PARSE_MATCHED();
     }
     else if (parse_expect(p, "for")) {
@@ -2344,6 +2409,7 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
            jz end
            loop:
            statement
+           loop_body_end:
            expr3
            eval expr2
            jnz loop
@@ -2395,8 +2461,12 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
             goto syntaxerr;
         }
 
-        SymbolId lab_end_id = cg_make_label(p);
         SymbolId lab_loop_id = cg_make_label(p);
+        SymbolId lab_body_end_id = cg_make_label(p);
+        SymbolId lab_end_id = cg_make_label(p);
+        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
+        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
+
         SymbolId exp2_id =
             cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
         parser_output_il(p, "jz $s,$s\n", lab_end_id, exp2_id);
@@ -2409,6 +2479,10 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         }
         cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 2));
         symtab_pop_scope(p);
+        symtab_pop_cat(p, sc_lab_loopbodyend);
+        symtab_pop_cat(p, sc_lab_loopend);
+
+        parser_output_il(p, "lab $s\n", lab_body_end_id);
 
         /* expression-3 (At loop end)
            expression-2 (Controlling expression) */
@@ -2437,7 +2511,17 @@ exit:
 static int parse_jump_statement(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(jump_statement);
 
-    if (parse_expect(p, "return")) {
+    if (parse_expect(p, "continue")) {
+        tree_attach_token(p, PARSE_CURRENT_NODE, "continue");
+        parse_expression(p, PARSE_CURRENT_NODE);
+        if (parse_expect(p, ";")) goto matched;
+    }
+    if (parse_expect(p, "break")) {
+        tree_attach_token(p, PARSE_CURRENT_NODE, "break");
+        parse_expression(p, PARSE_CURRENT_NODE);
+        if (parse_expect(p, ";")) goto matched;
+    }
+    else if (parse_expect(p, "return")) {
         tree_attach_token(p, PARSE_CURRENT_NODE, "return");
         parse_expression(p, PARSE_CURRENT_NODE);
         if (parse_expect(p, ";")) goto matched;
@@ -3134,7 +3218,15 @@ static void cg_jump_statement(Parser* p, ParseNode* node) {
     TokenId jmp_id = parse_node_token_id(parse_node_child(node, 0));
     const char* jmp_token = parser_get_token(p, jmp_id);
 
-    if (strequ(jmp_token, "return")) {
+    if (strequ(jmp_token, "continue")) {
+        SymbolId body_end_id = symtab_last_cat(p, sc_lab_loopbodyend);
+        parser_output_il(p, "jmp $s\n", body_end_id);
+    }
+    else if (strequ(jmp_token, "break")) {
+        SymbolId end_id = symtab_last_cat(p, sc_lab_loopend);
+        parser_output_il(p, "jmp $s\n", end_id);
+    }
+    else if (strequ(jmp_token, "return")) {
         SymbolId exp_id = cg_expression(p, parse_node_child(node, 1));
         parser_output_il(p, "ret $s\n", exp_id);
     }
@@ -3402,6 +3494,10 @@ int main(int argc, char** argv) {
     }
     symtab_pop_scope(&p);
     ASSERT(p.i_scope == 0, "Scopes not empty on parse end");
+    for (int i = 0; i < sc_count; ++i) {
+        ASSERTF(p.i_symtab_cat[i] == 0,
+                "Symbol category stack %d not empty on parse end", i);
+    }
 
     /* Debug options */
     if (g_debug_print_buffers) {

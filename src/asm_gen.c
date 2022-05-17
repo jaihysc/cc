@@ -11,7 +11,6 @@
 #define MAX_INSTRUCTION_LEN 256 /* Includes null terminator */
 #define MAX_ARG_LEN 2048   /* Includes null terminator */
 #define MAX_ARGS 256
-#define MAX_SCOPE_LEN 1000 /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
 
 /* ============================================================ */
 /* Parser global configuration */
@@ -238,6 +237,7 @@ static int symbol_bytes(Symbol* sym) {
     return type_bytes(sym->type);
 }
 
+typedef vec_t(Symbol) vec_Symbol;
 
 typedef struct {
     ErrorCode ecode;
@@ -248,8 +248,7 @@ typedef struct {
     /* For one function only for now */
 
     /* First symbol element is earliest in occurrence */
-    Symbol symbol[MAX_SCOPE_LEN];
-    int i_symbol; /* Index one past end of scope */
+    vec_Symbol symbol;
     int stack_bytes; /* Bytes stack needs */
 
     /* Instruction, argument */
@@ -259,6 +258,14 @@ typedef struct {
     char* arg_table[MAX_ARGS]; /* Points to beginning of each argument */
     int arg_count; /* Number of arguments */
 } Parser;
+
+static void parser_construct(Parser* p) {
+    vec_construct(&p->symbol);
+}
+
+static void parser_destruct(Parser* p) {
+    vec_destruct(&p->symbol);
+}
 
 /* Return 1 if error is set, else 0 */
 static int parser_has_error(Parser* p) {
@@ -302,8 +309,8 @@ static Symbol* symtab_get(Parser* p, SymbolId sym_id);
 
 /* Returns 1 if name is within symbol table, 0 otherwise */
 static int symtab_contains(Parser* p, const char* name) {
-    for (int i = 0; i < p->i_symbol; ++i) {
-        Symbol* symbol = p->symbol + i;
+    for (int i = 0; i < vec_size(&p->symbol); ++i) {
+        Symbol* symbol = &vec_at(&p->symbol, i);
         if (strequ(symbol->name, name)) {
             return 1;
         }
@@ -314,8 +321,8 @@ static int symtab_contains(Parser* p, const char* name) {
 /* Retrieves symbol with given name from symbol table
    Null if not found */
 static SymbolId symtab_find(Parser* p, const char* name) {
-    for (int i = 0; i < p->i_symbol; ++i) {
-        Symbol* symbol = p->symbol + i;
+    for (int i = 0; i < vec_size(&p->symbol); ++i) {
+        Symbol* symbol = &vec_at(&p->symbol, i);
         if (strequ(symbol->name, name)) {
             return i;
         }
@@ -340,8 +347,8 @@ static SymbolId symtab_find(Parser* p, const char* name) {
 
 static Symbol* symtab_get(Parser* p, SymbolId sym_id) {
     ASSERT(sym_id >= 0, "Invalid symbol id");
-    ASSERT(sym_id < p->i_symbol, "Symbol id out of range");
-    return p->symbol + sym_id;
+    ASSERT(sym_id < vec_size(&p->symbol), "Symbol id out of range");
+    return &vec_at(&p->symbol, sym_id);
 }
 
 /* Returns offset from base pointer to access symbol on the stack */
@@ -350,7 +357,7 @@ static int symtab_get_offset(Parser* p, SymbolId sym_id) {
 
     int offset = 0;
     for (int i = 0; i <= sym_id; ++i) {
-        Symbol* sym = p->symbol + i;
+        Symbol* sym = &vec_at(&p->symbol, i);
         if (symbol_on_stack(sym)) {
             offset -= symbol_bytes(sym);
         }
@@ -363,24 +370,22 @@ static int symtab_get_offset(Parser* p, SymbolId sym_id) {
 static SymbolId symtab_add(Parser* p, Type type, const char* name) {
     ASSERTF(!symtab_contains(p, name), "Duplicate symbol %s", name);
 
-    if (p->i_symbol >= MAX_SCOPE_LEN) {
+    if (!vec_push_backu(&p->symbol)) {
         parser_set_error(p, ec_scopelenexceed);
         return -1;
     }
-    int i_sym = p->i_symbol++;
-    Symbol* sym = p->symbol + i_sym;
-
+    Symbol* sym = &vec_back(&p->symbol);
     sym->type = type;
     strcopy(name, sym->name);
     sym->reg = reg_stack;
-    return i_sym;
+    return vec_size(&p->symbol) - 1;
 }
 
 /* Dumps contents stored in parser */
 static void debug_dump(Parser* p) {
-    LOGF("Symbol table: [%d]\n", p->i_symbol);
-    for (int i = 0; i < p->i_symbol; ++i) {
-        Symbol* sym = p->symbol + i;
+    LOGF("Symbol table: [%d]\n", vec_size(&p->symbol));
+    for (int i = 0; i < vec_size(&p->symbol); ++i) {
+        Symbol* sym = &vec_at(&p->symbol, i);
         Type type = symbol_type(sym);
         LOGF("  %s", type_specifiers_str(type.typespec));
         for (int j = 0; j < type.pointers; ++j) {
@@ -542,26 +547,24 @@ static INSTRUCTION_HANDLER(func) {
             goto exit;
         }
 
-        /* TODO single scope for now
-           symtab_new_scope(p); */
         if (parser_has_error(p)) goto exit;
         char type[MAX_ARG_LEN];
         char name[MAX_ARG_LEN];
+
         /* Symbol argc */
         cg_extract_param(pparg[2], type, name);
-        Symbol* argc_sym =
-            symtab_get(p, symtab_add(p, type_from_str(type), name));
+        SymbolId argc_id = symtab_add(p, type_from_str(type), name);
         if (parser_has_error(p)) goto exit;
 
         /* Symbol argv */
         cg_extract_param(pparg[3], type, name);
-        Symbol* argv_sym =
-            symtab_get(p, symtab_add(p, type_from_str(type), name));
+        SymbolId argv_id = symtab_add(p, type_from_str(type), name);
         if (parser_has_error(p)) goto exit;
 
-        /* TODO hardcoded for now */
-        argc_sym->reg = reg_edi;
-        argv_sym->reg = reg_esi;
+        /* Wait on obtaining pointers until all symbols added
+           as add may invalidate pointer */
+        symtab_get(p, argc_id)->reg = reg_edi;
+        symtab_get(p, argv_id)->reg = reg_esi;
 
         /* Generate a _start function which calls main */
         parser_output_asm(p, "%s",
@@ -1126,6 +1129,7 @@ int main(int argc, char** argv) {
     int exitcode = 0;
 
     Parser p = {.rf = NULL, .of = NULL};
+    parser_construct(&p);
 
     exitcode = handle_cli_arg(&p, argc, argv);
     if (exitcode != 0) {
@@ -1164,6 +1168,7 @@ exit:
     if (p.of != NULL) {
         fclose(p.of);
     }
+    parser_destruct(&p);
     return exitcode;
 }
 

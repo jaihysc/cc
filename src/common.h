@@ -196,6 +196,106 @@ static inline void itostr(int i, char* buf) {
     itostr(num__, name__ + (int)sizeof(prefix__) - 1);   \
     name__[(int)sizeof(prefix__) - 1 + numlen__] = '\0'
 
+
+/* ============================================================ */
+/* Dynamic array, similar to the one in C++,
+   adapted from https://github.com/rxi/vec */
+
+/* Creates a vector containing values of type T */
+#define vec_t(T__) \
+    struct { T__* data; int length; int capacity; }
+
+/* Initializes the vector, must be called before vector is used */
+#define vec_construct(v__) \
+    ((v__)->data = 0, (v__)->length = 0, (v__)->capacity = 0)
+
+/* Frees memory allocated by vector, call when finished using */
+#define vec_destruct(v__) \
+    free((v__)->data)
+
+/* Access specified element withOUT bounds checking */
+#define vec_at(v__, idx__) \
+    (v__)->data[(idx__)]
+
+/* Returns the first value in the vector, do not use on empty vector */
+#define vec_front(v__) \
+    (v__)->data[0]
+
+/* Returns the last value in the vector, do not use on empty vector */
+#define vec_back(v__) \
+    (v__)->data[(v__)->length - 1]
+
+/* Returns direct access to the underlying array */
+#define vec_data(v__) \
+    (v__)->data
+
+/* Returns number of elements in vector */
+#define vec_size(v__) \
+    (v__)->length
+
+/* Reserses capacity for at least n elements in vector
+   Pointers to elements are invalidated if resize occurs
+   Returns 1 if successful, 0 if error (vector remains unchanged) */
+#define vec_reserve(v__, n__) \
+    vec_reserve_(vec_unpack_(v__), n__)
+
+/* Clears all values from the vector, new length is 0 */
+#define vec_clear(v__) \
+    ((v__)->length = 0)
+
+/* Pushes uninitialized value to end of vector
+   Pointers to elements are invalidated if resize occurs
+   1 if successful, 0 if error and vector remains unchanged */
+#define vec_push_backu(v__) \
+    (vec_expand_(vec_unpack_(v__)) ? ((v__)->length++, 1) : 0)
+
+/* Pushes a value to the end of the vector
+   Pointers to elements are invalidated if resize occurs
+   1 if successful, 0 if error and vector remains unchanged */
+#define vec_push_back(v__, val__)                 \
+    (vec_expand_(vec_unpack_(v__)) ?              \
+    ((v__)->data[(v__)->length++] = (val__), 1) : \
+    0)
+
+/* Removes and returns the value at the end of the vector */
+#define vec_pop_back(v__) \
+    (v__)->data[--(v__)->length]
+
+#define vec_unpack_(v__)      \
+    (char**)&(v__)->data,     \
+            &(v__)->length,   \
+            &(v__)->capacity, \
+            sizeof(*(v__)->data)
+
+static inline int vec_expand_(
+        char** data, int* length, int* capacity, int memsz) {
+    if (*length + 1 > *capacity) {
+        void* ptr;
+        int n = (*capacity == 0) ? 1 : *capacity * 2;
+        ptr = realloc(*data, (size_t)(n * memsz));
+        if (ptr == NULL) return 0;
+        *data = ptr;
+        *capacity = n;
+    }
+    return 1;
+}
+
+
+static inline int vec_reserve_(
+        char** data, int* length, int* capacity, int memsz, int n) {
+    (void) length;
+    if (n > *capacity) {
+        void* ptr = realloc(*data, (size_t)(n * memsz));
+        if (ptr == NULL) return 0;
+        *data = ptr;
+        *capacity = n;
+    }
+    return 1;
+}
+
+/* ============================================================ */
+/* Common data types */
+
 #define TYPE_SPECIFIERS  \
     TYPE_SPECIFIER(void) \
     TYPE_SPECIFIER(i8)   \

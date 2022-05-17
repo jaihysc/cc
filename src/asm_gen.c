@@ -11,7 +11,7 @@
 #define MAX_INSTRUCTION_LEN 256 /* Includes null terminator */
 #define MAX_ARG_LEN 2048   /* Includes null terminator */
 #define MAX_ARGS 256
-#define MAX_SCOPE_LEN 50   /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
+#define MAX_SCOPE_LEN 1000 /* Max symbols per scope (simple for now, may be replaced with dynamic array in future) */
 
 /* ============================================================ */
 /* Parser global configuration */

@@ -1,0 +1,13 @@
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 252))
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 243), ['a'])
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 78),  ['a'] * 2)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 12),  ['a'] * 3)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 12),  ['a'] * 3)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 45),  ['a'] * 4)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 177), ['a'] * 5)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 153), ['a'] * 6)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 228), ['a'] * 7)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 147), ['a'] * 8)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 165), ['a'] * 9)
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 27),  ['a'] * 10)
+

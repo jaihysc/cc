@@ -6,11 +6,11 @@
 #include "common.h"
 
 #define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
-#define MAX_PARSE_TREE_NODE 600 /* Maximum nodes in parser parse tree */
+#define MAX_PARSE_TREE_NODE 2000 /* Maximum nodes in parser parse tree */
 #define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
-#define MAX_TOKEN_BUFFER_CHAR 4096 /* Max characters in token buffer */
-#define MAX_SCOPES 16 /* Max number of scopes */
-#define MAX_SCOPE_LEN 200   /* Max symbols per scope */
+#define MAX_TOKEN_BUFFER_CHAR 8192 /* Max characters in token buffer */
+#define MAX_SCOPES 32 /* Max number of scopes */
+#define MAX_SCOPE_LEN 500   /* Max symbols per scope */
 
 /* ============================================================ */
 /* Parser global configuration */

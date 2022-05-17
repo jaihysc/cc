@@ -6,7 +6,6 @@
 #include "common.h"
 
 #define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
-#define MAX_PARSER_BUFFER_LEN 255 /* Excluding null terminator */
 #define MAX_PARSE_TREE_NODE 600 /* Maximum nodes in parser parse tree */
 #define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
 #define MAX_TOKEN_BUFFER_CHAR 4096 /* Max characters in token buffer */
@@ -219,15 +218,16 @@ typedef struct {
 
 /* pbufexceed: Parser buffer exceeded
    fileposfailed: Change file position indicator failed */
-#define ERROR_CODES            \
-    ERROR_CODE(noerr)          \
-    ERROR_CODE(tokbufexceed)   \
-    ERROR_CODE(pbufexceed)     \
-    ERROR_CODE(ptokbufexceed)  \
-    ERROR_CODE(scopedepexceed) \
-    ERROR_CODE(scopelenexceed) \
-    ERROR_CODE(syntaxerr)      \
-    ERROR_CODE(writefailed)    \
+#define ERROR_CODES                  \
+    ERROR_CODE(noerr)                \
+    ERROR_CODE(tokbufexceed)         \
+    ERROR_CODE(pbufexceed)           \
+    ERROR_CODE(pnodechildexceed)     \
+    ERROR_CODE(ptokbufexceed)        \
+    ERROR_CODE(scopedepexceed)       \
+    ERROR_CODE(scopelenexceed)       \
+    ERROR_CODE(syntaxerr)            \
+    ERROR_CODE(writefailed)          \
     ERROR_CODE(fileposfailed)
 
 /* Should always be initialized to ec_noerr */
@@ -438,7 +438,7 @@ static ParseNode* tree_attach_node(Parser* p, ParseNode* parent, SymbolType st) 
     int i = 0;
     while (1) {
         if (i >= MAX_PARSE_NODE_CHILD) {
-            parser_set_error(p, ec_pbufexceed);
+            parser_set_error(p, ec_pnodechildexceed);
             return NULL;
         }
         if (parent->child[i] == NULL) {
@@ -679,7 +679,7 @@ static SymbolId symtab_add_scoped(Parser* p,
     id.scope = i_scope;
     id.index = p->i_symbol[i_scope];
     if (id.index >= MAX_SCOPE_LEN) {
-        parser_set_error(p, ec_pbufexceed);
+        parser_set_error(p, ec_scopelenexceed);
         return symid_invalid;
     }
 

@@ -9,6 +9,12 @@ ln_flags=()
 
 input_files=()
 handle_flags=true
+
+fail() {
+    echo -e "$1"
+    exit "$2"
+}
+
 for arg in "$@"
 do
     # Handle flags
@@ -50,11 +56,11 @@ if [ ${#input_files[@]} -eq 0 ]; then
     exit 2
 elif [ ${#input_files[@]} -eq 1 ]; then
     file=${input_files[0]}
-    gcc -E -x c               "${pp_flags[@]}"    "$file"                   -o "$(dirname "$file")/imm1"  || exit 5
-    "$(dirname "$0")/parse"   "${parse_flags[@]}" "$(dirname "$file")/imm1" -o "$(dirname "$file")/imm2"  || exit 6
-    "$(dirname "$0")/asm_gen" "${cg_flags[@]}"    "$(dirname "$file")/imm2" -o "$(dirname "$file")/imm3"  || exit 7
-    nasm -felf64              "${asm_flags[@]}"   "$(dirname "$file")/imm3" -o "$(dirname "$file")/imm4"  || exit 8
-    ld                        "${ln_flags[@]}"    "$(dirname "$file")/imm4" -o "$(dirname "$file")/a.out" || exit 9
+    gcc -E -x c               "${pp_flags[@]}"    "$file"                   -o "$(dirname "$file")/imm1"  || fail "Preprocessor error"   5
+    "$(dirname "$0")/parse"   "${parse_flags[@]}" "$(dirname "$file")/imm1" -o "$(dirname "$file")/imm2"  || fail "Parser error"         6
+    "$(dirname "$0")/asm_gen" "${cg_flags[@]}"    "$(dirname "$file")/imm2" -o "$(dirname "$file")/imm3"  || fail "Code generator error" 7
+    nasm -felf64              "${asm_flags[@]}"   "$(dirname "$file")/imm3" -o "$(dirname "$file")/imm4"  || fail "Assembler error"      8
+    ld                        "${ln_flags[@]}"    "$(dirname "$file")/imm4" -o "$(dirname "$file")/a.out" || fail "Linker error"         9
 else
     echo "Only 1 input file supported"
     exit 3

@@ -16,7 +16,7 @@ Certain x86 instructions require the use of specific registers. Thus, to guide t
 
 ### 1. Renumber
 
-The flow graph is walked backwards from the end to generate live range information.
+Each block is walked backwards to generate liveness use/def information for a block. Then, the flow graph is walked backwards from the end to generate live range information per block.
 
 ### 2. Build
 

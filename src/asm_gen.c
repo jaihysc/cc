@@ -351,6 +351,87 @@ static int stat_argc(Statement* stat) {
     return stat->argc;
 }
 
+/* Returns the number of symbols the instruction of this statement
+   uses and puts the used symbols into provided symbol buffer.
+   At most MAX_ARGS */
+static int stat_use(Statement* stat, SymbolId* out_sym_id) {
+    switch (stat->ins) {
+        /* 2 use, argument index 1 and 2 */
+        case il_add:
+        case il_ce:
+        case il_cl:
+        case il_cle:
+        case il_cne:
+        case il_div:
+        case il_mod:
+        case il_mul:
+        case il_sub:
+            out_sym_id[0] = stat->arg[1];
+            out_sym_id[1] = stat->arg[2];
+            return 2;
+
+        /* 1 use, argument index 0 */
+        case il_ret:
+            ASSERT(stat->argc == 1,
+                    "ret requires 1 arg (0 arg handling not implemented)");
+            out_sym_id[0] = stat->arg[0];
+            return 1;
+
+        /* 1 use, argument index 1 */
+        case il_mov:
+        case il_not:
+        case il_jnz:
+        case il_jz:
+            out_sym_id[0] = stat->arg[1];
+            return 1;
+
+        /* No use */
+        case il_lab:
+        case il_def:
+        case il_func:
+        case il_jmp:
+            return 0;
+
+        default:
+            ASSERT(0, "Unimplemented");
+            return 0;
+    }
+}
+
+/* Returns the number of symbols the instruction of this statement
+   defines (sets) and puts the defined symbols into provided symbol buffer.
+   At most 1 */
+static int stat_def(Statement* stat, SymbolId* out_sym_id) {
+    switch (stat->ins) {
+        case il_add:
+        case il_ce:
+        case il_cl:
+        case il_cle:
+        case il_cne:
+        case il_div:
+        case il_mod:
+        case il_mov:
+        case il_mul:
+        case il_not:
+        case il_sub:
+            out_sym_id[0] = stat->arg[0];
+            return 1;
+
+        case il_def:
+        case il_func:
+        case il_jmp:
+        case il_jnz:
+        case il_jz:
+        case il_lab:
+        case il_ret:
+            return 0;
+
+        default:
+            ASSERT(0, "Unimplemented");
+            return 0;
+    }
+}
+
 /* Blocks are formed by partitioning il statements according to the rules:
    1. Control always enters at the start of the block
    2. Control always leaves at the last statement or end of the block */
@@ -358,6 +439,11 @@ typedef struct {
     /* Labels at the entry of this block */
     vec_t(SymbolId) labels;
     vec_t(Statement) stats;
+
+    /* Symbols used, defined by this bock */
+    vec_t(SymbolId) use;
+    vec_t(SymbolId) def;
+
     /* At most 2 options:
        1. Flow through to next block
        2. Jump at end
@@ -370,12 +456,16 @@ static void block_construct(Block* blk) {
     ASSERT(blk != NULL, "Block is null");
     vec_construct(&blk->labels);
     vec_construct(&blk->stats);
+    vec_construct(&blk->use);
+    vec_construct(&blk->def);
     blk->next[0] = 0;
     blk->next[1] = 0;
 }
 
 static void block_destruct(Block* blk) {
     ASSERT(blk != NULL, "Block is null");
+    vec_destruct(&blk->def);
+    vec_destruct(&blk->use);
     vec_destruct(&blk->stats);
     vec_destruct(&blk->labels);
 }
@@ -420,6 +510,46 @@ static int block_add_label(Block* blk, SymbolId lab_id) {
 static int block_add_stat(Block* blk, Statement stat) {
     ASSERT(blk != NULL, "Block is null");
     return vec_push_back(&blk->stats, stat);
+}
+
+/* TODO future methods, block_live (Live symbols at location)
+   block_in_out (Sets in/out for block) */
+
+/* Adds provided SymbolId to liveness 'def'ed symbols for this block
+   if it does not exist. Does nothing if does exist, returns 1
+   Returns 1 if successful, 0 if not */
+static int block_add_def(Block* blk, SymbolId sym_id) {
+    ASSERT(blk != NULL, "Block is null");
+    for (int i = 0; i < vec_size(&blk->def); ++i) {
+        if (vec_at(&blk->def, i) == sym_id) {
+            return 1;
+        }
+    }
+    return vec_push_back(&blk->def, sym_id);
+}
+
+/* Adds provided SymbolId to liveness 'use'ed symbols for this block
+   if it does not exist. Does nothing if does exist, returns 1
+   Returns 1 if successful, 0 if not */
+static int block_add_use(Block* blk, SymbolId sym_id) {
+    ASSERT(blk != NULL, "Block is null");
+    for (int i = 0; i < vec_size(&blk->use); ++i) {
+        if (vec_at(&blk->use, i) == sym_id) {
+            return 1;
+        }
+    }
+    return vec_push_back(&blk->use, sym_id);
+}
+
+/* Removes provided SymbolId from liveness 'use'd symbols for this block
+   Does nothing if symbol does not exist in block */
+static void block_remove_use(Block* blk, SymbolId sym_id) {
+    for (int i = 0; i < vec_size(&blk->use); ++i) {
+        if (vec_at(&blk->use, i) == sym_id) {
+            vec_splice(&blk->use, i, 1);
+            return;
+        }
+    }
 }
 
 /* Links block to next block */
@@ -684,6 +814,38 @@ static void cfg_append_latest(Parser* p, Statement stat) {
     }
 }
 
+/* Computes liveness use/def information for each block */
+static void cfg_compute_use_def(Parser* p) {
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = block_stat_count(blk) - 1; j >= 0; --j) {
+            Statement* stat = block_stat(blk, j);
+            SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
+
+            /* Add 'def'ed symbol from statement to 'def' for block
+               Remove occurrences of 'def'd symbol from 'use' for block */
+            int def_count = stat_def(stat, syms);
+            for (int k = 0; k < def_count; ++k) {
+                if (!block_add_def(blk, syms[k])) {
+                    parser_set_error(p, ec_outofmemory);
+                    return;
+                }
+                block_remove_use(blk, syms[k]);
+            }
+
+            /* Add 'use'd symbols from statement to 'use' for block */
+            ASSERT(MAX_ARGS >= 1, "Need at least 1 to hold def");
+            int use_count = stat_use(stat, syms);
+            for (int k = 0; k < use_count; ++k) {
+                if (!block_add_use(blk, syms[k])) {
+                    parser_set_error(p, ec_outofmemory);
+                    return;
+                }
+            }
+        }
+    }
+}
+
 /* Dumps contents stored in parser */
 static void debug_dump(Parser* p) {
     LOGF("Symbol table: [%d]\n", vec_size(&p->symbol));
@@ -707,7 +869,25 @@ static void debug_dump(Parser* p) {
         if (block_lab_count(blk) > 0) {
             LOG("    Labels:");
             for (int j = 0; j < block_lab_count(blk); ++j) {
-                Symbol* lab_sym = symtab_get(p, block_lab(blk, j));
+                Symbol* sym = symtab_get(p, block_lab(blk, j));
+                LOGF(" %s", symbol_name(sym));
+            }
+            LOG("\n");
+        }
+
+        /* Liveness use/def for block */
+        if (vec_size(&blk->use) > 0) {
+            LOG("    Liveness use:");
+            for (int j = 0; j < vec_size(&blk->use); ++j) {
+                Symbol* sym = symtab_get(p, vec_at(&blk->use, j));
+                LOGF(" %s", symbol_name(sym));
+            }
+            LOG("\n");
+        }
+        if (vec_size(&blk->def) > 0) {
+            LOG("    Liveness def:");
+            for (int j = 0; j < vec_size(&blk->def); ++j) {
+                Symbol* lab_sym = symtab_get(p, vec_at(&blk->def, j));
                 LOGF(" %s", symbol_name(lab_sym));
             }
             LOG("\n");
@@ -1471,6 +1651,7 @@ static void parse(Parser* p) {
 
     /* Process the last (most recent) function */
     cfg_link_jump_dest(p);
+    cfg_compute_use_def(p);
 
     seek_to_start(p);
     while (read_instruction(p)) {

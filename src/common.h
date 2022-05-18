@@ -261,6 +261,10 @@ static inline void itostr(int i, char* buf) {
 #define vec_pop_back(v__) \
     (v__)->data[--(v__)->length]
 
+/* Removes count values starting at index start */
+#define vec_splice(v__, start__, count__) \
+    vec_splice_(vec_unpack_(v__), (start__), (count__))
+
 #define vec_unpack_(v__)      \
     (char**)&(v__)->data,     \
             &(v__)->length,   \
@@ -280,7 +284,6 @@ static inline int vec_expand_(
     return 1;
 }
 
-
 static inline int vec_reserve_(
         char** data, int* length, int* capacity, int memsz, int n) {
     (void) length;
@@ -291,6 +294,20 @@ static inline int vec_reserve_(
         *capacity = n;
     }
     return 1;
+}
+
+static inline void vec_splice_(
+        char** data, int* length, int* capacity, int memsz,
+        int start, int count) {
+    (void) capacity;
+
+    char* dest = *data + start * memsz;
+    char* src = *data + (start + count) * memsz;
+    size_t num_bytes =  (size_t)(*length - start - count) * (size_t)memsz;
+    for (size_t i = 0; i < num_bytes; ++i) {
+        dest[i] = src[i];
+    }
+    *length -= count;
 }
 
 /* ============================================================ */

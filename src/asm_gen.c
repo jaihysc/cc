@@ -174,6 +174,7 @@ static const char* asm_size_directive(int bytes) {
     ERROR_CODE(scopelenexceed) \
     ERROR_CODE(invalidins)     \
     ERROR_CODE(invalidinsop)   \
+    ERROR_CODE(invalidlabel)   \
     ERROR_CODE(badargs)        \
     ERROR_CODE(badmain)        \
     ERROR_CODE(writefailed)    \
@@ -255,15 +256,15 @@ static int symbol_bytes(Symbol* sym) {
     INSTRUCTION_P(def)   \
     INSTRUCTION_C(div)   \
     INSTRUCTION_PC(func) \
-    INSTRUCTION_C(jmp)   \
-    INSTRUCTION_C(jnz)   \
-    INSTRUCTION_C(jz)    \
+    INSTRUCTION_PC(jmp)  \
+    INSTRUCTION_PC(jnz)  \
+    INSTRUCTION_PC(jz)   \
     INSTRUCTION_PC(lab)  \
     INSTRUCTION_C(mod)   \
     INSTRUCTION_C(mov)   \
     INSTRUCTION_C(mul)   \
     INSTRUCTION_C(not)   \
-    INSTRUCTION_C(ret)   \
+    INSTRUCTION_PC(ret)  \
     INSTRUCTION_C(sub)
 
 #define INSTRUCTION_P(name__) il_ ## name__,
@@ -295,6 +296,33 @@ static ILIns ins_from_str(const char* str) {
            strlength(str),
            il_string,
            ARRAY_SIZE(il_string));
+}
+
+/* Returns 1 if the instruction is a jump instruction
+   0 otherwise */
+static int ins_isjump(ILIns ins) {
+    switch (ins) {
+        case il_jmp:
+        case il_jnz:
+        case il_jz:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* Returns 1 if the instruction should be included
+   as part of the control flow graph,
+   0 otherwise */
+static int ins_incfg(ILIns ins) {
+    switch (ins) {
+        case il_def:
+        case il_func:
+        case il_lab:
+            return 0;
+        default:
+            return 1;
+    }
 }
 
 typedef struct {
@@ -350,6 +378,20 @@ static void block_destruct(Block* blk) {
     ASSERT(blk != NULL, "Block is null");
     vec_destruct(&blk->stats);
     vec_destruct(&blk->labels);
+}
+
+/* Returns number of labels in block */
+static int block_lab_count(Block* blk) {
+    ASSERT(blk != NULL, "Block is null");
+    return vec_size(&blk->labels);
+}
+
+/* Returns lab at index in block */
+static SymbolId block_lab(Block* blk, int i) {
+    ASSERT(blk != NULL, "Block is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < block_lab_count(blk), "Index out of range");
+    return vec_at(&blk->labels, i);
 }
 
 /* Returns number of statements in block */
@@ -569,6 +611,10 @@ static void cfg_clear(Parser* p) {
     vec_clear(&p->cfg);
 }
 
+static Block* cfg_latest_block(Parser* p) {
+    return p->latest_blk;
+}
+
 /* Adds a new, unlinked block to the cfg */
 static Block* cfg_new_block(Parser* p) {
     if (vec_push_backu(&p->cfg)) {
@@ -593,9 +639,41 @@ static Block* cfg_link_new_block(Parser* p) {
     return new;
 }
 
+/* Finds the first block which has the provided label
+   Returns null if not found */
+static Block* cfg_find_labelled(Parser* p, SymbolId lab_id) {
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = 0; j < block_lab_count(blk); ++j) {
+            if (block_lab(blk, j) == lab_id) {
+                return blk;
+            }
+        }
+    }
+    return NULL;
+}
+
 /* Links jumps from blocks to other blocks */
 static void cfg_link_jump_dest(Parser* p) {
-    ASSERT(0, "Unimplemented");
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        if (block_stat_count(blk) == 0) {
+            continue;
+        }
+
+        Statement* last_stat = block_stat(blk, block_stat_count(blk) - 1);
+        if (ins_isjump(stat_ins(last_stat))) {
+            SymbolId lab_id = stat_arg(last_stat, 0);
+            Block* target_blk = cfg_find_labelled(p, lab_id);
+            if (target_blk == NULL) {
+                Symbol* lab = symtab_get(p, lab_id);
+                ERRMSGF("Could not find jump label %s\n", symbol_name(lab));
+                parser_set_error(p, ec_invalidlabel);
+                return;
+            }
+            block_link(blk, target_blk);
+        }
+    }
 }
 
 /* Appends statement into the latest block */
@@ -624,6 +702,17 @@ static void debug_dump(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         LOGF("  Block %d\n", i);
         Block* blk = &vec_at(&p->cfg, i);
+
+        /* Labels associated with block */
+        if (block_lab_count(blk) > 0) {
+            LOG("    Labels:");
+            for (int j = 0; j < block_lab_count(blk); ++j) {
+                Symbol* lab_sym = symtab_get(p, block_lab(blk, j));
+                LOGF(" %s", symbol_name(lab_sym));
+            }
+            LOG("\n");
+        }
+
         /* Print instruction and arguments */
         for (int j = 0; j < block_stat_count(blk); ++j) {
             Statement* stat = block_stat(blk, j);
@@ -640,6 +729,7 @@ static void debug_dump(Parser* p) {
             }
             LOG("\n");
         }
+
         /* Print next block index */
         LOG("    ->");
         for (int j = 0; j < 2; ++j) {
@@ -751,13 +841,49 @@ static INSTRUCTION_PROC(func) {
     }
 }
 
+static INSTRUCTION_PROC(jmp) {
+    if (arg_count != 1) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    cfg_new_block(p);
+}
+
+static INSTRUCTION_PROC(jnz) {
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    cfg_link_new_block(p);
+}
+
+static INSTRUCTION_PROC(jz) {
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    cfg_link_new_block(p);
+}
+
 static INSTRUCTION_PROC(lab) {
     if (arg_count != 1) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    Block* blk = cfg_link_new_block(p);
+    Block* blk = cfg_latest_block(p);
+    /* Simplify cfg by making consecutive labels part of one block */
+    if (block_stat_count(blk) != 0) {
+        blk = cfg_link_new_block(p);
+    }
     block_add_label(blk, symtab_find(p, pparg[0]));
+}
+
+static INSTRUCTION_PROC(ret) {
+    if (arg_count != 1) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+    cfg_new_block(p);
 }
 
 static INSTRUCTION_CG(add) {
@@ -852,11 +978,6 @@ static INSTRUCTION_CG(func) {
 }
 
 static INSTRUCTION_CG(jmp) {
-    if (arg_count != 1) {
-        parser_set_error(p, ec_badargs);
-        return;
-    }
-
     SymbolId label_id = symtab_find(p, pparg[0]);
     Symbol* label = symtab_get(p, label_id);
 
@@ -864,11 +985,6 @@ static INSTRUCTION_CG(jmp) {
 }
 
 static INSTRUCTION_CG(jnz) {
-    if (arg_count != 2) {
-        parser_set_error(p, ec_badargs);
-        return;
-    }
-
     SymbolId label_id = symtab_find(p, pparg[0]);
     SymbolId op1_id = symtab_find(p, pparg[1]);
 
@@ -876,11 +992,6 @@ static INSTRUCTION_CG(jnz) {
 }
 
 static INSTRUCTION_CG(jz) {
-    if (arg_count != 2) {
-        parser_set_error(p, ec_badargs);
-        return;
-    }
-
     SymbolId label_id = symtab_find(p, pparg[0]);
     SymbolId op1_id = symtab_find(p, pparg[1]);
 
@@ -963,11 +1074,6 @@ static INSTRUCTION_CG(not) {
 }
 
 static INSTRUCTION_CG(ret) {
-    if (arg_count != 1) {
-        parser_set_error(p, ec_badargs);
-        goto exit;
-    }
-
     SymbolId sym_id = symtab_find(p, pparg[0]);
     Symbol* sym = symtab_get(p, sym_id);
     if (sym == NULL) {
@@ -1344,11 +1450,7 @@ static void parse(Parser* p) {
             return;
         }
 
-        if (proc_handler != NULL) {
-            proc_handler(p, p->arg_table, p->arg_count);
-        }
-        else {
-            /* No special handling, attach to block */
+        if (ins_incfg(ins_from_str(p->ins))) {
             Statement stat =
                 {.ins = ins_from_str(p->ins), .argc = p->arg_count};
             for (int i = 0; i < p->arg_count; ++i) {
@@ -1359,8 +1461,16 @@ static void parse(Parser* p) {
 
             cfg_append_latest(p, stat);
         }
+        /* Instruction gets added first
+           then new block is made (e.g., jmp at last block, then new block) */
+        if (proc_handler != NULL) {
+            proc_handler(p, p->arg_table, p->arg_count);
+        }
         if (parser_has_error(p)) return;
     }
+
+    /* Process the last (most recent) function */
+    cfg_link_jump_dest(p);
 
     seek_to_start(p);
     while (read_instruction(p)) {

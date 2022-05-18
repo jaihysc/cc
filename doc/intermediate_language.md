@@ -68,6 +68,7 @@ Arithmetic and logical instructions
 | sub         |    3 | `<arg0>s` = `<arg1>si` - `<arg2>si`                                                                                                         |
 | mul         |    3 | `<arg0>s` = `<arg1>si` * `<arg2>si`                                                                                                         |
 | div         |    3 | `<arg0>s` = `<arg1>si` / `<arg2>si`                                                                                                         |
+| mod         |    3 | `<arg0>s` = `<arg1>si` % `<arg2>si`                                                                                                         |
 | not         |    2 | `<arg0>s` = !`<arg1>si`                                                                                                                     |
 | cl          |    3 | `<arg0>l` = `<arg1>si` \< `<arg2>si`                                                                                                        |
 | cle         |    3 | `<arg0>l` = `<arg1>si` \<= `<arg2>si`                                                                                                       |
@@ -85,7 +86,9 @@ Arithmetic and logical instructions
 
 ### func
 
-The signature `i32 main(i32, i8**)` is recognized as the entry point of the program
+The signature `i32 main(i32, i8**)` is recognized as the entry point of the program.
+
+The signature `void _Global()` is recognized to perform global initialization.
 
 ## Examples
 

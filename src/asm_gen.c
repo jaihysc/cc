@@ -197,6 +197,12 @@ typedef struct {
     Register reg;
 } Symbol;
 
+/* Returns 1 if symbol name is considered a constant, 0 otherwise */
+static int name_isconstant(const char* name) {
+    /* '-' for negative numbers */
+    return (('0' <= name[0] && name[0] <= '9') || name[0] == '-');
+}
+
 /* Returns type for given symbol */
 static Type symbol_type(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
@@ -659,6 +665,11 @@ static void symtab_clear(Parser* p) {
     vec_clear(&p->symbol);
 }
 
+/* Returns 1 if symbol is a constant, 0 otherwise */
+static int symtab_isconstant(Parser* p, SymbolId sym_id) {
+    return name_isconstant(symbol_name(symtab_get(p, sym_id)));
+}
+
 /* Returns 1 if name is within symbol table, 0 otherwise */
 static int symtab_contains(Parser* p, const char* name) {
     for (int i = 0; i < vec_size(&p->symbol); ++i) {
@@ -681,9 +692,8 @@ static SymbolId symtab_find(Parser* p, const char* name) {
     }
 
     /* Special handling for constants, they always exist, thus add
-       them to the table when not found to make them exist
-       '-' for negative numbers */
-    if (('0' <= name[0] && name[0] <= '9') || name[0] == '-') {
+       them to the table when not found to make them exist */
+    if (name_isconstant(name)) {
         /* TODO calculate size of constant, assume integer for now */
         Type type = {.typespec = ts_i32};
         SymbolId sym_id = symtab_add(p, type, name);
@@ -826,6 +836,8 @@ static void cfg_compute_use_def(Parser* p) {
                Remove occurrences of 'def'd symbol from 'use' for block */
             int def_count = stat_def(stat, syms);
             for (int k = 0; k < def_count; ++k) {
+                ASSERT(!symtab_isconstant(p, syms[k]),
+                        "Assigned symbol should not be constant");
                 if (!block_add_def(blk, syms[k])) {
                     parser_set_error(p, ec_outofmemory);
                     return;
@@ -837,6 +849,9 @@ static void cfg_compute_use_def(Parser* p) {
             ASSERT(MAX_ARGS >= 1, "Need at least 1 to hold def");
             int use_count = stat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
+                if (symtab_isconstant(p, syms[k])) {
+                    continue;
+                }
                 if (!block_add_use(blk, syms[k])) {
                     parser_set_error(p, ec_outofmemory);
                     return;

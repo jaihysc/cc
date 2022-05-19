@@ -168,6 +168,9 @@ static const char* asm_size_directive(int bytes) {
 /* ============================================================ */
 /* Parser data structure + functions */
 
+typedef struct Parser Parser;
+typedef struct Statement Statement;
+
 #define ERROR_CODES            \
     ERROR_CODE(noerr)          \
     ERROR_CODE(insbufexceed)   \
@@ -262,11 +265,11 @@ static int symbol_bytes(Symbol* sym) {
     INSTRUCTION_C(cne)   \
     INSTRUCTION_P(def)   \
     INSTRUCTION_C(div)   \
-    INSTRUCTION_PC(func) \
+    INSTRUCTION_P(func)  \
     INSTRUCTION_PC(jmp)  \
     INSTRUCTION_PC(jnz)  \
     INSTRUCTION_PC(jz)   \
-    INSTRUCTION_PC(lab)  \
+    INSTRUCTION_P(lab)   \
     INSTRUCTION_C(mod)   \
     INSTRUCTION_C(mov)   \
     INSTRUCTION_C(mul)   \
@@ -289,6 +292,97 @@ const char* il_string[] = {INSTRUCTIONS};
 #undef INSTRUCTION_P
 #undef INSTRUCTION_C
 #undef INSTRUCTION_PC
+
+/* Forward declarations */
+typedef void(*InsProcHandler) (Parser*, char**, int);
+typedef void(*InsCgHandler) (Parser*, Statement*);
+#define INSTRUCTION_P(name__) \
+    static void il_proc_ ## name__ (Parser*, char**, int);
+#define INSTRUCTION_C(name__) \
+    static void il_cg_ ## name__ (Parser*, Statement*);
+#define INSTRUCTION_PC(name__)                             \
+    static void il_proc_ ## name__ (Parser*, char**, int); \
+    static void il_cg_ ## name__ (Parser*, Statement*);
+INSTRUCTIONS
+#undef INSTRUCTION_P
+#undef INSTRUCTION_C
+#undef INSTRUCTION_PC
+
+/* Index of string/ILIns is index of corresponding instruction handler */
+#define INSTRUCTION_P(name__) #name__,
+#define INSTRUCTION_C(name__)
+#define INSTRUCTION_PC(name__) #name__,
+const char* instruction_proc_index[] = {INSTRUCTIONS};
+#undef INSTRUCTION_P
+#undef INSTRUCTION_PC
+
+#define INSTRUCTION_P(name__) &il_proc_ ## name__,
+#define INSTRUCTION_PC(name__) &il_proc_ ## name__,
+const InsProcHandler instruction_proc_table[] = {INSTRUCTIONS};
+#undef INSTRUCTION_P
+#undef INSTRUCTION_C
+#undef INSTRUCTION_PC
+
+#define INSTRUCTION_P(name__)
+#define INSTRUCTION_C(name__) #name__,
+#define INSTRUCTION_PC(name__) #name__,
+const char* instruction_cg_index[] = {INSTRUCTIONS};
+#undef INSTRUCTION_C
+#undef INSTRUCTION_PC
+#define INSTRUCTION_C(name__) il_ ## name__,
+#define INSTRUCTION_PC(name__) il_ ## name__,
+const ILIns instruction_cg_indexi[] = {INSTRUCTIONS};
+#undef INSTRUCTION_C
+#undef INSTRUCTION_PC
+
+#define INSTRUCTION_C(name__) &il_cg_ ## name__,
+#define INSTRUCTION_PC(name__) &il_cg_ ## name__,
+const InsCgHandler instruction_cg_table[] = {INSTRUCTIONS};
+#undef INSTRUCTION_P
+#undef INSTRUCTION_C
+#undef INSTRUCTION_PC
+
+/* Returns function for processing instruction with provided name
+   Returns null if not found */
+static InsProcHandler il_get_proc(const char* name) {
+    int i_handler = strbinfind(
+            name,
+            strlength(name),
+            instruction_proc_index,
+            ARRAY_SIZE(instruction_proc_index));
+    if (i_handler == -1) {
+        return NULL;
+    }
+    return instruction_proc_table[i_handler];
+}
+
+/* Returns function for assembly generation for il instruction
+   with provided name
+   Returns null if not found */
+static InsCgHandler il_get_cg(const char* name) {
+    int i_handler = strbinfind(
+            name,
+            strlength(name),
+            instruction_cg_index,
+            ARRAY_SIZE(instruction_cg_index));
+    if (i_handler == -1) {
+        return NULL;
+    }
+    return instruction_cg_table[i_handler];
+}
+
+/* Returns function for assembly generation for il instruction
+   with provided ILIns
+   Returns null if not found */
+static InsCgHandler il_get_cgi(ILIns ins) {
+    ASSERT(ins >= 0, "Invalid ILIns");
+    for (int i = 0; i < ARRAY_SIZE(instruction_cg_indexi); ++i) {
+        if (instruction_cg_indexi[i] == ins) {
+            return instruction_cg_table[i];
+        }
+    }
+    return NULL;
+}
 
 /* Returns string for ILIns */
 static const char* ins_str(ILIns ins) {
@@ -332,11 +426,11 @@ static int ins_incfg(ILIns ins) {
     }
 }
 
-typedef struct {
+struct Statement {
     ILIns ins;
     SymbolId arg[MAX_ARGS];
     int argc;
-} Statement;
+};
 
 /* Returns ILIns for statement */
 static ILIns stat_ins(Statement* stat) {
@@ -716,7 +810,7 @@ static IGNode* ignode_neighbor(IGNode* node, int i) {
     return node + vec_at(&node->neighbor, i);
 }
 
-typedef struct {
+struct Parser {
     ErrorCode ecode;
 
     FILE* rf; /* Input file */
@@ -726,6 +820,7 @@ typedef struct {
 
     /* First symbol element is earliest in occurrence */
     vec_t(Symbol) symbol;
+    char func_name[MAX_ARG_LEN]; /* Name of current function */
     int stack_bytes; /* Bytes stack needs */
 
     /* Control flow graph */
@@ -745,7 +840,7 @@ typedef struct {
     char arg[MAX_ARG_LEN];
     char* arg_table[MAX_ARGS]; /* Points to beginning of each argument */
     int arg_count; /* Number of arguments */
-} Parser;
+};
 
 static void parser_construct(Parser* p) {
     vec_construct(&p->symbol);
@@ -1136,6 +1231,43 @@ static void cfg_compute_liveness(Parser* p) {
     ASSERT(0, "Liveness behavior if stability not found unimplemented");
 }
 
+/* Traverses the blocks in the control flow graph and emits assembly */
+static void cfg_output_asm(Parser* p) {
+    /* Function labels always with prefix f@ */
+    parser_output_asm(p,
+        "f@%s:\n"
+        /* Function prologue */
+        "push rbp\n"
+        "mov rbp,rsp\n",
+        p->func_name
+    );
+    /* Reserve stack space */
+    if (p->stack_bytes != 0) {
+        parser_output_asm(p, "sub rsp,%d\n", p->stack_bytes);
+    }
+
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        parser_output_comment(p, "Block %d\n", i);
+
+        Block* blk = &vec_at(&p->cfg, i);
+        /* Labels for block */
+        for (int j = 0; j < block_lab_count(blk); ++j) {
+            SymbolId lab_id = block_lab(blk, j);
+            parser_output_asm(p, "%s:\n", symbol_name(symtab_get(p, lab_id)));
+        }
+
+        /* Statements for block */
+        for (int j = 0; j < block_stat_count(blk); ++j) {
+            Statement* stat = block_stat(blk, j);
+            InsCgHandler cg_handler = il_get_cgi(stat_ins(stat));
+            ASSERT(cg_handler != NULL, "Failed to find handler for codegen");
+
+            cg_handler(p, stat);
+            if (parser_has_error(p)) return;
+        }
+    }
+}
+
 /* Clears nodes in interference graph */
 static void ig_clear(Parser* p) {
     for (int i = 0; i < vec_size(&p->ig); ++i) {
@@ -1396,12 +1528,11 @@ static void cg_validate_equal_size2(Parser* p,
 static void cg_validate_equal_size3(Parser* p,
         SymbolId lval_id, SymbolId op1_id, SymbolId op2_id);
 
-typedef void(*InsHandler) (Parser*, char**, int);
 /* argv contains argc pointers, each pointer is to null terminated argument string */
 #define INSTRUCTION_PROC(name__) \
     void il_proc_ ## name__ (Parser* p, char** pparg, int arg_count)
 #define INSTRUCTION_CG(name__) \
-    void il_cg_ ## name__ (Parser* p, char** pparg, int arg_count)
+    void il_cg_ ## name__ (Parser* p, Statement* stat)
 
 static INSTRUCTION_PROC(def) {
     if (arg_count != 1) {
@@ -1465,6 +1596,8 @@ static INSTRUCTION_PROC(func) {
             "    syscall\n"
         );
     }
+
+    strcopy(pparg[0], p->func_name);
 }
 
 static INSTRUCTION_PROC(jmp) {
@@ -1513,132 +1646,113 @@ static INSTRUCTION_PROC(ret) {
 }
 
 static INSTRUCTION_CG(add) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
 
     cg_arithmetic(p, lval_id, op1_id, op2_id, "add");
 }
 
 static INSTRUCTION_CG(ce) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
 
     cg_cmpsetcc(p, lval_id, op1_id, op2_id, "sete");
 }
 
 static INSTRUCTION_CG(cl) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
 
     cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setl");
 }
 
 static INSTRUCTION_CG(cle) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
 
     cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setle");
 }
 
 static INSTRUCTION_CG(cne) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
 
     cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setne");
 }
 
 static INSTRUCTION_CG(div) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
     /* Division needs special handling, since it behaves differently
        Dividend in ax, Result in ax */
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     cg_divide(p, op1_id, op2_id, "idiv");
     cg_mov_fromr(p, reg_a, lval_id);
 }
 
-static INSTRUCTION_CG(func) {
-    /* Function labels always with prefix f@ */
-    parser_output_asm(p,
-        "f@%s:\n"
-        /* Function prologue */
-        "push rbp\n"
-        "mov rbp,rsp\n",
-        pparg[0]
-    );
-    /* Reserve stack space */
-    if (p->stack_bytes != 0) {
-        parser_output_asm(p, "sub rsp,%d\n", p->stack_bytes);
-    }
-}
-
 static INSTRUCTION_CG(jmp) {
-    SymbolId label_id = symtab_find(p, pparg[0]);
+    SymbolId label_id = stat_arg(stat, 0);
     Symbol* label = symtab_get(p, label_id);
 
     parser_output_asm(p, "jmp %s\n", symbol_name(label));
 }
 
 static INSTRUCTION_CG(jnz) {
-    SymbolId label_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId label_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
 
     cg_testjmpcc(p, label_id, op1_id, "jnz");
 }
 
 static INSTRUCTION_CG(jz) {
-    SymbolId label_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
+    SymbolId label_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
 
     cg_testjmpcc(p, label_id, op1_id, "jz");
 }
 
-static INSTRUCTION_CG(lab) {
-    parser_output_asm(p, "%s:\n", pparg[0]);
-}
-
 static INSTRUCTION_CG(mod) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
 
     /* Mod is division but returning different part of result
        Dividend in ax, Remainder in dx */
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     cg_divide(p, op1_id, op2_id, "idiv");
@@ -1646,13 +1760,13 @@ static INSTRUCTION_CG(mod) {
 }
 
 static INSTRUCTION_CG(mov) {
-    if (arg_count != 2) {
+    if (stat_argc(stat) != 2) {
         parser_set_error(p, ec_badargs);
         return;
     }
 
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId rval_id = symtab_find(p, pparg[1]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId rval_id = stat_arg(stat, 1);
     cg_validate_equal_size2(p, lval_id, rval_id);
 
     cg_mov_tor(p, rval_id, reg_a);
@@ -1660,25 +1774,25 @@ static INSTRUCTION_CG(mov) {
 }
 
 static INSTRUCTION_CG(mul) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
 
     cg_arithmetic(p, lval_id, op1_id, op2_id, "imul");
 }
 
 static INSTRUCTION_CG(not) {
-    if (arg_count != 2) {
+    if (stat_argc(stat) != 2) {
         parser_set_error(p, ec_badargs);
         return;
     }
 
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId rval_id = symtab_find(p, pparg[1]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId rval_id = stat_arg(stat, 1);
     cg_validate_equal_size2(p, lval_id, rval_id);
 
     Symbol* rval = symtab_get(p, rval_id);
@@ -1700,7 +1814,7 @@ static INSTRUCTION_CG(not) {
 }
 
 static INSTRUCTION_CG(ret) {
-    SymbolId sym_id = symtab_find(p, pparg[0]);
+    SymbolId sym_id = stat_arg(stat, 0);
     Symbol* sym = symtab_get(p, sym_id);
     if (sym == NULL) {
         parser_set_error(p, ec_unknownsym);
@@ -1724,13 +1838,13 @@ exit:
 }
 
 static INSTRUCTION_CG(sub) {
-    if (arg_count != 3) {
+    if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = symtab_find(p, pparg[0]);
-    SymbolId op1_id = symtab_find(p, pparg[1]);
-    SymbolId op2_id = symtab_find(p, pparg[2]);
+    SymbolId lval_id = stat_arg(stat, 0);
+    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId op2_id = stat_arg(stat, 2);
 
     cg_arithmetic(p, lval_id, op1_id, op2_id, "sub");
 }
@@ -1917,64 +2031,6 @@ static void cg_validate_equal_size3(Parser* p,
     ASSERT(symbol_bytes(op1) == symbol_bytes(op2), "Non equal type sizes");
 }
 
-/* Index of string is instruction handler index */
-#define INSTRUCTION_P(name__) #name__,
-#define INSTRUCTION_C(name__)
-#define INSTRUCTION_PC(name__) #name__,
-const char* instruction_proc_index[] = {INSTRUCTIONS};
-#undef INSTRUCTION_P
-#undef INSTRUCTION_PC
-
-#define INSTRUCTION_P(name__) &il_proc_ ## name__,
-#define INSTRUCTION_PC(name__) &il_proc_ ## name__,
-const InsHandler instruction_proc_table[] = {INSTRUCTIONS};
-#undef INSTRUCTION_P
-#undef INSTRUCTION_C
-#undef INSTRUCTION_PC
-
-#define INSTRUCTION_P(name__)
-#define INSTRUCTION_C(name__) #name__,
-#define INSTRUCTION_PC(name__) #name__,
-const char* instruction_cg_index[] = {INSTRUCTIONS};
-#undef INSTRUCTION_C
-#undef INSTRUCTION_PC
-
-#define INSTRUCTION_C(name__) &il_cg_ ## name__,
-#define INSTRUCTION_PC(name__) &il_cg_ ## name__,
-const InsHandler instruction_cg_table[] = {INSTRUCTIONS};
-#undef INSTRUCTION_P
-#undef INSTRUCTION_C
-#undef INSTRUCTION_PC
-
-/* Returns function for processing instruction with provided name
-   Returns null if not found */
-static InsHandler il_get_proc(const char* name) {
-    int i_handler = strbinfind(
-            name,
-            strlength(name),
-            instruction_proc_index,
-            ARRAY_SIZE(instruction_proc_index));
-    if (i_handler == -1) {
-        return NULL;
-    }
-    return instruction_proc_table[i_handler];
-}
-
-/* Returns function for assembly generation for il instruction
-   with provided name
-   Returns null if not found */
-static InsHandler il_get_cg(const char* name) {
-    int i_handler = strbinfind(
-            name,
-            strlength(name),
-            instruction_cg_index,
-            ARRAY_SIZE(instruction_cg_index));
-    if (i_handler == -1) {
-        return NULL;
-    }
-    return instruction_cg_table[i_handler];
-}
-
 /* ============================================================ */
 /* Initialization and configuration */
 
@@ -2067,8 +2123,8 @@ static int read_instruction(Parser* p) {
 
 static void parse(Parser* p) {
     while (read_instruction(p)) {
-        InsHandler proc_handler = il_get_proc(p->ins);
-        InsHandler cg_handler = il_get_cg(p->ins);
+        InsProcHandler proc_handler = il_get_proc(p->ins);
+        InsCgHandler cg_handler = il_get_cg(p->ins);
         /* Verify is valid instruction */
         if (proc_handler == NULL && cg_handler == NULL) {
             ERRMSGF("Unrecognized instruction %s\n", p->ins);
@@ -2081,7 +2137,7 @@ static void parse(Parser* p) {
                 {.ins = ins_from_str(p->ins), .argc = p->arg_count};
             for (int i = 0; i < p->arg_count; ++i) {
                 SymbolId sym_id = symtab_find(p, p->arg_table[i]);
-                ASSERT(sym_id >= 0, "Invalid SymbolId");
+                ASSERTF(sym_id >= 0, "Invalid SymbolId %s", p->arg_table[i]);
                 stat.arg[i] = sym_id;
             }
 
@@ -2099,26 +2155,7 @@ static void parse(Parser* p) {
     cfg_link_jump_dest(p);
     cfg_compute_liveness(p);
     ig_compute(p);
-
-    seek_to_start(p);
-    while (read_instruction(p)) {
-        InsHandler cg_handler = il_get_cg(p->ins);
-        if (cg_handler == NULL) {
-            continue;
-        }
-
-        parser_output_comment(p, "%s", p->ins);
-        if (0 < p->arg_count) {
-            parser_output_asm(p, " %s", p->arg_table[0]);
-        }
-        for (int i = 1; i < p->arg_count; ++i) {
-            parser_output_asm(p, ",%s", p->arg_table[i]);
-        }
-        parser_output_asm(p, "\n");
-
-        cg_handler(p, p->arg_table, p->arg_count);
-        if (parser_has_error(p)) return;
-    }
+    cfg_output_asm(p);
 }
 
 /* Parses cli args and processes them */

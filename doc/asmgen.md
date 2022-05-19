@@ -20,7 +20,7 @@ Each block is walked backwards to generate liveness use/def information for a bl
 
 ### 2. Build
 
-Ershov numbers are assigned to reduce register usage, then a interference graph is built of the remaining candidates for register allocation.
+Using liveness information, an interference graph is built for all the variables. The graph is built by scanning statements backwards from the end of each block and joining edges based on what is live at each statement and the live variables exiting the block.
 
 ### 3. Coalesce
 

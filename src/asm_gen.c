@@ -669,6 +669,53 @@ static Block* block_next(Block* blk, int i) {
     return blk + blk->next[i];
 }
 
+/* Interference graph node */
+typedef struct {
+    /* Offset (in IGNode) to neighbor
+       Pointers cannot be used as container holding nodes may resize */
+    vec_t(int) neighbor;
+} IGNode;
+
+static void ignode_construct(IGNode* node) {
+    ASSERT(node != NULL, "IGNode is null");
+    vec_construct(&node->neighbor);
+}
+
+static void ignode_destruct(IGNode* node) {
+    ASSERT(node != NULL, "IGNode is null");
+    vec_destruct(&node->neighbor);
+}
+
+/* Returns number of neighbors for IGNode */
+static int ignode_neighbor_count(IGNode* node) {
+    ASSERT(node != NULL, "Node is null");
+    return vec_size(&node->neighbor);
+}
+
+/* Adds a neighbor to this node from node to other
+   Does nothing if neighbor does exist, returns 1
+   Returns 1 if successful, 0 otherwise */
+static int ignode_link(IGNode* node, IGNode* other) {
+    ASSERT(node != NULL, "Node is null");
+    ASSERT(other != NULL, "Other node is null");
+    ASSERT(node != other, "Cannot link node to self");
+    int offset = other - node;
+    for (int i = 0; i < vec_size(&node->neighbor); ++i) {
+        if (vec_at(&node->neighbor, i) == offset) {
+            return 1;
+        }
+    }
+    return vec_push_back(&node->neighbor, offset);
+}
+
+/* Returns neighbors for IGNode at index */
+static IGNode* ignode_neighbor(IGNode* node, int i) {
+    ASSERT(node != NULL, "Node is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < ignode_neighbor_count(node), "Index out of range");
+    return node + vec_at(&node->neighbor, i);
+}
+
 typedef struct {
     ErrorCode ecode;
 
@@ -685,6 +732,13 @@ typedef struct {
     vec_t(Block) cfg;
     Block* latest_blk;
 
+    /* Interference graph
+       Index of symbol in symbol table corresponds to index of its node
+       in the interference graph */
+    vec_t(IGNode) ig;
+    /* Buffer of live symbols used when calculating interference graph */
+    vec_t(SymbolId) ig_live;
+
     /* Instruction, argument */
     char ins[MAX_INSTRUCTION_LEN];
     int ins_len;
@@ -696,9 +750,16 @@ typedef struct {
 static void parser_construct(Parser* p) {
     vec_construct(&p->symbol);
     vec_construct(&p->cfg);
+    vec_construct(&p->ig);
+    vec_construct(&p->ig_live);
 }
 
 static void parser_destruct(Parser* p) {
+    vec_destruct(&p->ig_live);
+    for (int i = 0; i < vec_size(&p->ig); ++i) {
+        ignode_destruct(&vec_at(&p->ig, i));
+    }
+    vec_destruct(&p->ig);
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         block_destruct(&vec_at(&p->cfg, i));
     }
@@ -1075,6 +1136,138 @@ static void cfg_compute_liveness(Parser* p) {
     ASSERT(0, "Liveness behavior if stability not found unimplemented");
 }
 
+/* Clears nodes in interference graph */
+static void ig_clear(Parser* p) {
+    for (int i = 0; i < vec_size(&p->ig); ++i) {
+        ignode_destruct(&vec_at(&p->ig, i));
+    }
+    vec_clear(&p->ig);
+}
+
+/* Returns interference graph node at index */
+static IGNode* ig_node(Parser* p, int i) {
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < vec_size(&p->ig), "Index out of range");
+    return &vec_at(&p->ig, i);
+}
+
+/* Adds symbol to buffer of live symbols
+   Does nothing if already exists, returns 1
+   Returns 1 if successful, 0 otherwise */
+static int ig_add_live(Parser* p, SymbolId sym_id) {
+    for (int i = 0; i < vec_size(&p->ig_live); ++i) {
+        if (vec_at(&p->ig_live, i) == sym_id) {
+            return 1;
+        }
+    }
+    return vec_push_back(&p->ig_live, sym_id);
+}
+
+/* Removes symbol from buffer of live symbols,
+   does nothing if symbol does not exist */
+static void ig_remove_live(Parser* p, SymbolId sym_id) {
+    for (int i = 0; i < vec_size(&p->ig_live); ++i) {
+        if (vec_at(&p->ig_live, i) == sym_id) {
+            vec_splice(&p->ig_live, i, 1);
+            return;
+        }
+    }
+    /* If symbol to remove is not in live symbol buffer,
+       it is because the symbol is unused */
+}
+
+/* Remove all live symbols from buffer */
+static void ig_clear_live(Parser* p) {
+    vec_clear(&p->ig_live);
+}
+
+/* Links given symbol in interference graph with edges to all live symbols,
+   2 way (live symbols also have edges to this symbol)
+   Returns 1 if successful, 0 otherwise */
+static int ig_link_live(Parser* p, SymbolId sym_id) {
+    IGNode* node = &vec_at(&p->ig, sym_id);
+    for (int i = 0 ; i < vec_size(&p->ig_live); ++i) {
+        SymbolId other_id = vec_at(&p->ig_live, i);
+        /* Do not link to self */
+        if (other_id == sym_id) {
+            continue;
+        }
+
+        IGNode* other_node = &vec_at(&p->ig, other_id);
+
+        /* Link 2 way, this symbol to live symbol,
+           live symbol to this symbol */
+        if (!ignode_link(node, other_node)) return 0;
+        if (!ignode_link(other_node, node)) return 0;
+    }
+    return 1;
+}
+
+/* Builds an interference graph using the control flow graph
+   Requires liveness information for blocks to be computed */
+static void ig_compute(Parser* p) {
+    ASSERT(vec_size(&p->ig) == 0,
+            "Interference graph nodes already exist when computing graph");
+
+    /* Create unlinked nodes for all the symbols */
+    if (!vec_reserve(&p->ig, vec_size(&p->symbol))) goto error;
+    for (int i = 0; i < vec_size(&p->symbol); ++i) {
+        if (!vec_push_backu(&p->ig)) goto error;
+        IGNode* node = &vec_back(&p->ig);
+        ignode_construct(node);
+    }
+
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+
+        /* New block, recalculate live symbols
+           OUT[B] symbols are live for entire block,
+           thus they are linked to each other */
+        ig_clear_live(p);
+        for (int j = 0; j < block_out_count(blk); ++j) {
+            SymbolId sym_id = block_out(blk, j);
+            if (!ig_link_live(p, sym_id)) goto error;
+            if (!ig_add_live(p, block_out(blk, j))) goto error;
+        }
+
+        /* Calculate live symbols at each statement and
+           link them */
+        for (int j = block_stat_count(blk) - 1; j >= 0; --j) {
+            Statement* stat = block_stat(blk, j);
+            SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
+
+            ASSERT(MAX_ARGS >= 1, "Need at least 1 to hold def");
+            int def_count = stat_def(stat, syms);
+            for (int k = 0; k < def_count; ++k) {
+                ASSERT(!symtab_isconstant(p, syms[k]),
+                        "Assigned symbol should not be constant");
+                ig_remove_live(p, syms[k]);
+            }
+
+            int use_count = stat_use(stat, syms);
+            for (int k = 0; k < use_count; ++k) {
+                if (symtab_isconstant(p, syms[k])) {
+                    continue;
+                }
+                if (!ig_link_live(p, syms[k])) goto error;
+                if (!ig_add_live(p, syms[k])) goto error;
+            }
+        }
+    }
+
+    return;
+
+error:
+    parser_set_error(p, ec_outofmemory);
+}
+
+/* Sets up parser data structures to begin parsing a new function */
+static void parser_clear_func(Parser* p) {
+    cfg_clear(p);
+    ig_clear(p);
+    symtab_clear(p);
+}
+
 /* Dumps contents stored in parser */
 static void debug_dump(Parser* p) {
     LOGF("Symbol table: [%d]\n", vec_size(&p->symbol));
@@ -1159,6 +1352,20 @@ static void debug_dump(Parser* p) {
         }
         LOG("\n");
     }
+
+    LOGF("Interference graph [%d]\n", vec_size(&p->ig));
+    for (int i = 0; i < vec_size(&p->ig); ++i) {
+        LOGF("  Node %d %s\n", i, symbol_name(symtab_get(p, i)));
+        IGNode* node = ig_node(p, i);
+
+        /* Neighbors of node */
+        LOGF("    Neighbors [%d]", ignode_neighbor_count(node));
+        for (int j = 0; j < ignode_neighbor_count(node); ++j) {
+            LOGF(" %ld", ignode_neighbor(node, j) - node + i);
+        }
+        LOG("\n");
+    }
+
 }
 
 
@@ -1216,8 +1423,7 @@ static INSTRUCTION_PROC(func) {
         return;
     }
 
-    cfg_clear(p);
-    symtab_clear(p);
+    parser_clear_func(p);
     cfg_new_block(p);
 
     /* Special handling of main function */
@@ -1892,6 +2098,7 @@ static void parse(Parser* p) {
     /* Process the last (most recent) function */
     cfg_link_jump_dest(p);
     cfg_compute_liveness(p);
+    ig_compute(p);
 
     seek_to_start(p);
     while (read_instruction(p)) {

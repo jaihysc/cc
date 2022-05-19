@@ -11,6 +11,7 @@
 #define MAX_INSTRUCTION_LEN 256 /* Includes null terminator */
 #define MAX_ARG_LEN 2048   /* Includes null terminator */
 #define MAX_ARGS 256 /* Maximum arguments for il instruction */
+#define MAX_BLOCK_LINK 2 /* Maximum links out of block to to other blocks */
 
 /* ============================================================ */
 /* Parser global configuration */
@@ -450,12 +451,17 @@ typedef struct {
     vec_t(SymbolId) use;
     vec_t(SymbolId) def;
 
+    /* Liveness IN[B] (Needed entering block)
+       and OUT[B] (needed exiting block) */
+    vec_t(SymbolId) in;
+    vec_t(SymbolId) out;
+
     /* At most 2 options:
        1. Flow through to next block
        2. Jump at end
        Is offset (in Block) from current location, cannot use pointer
        as container holding Block may resize */
-    int next[2];
+    int next[MAX_BLOCK_LINK];
 } Block;
 
 static void block_construct(Block* blk) {
@@ -464,12 +470,16 @@ static void block_construct(Block* blk) {
     vec_construct(&blk->stats);
     vec_construct(&blk->use);
     vec_construct(&blk->def);
+    vec_construct(&blk->in);
+    vec_construct(&blk->out);
     blk->next[0] = 0;
     blk->next[1] = 0;
 }
 
 static void block_destruct(Block* blk) {
     ASSERT(blk != NULL, "Block is null");
+    vec_destruct(&blk->out);
+    vec_destruct(&blk->in);
     vec_destruct(&blk->def);
     vec_destruct(&blk->use);
     vec_destruct(&blk->stats);
@@ -518,9 +528,6 @@ static int block_add_stat(Block* blk, Statement stat) {
     return vec_push_back(&blk->stats, stat);
 }
 
-/* TODO future methods, block_live (Live symbols at location)
-   block_in_out (Sets in/out for block) */
-
 /* Adds provided SymbolId to liveness 'def'ed symbols for this block
    if it does not exist. Does nothing if does exist, returns 1
    Returns 1 if successful, 0 if not */
@@ -532,6 +539,31 @@ static int block_add_def(Block* blk, SymbolId sym_id) {
         }
     }
     return vec_push_back(&blk->def, sym_id);
+}
+
+/* Returns 1 if SymbolId is in def(B), 0 otherwise */
+static int block_in_def(Block* blk, SymbolId sym_id) {
+    ASSERT(blk != NULL, "Block is null");
+    for (int i = 0; i < vec_size(&blk->def); ++i) {
+        if (vec_at(&blk->def, i) == sym_id) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Returns number of entries use(B) */
+static int block_use_count(Block* blk) {
+    ASSERT(blk != NULL, "Block is null");
+    return vec_size(&blk->use);
+}
+
+/* Returns symbol for use(B) at index i */
+static SymbolId block_use(Block* blk, int i) {
+    ASSERT(blk != NULL, "Block is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < block_use_count(blk), "Index out of range");
+    return vec_at(&blk->use, i);
 }
 
 /* Adds provided SymbolId to liveness 'use'ed symbols for this block
@@ -558,11 +590,65 @@ static void block_remove_use(Block* blk, SymbolId sym_id) {
     }
 }
 
+/* Returns number of entries for IN[B] */
+static int block_in_count(Block* blk) {
+    ASSERT(blk != NULL, "Block is null");
+    return vec_size(&blk->in);
+}
+
+/* Returns symbol for IN[B] at index i */
+static SymbolId block_in(Block* blk, int i) {
+    ASSERT(blk != NULL, "Block is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < block_in_count(blk), "Index out of range");
+    return vec_at(&blk->in, i);
+}
+
+/* Adds SymbolId to IN[B] if it does not already exist
+   Does nothing if it does exist, returns 1
+   Returns 1 if successful, 0 otherwise */
+static int block_add_in(Block* blk, SymbolId sym_id) {
+    ASSERT(blk != NULL, "Block is null");
+    for (int i = 0; i < vec_size(&blk->in); ++i) {
+        if (vec_at(&blk->in, i) == sym_id) {
+            return 1;
+        }
+    }
+    return vec_push_back(&blk->in, sym_id);
+}
+
+/* Returns number of entries for OUT[B] */
+static int block_out_count(Block* blk) {
+    ASSERT(blk != NULL, "Block is null");
+    return vec_size(&blk->out);
+}
+
+/* Returns symbol for OUT[B] at index i */
+static SymbolId block_out(Block* blk, int i) {
+    ASSERT(blk != NULL, "Block is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < block_out_count(blk), "Index out of range");
+    return vec_at(&blk->out, i);
+}
+
+/* Adds SymbolId to OUT[B] if it does not already exist
+   Does nothing if it does exist, returns 1
+   Returns 1 if successful, 0 otherwise */
+static int block_add_out(Block* blk, SymbolId sym_id) {
+    ASSERT(blk != NULL, "Block is null");
+    for (int i = 0; i < vec_size(&blk->out); ++i) {
+        if (vec_at(&blk->out, i) == sym_id) {
+            return 1;
+        }
+    }
+    return vec_push_back(&blk->out, sym_id);
+}
+
 /* Links block to next block */
 static void block_link(Block* blk, Block* next) {
     ASSERT(blk != NULL, "Block is null");
     ASSERT(blk != next, "Cannot link block to self");
-    for (int i = 0; i < 2; ++i ) {
+    for (int i = 0; i < MAX_BLOCK_LINK; ++i ) {
         if (blk->next[i] == 0) {
             blk->next[i] = next - blk;
             return;
@@ -575,7 +661,7 @@ static void block_link(Block* blk, Block* next) {
 static Block* block_next(Block* blk, int i) {
     ASSERT(blk != NULL, "Block is null");
     ASSERT(i >= 0, "Index out of range");
-    ASSERT(i < 2, "Index out of range");
+    ASSERT(i < MAX_BLOCK_LINK, "Index out of range");
 
     if (blk->next[i] == 0) {
         return NULL;
@@ -861,6 +947,134 @@ static void cfg_compute_use_def(Parser* p) {
     }
 }
 
+/* Performs recursive traversal to compute liveness for blocks in the cfg
+   status: At index i holds whether a block at index i has been traversed or not
+   block index is block - base_block (Both of type Block*)
+     0 = Not traversed
+     1 = Traversed
+     2 = Traversed and modified
+   base: The first block in the array which holds all the blocks, it is
+   provided to compute an index to determine whether a block has been
+   traversed or not
+   blk: The current block */
+static void cfg_compute_liveness_traverse(
+        Parser* p, char* status, Block* base, Block* blk) {
+    int index = blk - base;
+    ASSERT(status[index] == 0, "Block should be untraversed");
+    status[index] = 1; /* Block traversed */
+
+    for (int i = 0; i < MAX_BLOCK_LINK; ++i) {
+        if (parser_has_error(p)) return;
+
+        Block* next = block_next(blk, i);
+        if (!next) {
+            continue;
+        }
+
+        /* Only traverse next if not traversed */
+        if (status[next - base] == 0) {
+            cfg_compute_liveness_traverse(p, status, base, next);
+        }
+        /* Compute IN[B] and OUT[B]
+
+           Math below:
+           This is block B
+           OUT[B] is a union for all successor of B: S, IN[S]
+
+           Check for changes by trying to add IN[S] to OUT[B],
+           disallowing duplicates, if OUT[B] increased in size, it
+           has changed
+           IN[B] only changes with OUT[B], as use(B) and def(B) are constant,
+           thus IN[B] can only change if OUT[B] changes - therefore
+           checking if OUT[B] has increased in size always indicates
+           whether the block has changed
+
+           IN[B] = use(B) union (OUT[B] - def(B))
+           use(B) and def(B) are constant, use(B) is added to IN[B]
+           at the beginning of liveness calculation
+           Thus add the new entries from OUT[B] to IN[B] if the entries
+           are not in def(B) */
+        int old_out_count = block_out_count(blk);
+        for (int j = 0; j < block_in_count(next); ++j) {
+            SymbolId new_in = block_in(next, j);
+            if (!block_add_out(blk, new_in)) goto error;
+
+            /* Check if is in def(B), if not add to IN[B] */
+            if (!block_in_def(blk, new_in)) {
+                if (!block_add_in(blk, new_in)) goto error;
+            }
+        }
+        if (block_out_count(blk) != old_out_count) {
+            status[index] = 2;
+        }
+    }
+    return;
+
+error:
+    parser_set_error(p, ec_outofmemory);
+}
+
+/* Computes liveness (live-variable analysis) of blocks in the cfg
+   Results saved are Block use/def and in/out */
+static void cfg_compute_liveness(Parser* p) {
+    /* Avoid segfault trying to traverse nothing for IN[B]/OUT[B] */
+    if (vec_size(&p->cfg) == 0) {
+        return;
+    }
+
+    cfg_compute_use_def(p);
+
+    /* IN[B] = use(B) union (OUT[B] - def(B))
+       Thus add use(B) to IN[B] for all blocks
+       (Cannot do this while computing use/def as use may change
+       during computation as new def are discovered, changing
+       what is use upon entering block) */
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = 0; j < block_use_count(blk); ++j) {
+            if (!block_add_in(blk, block_use(blk, j))) {
+                parser_set_error(p, ec_outofmemory);
+                return;
+            }
+        }
+    }
+
+    /* Because the blocks are cyclic, the best method I have is to
+       repeatedly traverse the entire cfg until the results are stable */
+
+    /* Give up trying to determine in/out for blocks
+       if the results does not stabilize after some number of traversals
+       and assume worst case */
+    int max_traverse = 10;
+
+    int block_count = vec_size(&p->cfg);
+    char status[block_count];
+    for (int i = 0; i < max_traverse; ++i) {
+        /* Reset status to not traversed */
+        for (int j = 0; j < block_count; ++j) {
+            status[j] = 0;
+        }
+
+        Block* base = vec_data(&p->cfg);
+        cfg_compute_liveness_traverse(p, status, base, base);
+
+        /* Check if results are stable (no modifications) */
+        int stable = 1;
+        for (int j = 0; j < block_count; ++j) {
+            if (status[j] == 2) {
+                stable = 0;
+                break;
+            }
+        }
+        if (stable) {
+            return;
+        }
+    }
+
+    /* TODO implement something to handle liveness if give up */
+    ASSERT(0, "Liveness behavior if stability not found unimplemented");
+}
+
 /* Dumps contents stored in parser */
 static void debug_dump(Parser* p) {
     LOGF("Symbol table: [%d]\n", vec_size(&p->symbol));
@@ -890,23 +1104,34 @@ static void debug_dump(Parser* p) {
             LOG("\n");
         }
 
-        /* Liveness use/def for block */
-        if (vec_size(&blk->use) > 0) {
-            LOG("    Liveness use:");
-            for (int j = 0; j < vec_size(&blk->use); ++j) {
-                Symbol* sym = symtab_get(p, vec_at(&blk->use, j));
-                LOGF(" %s", symbol_name(sym));
-            }
-            LOG("\n");
+        /* Liveness use/def, in/out for block */
+        LOG("    Liveness\n");
+        LOG("      use:");
+        for (int j = 0; j < vec_size(&blk->use); ++j) {
+            Symbol* sym = symtab_get(p, vec_at(&blk->use, j));
+            LOGF(" %s", symbol_name(sym));
         }
-        if (vec_size(&blk->def) > 0) {
-            LOG("    Liveness def:");
-            for (int j = 0; j < vec_size(&blk->def); ++j) {
-                Symbol* lab_sym = symtab_get(p, vec_at(&blk->def, j));
-                LOGF(" %s", symbol_name(lab_sym));
-            }
-            LOG("\n");
+        LOG("\n");
+        LOG("      def:");
+        for (int j = 0; j < vec_size(&blk->def); ++j) {
+            Symbol* sym = symtab_get(p, vec_at(&blk->def, j));
+            LOGF(" %s", symbol_name(sym));
         }
+        LOG("\n");
+        LOG("      IN:");
+        for (int j = 0; j < vec_size(&blk->in); ++j) {
+            Symbol* sym = symtab_get(p, vec_at(&blk->in, j));
+            LOGF(" %s", symbol_name(sym));
+        }
+        LOG("\n");
+        LOG("      OUT:");
+        for (int j = 0; j < vec_size(&blk->out); ++j) {
+            Symbol* sym = symtab_get(p, vec_at(&blk->out, j));
+            LOGF(" %s", symbol_name(sym));
+        }
+        LOG("\n");
+
+
 
         /* Print instruction and arguments */
         for (int j = 0; j < block_stat_count(blk); ++j) {
@@ -1666,7 +1891,7 @@ static void parse(Parser* p) {
 
     /* Process the last (most recent) function */
     cfg_link_jump_dest(p);
-    cfg_compute_use_def(p);
+    cfg_compute_liveness(p);
 
     seek_to_start(p);
     while (read_instruction(p)) {

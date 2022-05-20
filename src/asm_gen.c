@@ -105,13 +105,31 @@ const char* reg_strings[] = {X86_REGISTERS};
 #undef X86_REGISTER
 
 /* Refers to the various sizes of a register (GenericRegister)
-   e.g., reg_a refers to: al, ah, ax eax, rax */
-typedef enum {
-    reg_a,
-    reg_b,
-    reg_c,
-    reg_d
-} GRegister;
+   e.g., greg_a refers to: al, ah, ax eax, rax */
+#define X86_GENERAL_REGISTERS \
+    X86_GENERAL_REGISTER(a)   \
+    X86_GENERAL_REGISTER(b)   \
+    X86_GENERAL_REGISTER(c)   \
+    X86_GENERAL_REGISTER(d)   \
+    X86_GENERAL_REGISTER(si)  \
+    X86_GENERAL_REGISTER(di)  \
+    X86_GENERAL_REGISTER(bp)  \
+    X86_GENERAL_REGISTER(sp)  \
+    X86_GENERAL_REGISTER(8)   \
+    X86_GENERAL_REGISTER(9)   \
+    X86_GENERAL_REGISTER(10)  \
+    X86_GENERAL_REGISTER(11)  \
+    X86_GENERAL_REGISTER(12)  \
+    X86_GENERAL_REGISTER(13)  \
+    X86_GENERAL_REGISTER(14)  \
+    X86_GENERAL_REGISTER(15)
+#define X86_GENERAL_REGISTER(reg__) greg_ ## reg__,
+/* a starts at 0 so all entries can be stored as an array */
+typedef enum {greg_none = -1, X86_GENERAL_REGISTERS} GRegister;
+#undef X86_GENERAL_REGISTER
+#define X86_GENERAL_REGISTER(reg__) #reg__,
+const char* greg_strings[] = {X86_GENERAL_REGISTERS};
+#undef X86_GENERAL_REGISTER
 
 /* Returns the name to access a given register with the indicates size
    -1 for upper byte (ah), 1 for lower byte (al) */
@@ -138,6 +156,15 @@ static Register reg_get(GRegister greg, int bytes) {
 static const char* reg_str(Register reg) {
     ASSERT(reg >= 0, "Invalid register");
     return reg_strings[reg];
+}
+
+/* Converts given GRegister to its corresponding c string */
+static const char* greg_str(GRegister greg) {
+    ASSERT(greg >= -1, "Invalid register");
+    if (greg == greg_none) {
+        return "none";
+    }
+    return greg_strings[greg];
 }
 
 /* Returns the cstr of the register corresponding to the provided
@@ -795,12 +822,15 @@ typedef struct {
     /* Performance impact if this variable is not in register,
        lower = less impact */
     uint64_t spill_cost;
+    /* Register this variable is assigned to, or no register if spilled */
+    GRegister greg;
 } IGNode;
 
 static void ignode_construct(IGNode* node) {
     ASSERT(node != NULL, "IGNode is null");
     vec_construct(&node->neighbor);
     node->spill_cost = 0;
+    node->greg = greg_none;
 }
 
 static void ignode_destruct(IGNode* node) {
@@ -850,6 +880,18 @@ static void ignode_add_cost(IGNode* node, uint64_t cost) {
     node->spill_cost += cost;
 }
 
+/* Returns general register (color) for node */
+static GRegister ignode_register(IGNode* node) {
+    ASSERT(node != NULL, "Node is null");
+    return node->greg;
+}
+
+/* Sets general register (color) for node */
+static void ignode_set_register(IGNode* node, GRegister greg) {
+    ASSERT(node != NULL, "Node is null");
+    node->greg = greg;
+}
+
 struct Parser {
     ErrorCode ecode;
 
@@ -873,6 +915,9 @@ struct Parser {
     vec_t(IGNode) ig;
     /* Buffer of live symbols used when calculating interference graph */
     vec_t(SymbolId) ig_live;
+    /* The registers which can be assigned (colored) to nodes */
+    GRegister ig_palette[X86_REGISTER_COUNT];
+    int ig_palette_size;
 
     /* Instruction, argument */
     char ins[MAX_INSTRUCTION_LEN];
@@ -887,6 +932,25 @@ static void parser_construct(Parser* p) {
     vec_construct(&p->cfg);
     vec_construct(&p->ig);
     vec_construct(&p->ig_live);
+
+    p->ig_palette[0] = greg_a;
+    p->ig_palette[1] = greg_b;
+    p->ig_palette[2] = greg_c;
+    p->ig_palette[3] = greg_d;
+    p->ig_palette[4] = greg_si;
+    p->ig_palette[5] = greg_di;
+    p->ig_palette[6] = greg_bp;
+    /* Assume rsp not usuable for now
+    p->ig_palette[7] = greg_sp; */
+    p->ig_palette[7] = greg_8;
+    p->ig_palette[8] = greg_9;
+    p->ig_palette[9] = greg_10;
+    p->ig_palette[10] = greg_11;
+    p->ig_palette[11] = greg_12;
+    p->ig_palette[12] = greg_13;
+    p->ig_palette[13] = greg_14;
+    p->ig_palette[14] = greg_15;
+    p->ig_palette_size = 15;
 }
 
 static void parser_destruct(Parser* p) {
@@ -1582,6 +1646,10 @@ static int ig_compute_color_sort_neighbor(const void* a, const void* b) {
    Requires interference graph by created and linked
    Requires spill cost be computed */
 static void ig_compute_color(Parser* p) {
+    /* NOTE: this assigns a register to constants as it does not distinguish
+       between them, I believe this is fine as constants do not affect others
+       as they are not linked */
+
     /* Mark each node for coloring or spilling */
     /* mark, index by IGNode index in container:
         0 = Unmarked
@@ -1590,6 +1658,19 @@ static void ig_compute_color(Parser* p) {
     char mark[vec_size(&p->ig)];
     for (int i = 0; i < vec_size(&p->ig); ++i) {
         mark[i] = 0;
+    }
+
+    /* Index corresponds to GRegister, 0 if unused, 1 if used
+
+       Disallow registers not in the palette by marking it used
+       This array is copied to reset the list of used/available registers
+       when computing the register to assign to a node */
+    char used_greg_init[X86_REGISTER_COUNT];
+    for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
+        used_greg_init[j] = 1;
+    }
+    for (int j = 0; j < p->ig_palette_size; ++j) {
+        used_greg_init[p->ig_palette[j]] = 0;
     }
 
     for (int i = 0; i < vec_size(&p->ig); ++i) {
@@ -1611,7 +1692,7 @@ static void ig_compute_color(Parser* p) {
                 neighbor[neighbor_count++] = neigh;
             }
         }
-        if (neighbor_count < X86_REGISTER_COUNT) {
+        if (neighbor_count < p->ig_palette_size) {
             /* No spilling needed, this node gets colored */
             mark[i] = 1;
             continue;
@@ -1629,7 +1710,7 @@ static void ig_compute_color(Parser* p) {
                 ig_compute_color_sort_neighbor);
 
         /* Compute neighbor spill cost */
-        int spill_amount = neighbor_count - X86_REGISTER_COUNT + 1;
+        int spill_amount = neighbor_count - p->ig_palette_size + 1;
         uint64_t neighbor_spill_cost = 0;
         for (int j = 0; j < spill_amount; ++j) {
             neighbor_spill_cost += ignode_cost(neighbor[j]);
@@ -1652,9 +1733,41 @@ static void ig_compute_color(Parser* p) {
         }
     }
 
+    /* Assign general register (a, b, c, etc) for each node */
     for (int i = 0; i < vec_size(&p->ig); ++i) {
         ASSERTF(mark[i] != 0, "Node %d is unmarked", i);
-        /* TODO color each node */
+
+        /* Not marked for coloring */
+        if (mark[i] != 1) {
+            continue;
+        }
+
+        char used_greg[X86_REGISTER_COUNT];
+        for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
+            used_greg[j] = used_greg_init[j];
+        }
+
+        /* Mark off registers neighbors used */
+        IGNode* node = &vec_at(&p->ig, i);
+        for (int j = 0; j < ignode_neighbor_count(node); ++j) {
+            IGNode* neighbor = ignode_neighbor(node, j);
+            GRegister greg = ignode_register(neighbor);
+            if (greg != greg_none) {
+                used_greg[greg] = 1;
+            }
+        }
+
+        /* Find first available register to use */
+        int found_reg = 0;
+        for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
+            if (used_greg[j] == 0) {
+                ignode_set_register(node, j);
+                found_reg = 1;
+                break;
+            }
+        }
+        ASSERT(found_reg,
+                "Failed to assign register to node marked for coloring");
     }
 }
 
@@ -1759,6 +1872,7 @@ static void debug_dump(Parser* p) {
 
         /* Spill cost */
         LOGF("    Spill cost %ld\n", ignode_cost(node));
+        LOGF("    Register %s\n", greg_str(ignode_register(node)));
 
         /* Neighbors of node */
         LOGF("    Neighbors [%d]", ignode_neighbor_count(node));
@@ -1988,7 +2102,7 @@ static INSTRUCTION_CG(div) {
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     cg_divide(p, op1_id, op2_id, "idiv");
-    cg_mov_fromr(p, reg_a, lval_id);
+    cg_mov_fromr(p, greg_a, lval_id);
 }
 
 static INSTRUCTION_CG(jmp) {
@@ -2026,7 +2140,7 @@ static INSTRUCTION_CG(mod) {
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     cg_divide(p, op1_id, op2_id, "idiv");
-    cg_mov_fromr(p, reg_d, lval_id);
+    cg_mov_fromr(p, greg_d, lval_id);
 }
 
 static INSTRUCTION_CG(mov) {
@@ -2039,8 +2153,8 @@ static INSTRUCTION_CG(mov) {
     SymbolId rval_id = stat_arg(stat, 1);
     cg_validate_equal_size2(p, lval_id, rval_id);
 
-    cg_mov_tor(p, rval_id, reg_a);
-    cg_mov_fromr(p, reg_a, lval_id);
+    cg_mov_tor(p, rval_id, greg_a);
+    cg_mov_fromr(p, greg_a, lval_id);
 }
 
 static INSTRUCTION_CG(mul) {
@@ -2066,10 +2180,10 @@ static INSTRUCTION_CG(not) {
     cg_validate_equal_size2(p, lval_id, rval_id);
 
     Symbol* rval = symtab_get(p, rval_id);
-    GRegister reg = reg_a; /* Where to store intermediate value */
+    GRegister reg = greg_a; /* Where to store intermediate value */
     int bytes = symbol_bytes(rval);
-    const char* reg_name = reg_get_str(reg_a, bytes);
-    const char* reg_lower_name = reg_get_str(reg_a, 1);
+    const char* reg_name = reg_get_str(greg_a, bytes);
+    const char* reg_lower_name = reg_get_str(greg_a, 1);
 
     cg_mov_tor(p, rval_id, reg);
     parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
@@ -2093,7 +2207,7 @@ static INSTRUCTION_CG(ret) {
 
     int bytes = symbol_bytes(sym);
     /* Return integer types in rax */
-    parser_output_asm(p, "mov %s,", reg_get_str(reg_a, bytes));
+    parser_output_asm(p, "mov %s,", reg_get_str(greg_a, bytes));
     cg_ref_symbol(p, sym_id);
     parser_output_asm(p, "\n");
 
@@ -2130,8 +2244,8 @@ static void cg_arithmetic(
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins) {
     cg_validate_equal_size3(p, dest_id, op1_id, op2_id);
 
-    GRegister op1_reg = reg_a;
-    GRegister op2_reg = reg_c;
+    GRegister op1_reg = greg_a;
+    GRegister op2_reg = greg_c;
     Symbol* dest = symtab_get(p, dest_id);
     int bytes = symbol_bytes(dest);
 
@@ -2154,8 +2268,8 @@ static void cg_cmpsetcc(
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* set) {
     cg_validate_equal_size3(p, dest_id, op1_id, op2_id);
 
-    GRegister op1_reg = reg_a;
-    GRegister op2_reg = reg_c;
+    GRegister op1_reg = greg_a;
+    GRegister op2_reg = greg_c;
     Symbol* dest = symtab_get(p, dest_id);
     int bytes = symbol_bytes(dest);
     const char* op1_reg_name = reg_get_str(op1_reg, bytes);
@@ -2179,7 +2293,7 @@ static void cg_cmpsetcc(
 static void cg_testjmpcc(
         Parser* p,
         SymbolId label_id, SymbolId op1_id, const char* jmp) {
-    GRegister reg = reg_a;
+    GRegister reg = greg_a;
     Symbol* label = symtab_get(p, label_id);
     Symbol* op1 = symtab_get(p, op1_id);
     const char* reg_name = reg_get_str(reg, symbol_bytes(op1));
@@ -2194,17 +2308,17 @@ static void cg_testjmpcc(
 static void cg_divide(
         Parser* p, SymbolId op1_id, SymbolId op2_id,
         const char* ins) {
-    GRegister op2_reg = reg_c;
+    GRegister op2_reg = greg_c;
 
     Symbol* op1 = symtab_get(p, op1_id);
     int bytes = symbol_bytes(op1);
 
-    cg_mov_tor(p, op1_id, reg_a);
+    cg_mov_tor(p, op1_id, greg_a);
     cg_mov_tor(p, op2_id, op2_reg);
     /* dx has to be zeroed, other it is interpreted as part of dividend */
     parser_output_asm(p, "xor %s,%s\n",
-            reg_get_str(reg_d, bytes),
-            reg_get_str(reg_d, bytes));
+            reg_get_str(greg_d, bytes),
+            reg_get_str(greg_d, bytes));
 
     parser_output_asm(p, "%s %s\n", ins, reg_get_str(op2_reg, bytes));
 }

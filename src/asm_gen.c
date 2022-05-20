@@ -791,11 +791,15 @@ typedef struct {
     /* Offset (in IGNode) to neighbor
        Pointers cannot be used as container holding nodes may resize */
     vec_t(int) neighbor;
+    /* Performance impact if this variable is not in register,
+       lower = less impact */
+    uint64_t spill_cost;
 } IGNode;
 
 static void ignode_construct(IGNode* node) {
     ASSERT(node != NULL, "IGNode is null");
     vec_construct(&node->neighbor);
+    node->spill_cost = 0;
 }
 
 static void ignode_destruct(IGNode* node) {
@@ -831,6 +835,18 @@ static IGNode* ignode_neighbor(IGNode* node, int i) {
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < ignode_neighbor_count(node), "Index out of range");
     return node + vec_at(&node->neighbor, i);
+}
+
+/* Returns spill cost for interference graph node */
+static uint64_t ignode_cost(IGNode* node) {
+    ASSERT(node != NULL, "Node is null");
+    return node->spill_cost;
+}
+
+/* Adds provided spill cost to interference graph node */
+static void ignode_add_cost(IGNode* node, uint64_t cost) {
+    ASSERT(node != NULL, "Node is null");
+    node->spill_cost += cost;
 }
 
 struct Parser {
@@ -1456,13 +1472,13 @@ static int ig_link_live(Parser* p, SymbolId sym_id) {
     return 1;
 }
 
-/* Builds an interference graph using the control flow graph
-   Requires liveness information for blocks to be computed */
-static void ig_compute(Parser* p) {
-    ASSERT(vec_size(&p->ig) == 0,
-            "Interference graph nodes already exist when computing graph");
+/* Creates unlinked interference graph nodes for all the symbols
+   in the symbol table
+   The index of the symbol in the symbol table corresponds to the
+   index of the node in the interference graph */
+static void ig_create_nodes(Parser* p) {
+    ASSERT(vec_size(&p->ig) == 0, "Interference graph nodes already exist");
 
-    /* Create unlinked nodes for all the symbols */
     if (!vec_reserve(&p->ig, vec_size(&p->symbol))) goto error;
     for (int i = 0; i < vec_size(&p->symbol); ++i) {
         if (!vec_push_backu(&p->ig)) goto error;
@@ -1470,6 +1486,16 @@ static void ig_compute(Parser* p) {
         ignode_construct(node);
     }
 
+    return;
+
+error:
+    parser_set_error(p, ec_outofmemory);
+}
+
+/* Constructs edges for the interference graph using the control flow graph
+   Requires interference graph nodes to have been created
+   Requires liveness information for blocks to be computed */
+static void ig_compute_edge(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
 
@@ -1512,6 +1538,30 @@ static void ig_compute(Parser* p) {
 
 error:
     parser_set_error(p, ec_outofmemory);
+}
+
+/* Computes the spill cost for all nodes in the interference graph
+   Requires interference graph nodes to have been created
+   Requires loop nesting depth information for blocks to be computed */
+static void ig_compute_spill_cost(Parser* p) {
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+
+        for (int j = 0; j < block_stat_count(blk); ++j) {
+            Statement* stat = block_stat(blk, j);
+            SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
+
+            int use_count = stat_use(stat, syms);
+            for (int k = 0; k < use_count; ++k) {
+                if (symtab_isconstant(p, syms[k])) {
+                    continue;
+                }
+                unsigned operation_cost = 1;
+                uint64_t weight = (uint64_t)powip(10, (unsigned)block_depth(blk));
+                ignode_add_cost(ig_node(p, syms[k]), operation_cost * weight);
+            }
+        }
+    }
 }
 
 /* Sets up parser data structures to begin parsing a new function */
@@ -1612,6 +1662,9 @@ static void debug_dump(Parser* p) {
     for (int i = 0; i < vec_size(&p->ig); ++i) {
         LOGF("  Node %d %s\n", i, symbol_name(symtab_get(p, i)));
         IGNode* node = ig_node(p, i);
+
+        /* Spill cost */
+        LOGF("    Spill cost %ld\n", ignode_cost(node));
 
         /* Neighbors of node */
         LOGF("    Neighbors [%d]", ignode_neighbor_count(node));
@@ -2277,8 +2330,10 @@ static void parse(Parser* p) {
     /* Process the last (most recent) function */
     cfg_link_jump_dest(p);
     cfg_compute_liveness(p);
-    ig_compute(p);
     cfg_compute_loop_depth(p);
+    ig_create_nodes(p);
+    ig_compute_edge(p);
+    ig_compute_spill_cost(p);
     cfg_output_asm(p);
 }
 

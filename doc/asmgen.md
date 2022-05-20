@@ -28,7 +28,7 @@ Attempts to reduce the number of live ranges by merging two live ranges if one i
 
 ### 4. Spill cost
 
-Spill costs are computed based on how each variable will be used if it is in memory. If the variable in memory must be reloaded into a register for a x86 instruction, it has an associated cost. Otherwise, if the variable in memory can be used without reloading into a register (as is the case for some x86 instructions, e.g., imul r32, r/m32), it has a lower cost (non-zero because of cost for memory access). The cost is weighted with $c\times 10^d$ where $c$ is the operation cost and $d$ the loop nesting depth [1].
+The cost is calculated for each interference graph node by iterating through each block. For each use of a variable, the operation cost is 1 and the total cost for the use (counted towards the spill cost) is $c\times 10^d$ where $c$ is the operation cost and $d$ the loop nesting depth [1].
 
 ### 5. Simplify
 

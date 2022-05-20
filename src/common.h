@@ -5,6 +5,7 @@
 #define COMMON_H
 
 #include <stdlib.h>
+#include <stdint.h>
 
 #define LOG(msg__) printf("%s", msg__);
 #define LOGF(...) printf(__VA_ARGS__);
@@ -196,6 +197,14 @@ static inline void itostr(int i, char* buf) {
     itostr(num__, name__ + (int)sizeof(prefix__) - 1);   \
     name__[(int)sizeof(prefix__) - 1 + numlen__] = '\0'
 
+/* Raises integer base to positive integer exponent */
+static inline int64_t powip(int base, unsigned exponent) {
+    int64_t result = 1;
+    for (unsigned i = 0; i < exponent; ++i) {
+        result *= base;
+    }
+    return result;
+}
 
 /* ============================================================ */
 /* Dynamic array, similar to the one in C++,

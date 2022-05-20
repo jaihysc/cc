@@ -1630,7 +1630,7 @@ static void ig_compute_spill_cost(Parser* p) {
 }
 
 /* Sorting function for use in ig_compute_color, lowest spill cost first */
-static int ig_compute_color_sort_neighbor(const void* a, const void* b) {
+static int ig_compute_color_sort(const void* a, const void* b) {
     uint64_t l = ignode_cost(*(IGNode* const *)a);
     uint64_t r = ignode_cost(*(IGNode* const *)b);
     if (l < r) {
@@ -1650,22 +1650,12 @@ static void ig_compute_color(Parser* p) {
        between them, I believe this is fine as constants do not affect others
        as they are not linked */
 
-    /* Mark each node for coloring or spilling */
-    /* mark, index by IGNode index in container:
-        0 = Unmarked
-        1 = Marked for coloring
-        2 = Marked for spilling */
-    char mark[vec_size(&p->ig)];
-    for (int i = 0; i < vec_size(&p->ig); ++i) {
-        mark[i] = 0;
-    }
+    /* Index corresponds to GRegister, number of times register is used
 
-    /* Index corresponds to GRegister, 0 if unused, 1 if used
-
-       Disallow registers not in the palette by marking it used
-       This array is copied to reset the list of used/available registers
+       Disallow registers not in the palette by setting the use count as 1
+       This array is copied to reset the number of times registers were used
        when computing the register to assign to a node */
-    char used_greg_init[X86_REGISTER_COUNT];
+    int used_greg_init[X86_REGISTER_COUNT];
     for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
         used_greg_init[j] = 1;
     }
@@ -1673,87 +1663,34 @@ static void ig_compute_color(Parser* p) {
         used_greg_init[p->ig_palette[j]] = 0;
     }
 
+    /* Copy the nodes and sort them, cannot sort in place as it would
+       invalidate the links between nodes */
+    IGNode* nodes[vec_size(&p->ig)];
     for (int i = 0; i < vec_size(&p->ig); ++i) {
-        IGNode* node = &vec_at(&p->ig, i);
-        /* Already marked */
-        if (mark[i] != 0) {
-            continue;
-        }
-
-        /* Count number of neighbors (unmarked and marked for coloring)
-           Also obtain the neighbors for later use below */
-        IGNode* neighbor[ignode_neighbor_count(node)];
-        int neighbor_count = 0;
-        for (int j = 0; j < ignode_neighbor_count(node); ++j) {
-            IGNode* neigh = ignode_neighbor(node, j);
-            int neighbor_index = neigh - &vec_at(&p->ig, 0);
-            /* Not marked for spilling */
-            if (mark[neighbor_index] != 2) {
-                neighbor[neighbor_count++] = neigh;
-            }
-        }
-        if (neighbor_count < p->ig_palette_size) {
-            /* No spilling needed, this node gets colored */
-            mark[i] = 1;
-            continue;
-        }
-
-        /* Deciding whether to spill neighbors or self:
-           Find n lowest spill cost neighbors, where n is the number of nodes
-           which must be spilled to have (neighbors < registers)
-           If sum of spill cost for n neighbors < spill cost of self: spill
-           the neighbors.
-           Otherwise, spill self */
-
-        /* Sort neighbor by spill cost (lowest cost first) */
-        quicksort(neighbor, (size_t)neighbor_count, sizeof(IGNode*),
-                ig_compute_color_sort_neighbor);
-
-        /* Compute neighbor spill cost */
-        int spill_amount = neighbor_count - p->ig_palette_size + 1;
-        uint64_t neighbor_spill_cost = 0;
-        for (int j = 0; j < spill_amount; ++j) {
-            neighbor_spill_cost += ignode_cost(neighbor[j]);
-        }
-
-        /* Decide which to spill */
-        if (neighbor_spill_cost < ignode_cost(node)) {
-            /* Spill neighbors */
-            for (int j = 0; j < spill_amount; ++j) {
-                IGNode* neigh = ignode_neighbor(node, j);
-                int neighbor_index = neigh - &vec_at(&p->ig, 0);
-                mark[neighbor_index] = 2;
-            }
-            /* self gets colored */
-            mark[i] = 1;
-        }
-        else {
-            /* Spill self */
-            mark[i] = 2;
-        }
+        nodes[i] = &vec_at(&p->ig, i);
     }
+    quicksort(nodes, (size_t)vec_size(&p->ig), sizeof(IGNode*),
+            ig_compute_color_sort);
 
-    /* Assign general register (a, b, c, etc) for each node */
-    for (int i = 0; i < vec_size(&p->ig); ++i) {
-        ASSERTF(mark[i] != 0, "Node %d is unmarked", i);
+    /* Lowest spill cost is first in the array, thus iterate backwards
+       for highest spill cost first */
+    for (int i = vec_size(&p->ig) - 1; i >= 0; --i) {
+        IGNode* node = nodes[i];
 
-        /* Not marked for coloring */
-        if (mark[i] != 1) {
-            continue;
-        }
+        /* Attempt to assign a register to the node */
 
-        char used_greg[X86_REGISTER_COUNT];
+        /* Initialize number of times register used */
+        int used_greg[X86_REGISTER_COUNT];
         for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
             used_greg[j] = used_greg_init[j];
         }
 
-        /* Mark off registers neighbors used */
-        IGNode* node = &vec_at(&p->ig, i);
+        /* Count registers used by neighbors */
         for (int j = 0; j < ignode_neighbor_count(node); ++j) {
             IGNode* neighbor = ignode_neighbor(node, j);
             GRegister greg = ignode_register(neighbor);
             if (greg != greg_none) {
-                used_greg[greg] = 1;
+                ++used_greg[greg];
             }
         }
 
@@ -1766,8 +1703,88 @@ static void ig_compute_color(Parser* p) {
                 break;
             }
         }
-        ASSERT(found_reg,
-                "Failed to assign register to node marked for coloring");
+        if (found_reg) {
+            continue;
+        }
+
+        /* Choose self or a neighbor to spill */
+
+        /* Fetch all the neighbors which can be spilled to take its register */
+        IGNode* neighbor[ignode_neighbor_count(node)];
+        int neighbor_count = 0;
+        for (int j = 0; j < ignode_neighbor_count(node); ++j) {
+            IGNode* neigh = ignode_neighbor(node, j);
+            /* Not already marked for spilling */
+            if (ignode_register(neigh) != greg_none) {
+                neighbor[neighbor_count++] = neigh;
+            }
+        }
+
+        /* Sort the neighbors into lowest spill cost first, as spilling
+           lower spill cost is preferred */
+        quicksort(neighbor, (size_t)neighbor_count, sizeof(IGNode*),
+                ig_compute_color_sort);
+
+        /* See if there are any suitable neighbors to spill and take
+           their register */
+        for (int j = 0; j < neighbor_count; ++j) {
+            /* No need to check remainder of list as it will be all greater
+               since it is sorted */
+            if (ignode_cost(neighbor[j]) >= ignode_cost(node)) {
+                break;
+            }
+
+            /* Spill neighbor, take neighbor's register if doing
+               so has no conflicts with this node's neighbors
+
+               One use means after neighbor is spilled, no other neighbors
+               use the register */
+            GRegister neighbor_greg = ignode_register(neighbor[j]);
+            if (used_greg[neighbor_greg] == 1) {
+                ignode_set_register(node, ignode_register(neighbor[j]));
+                ignode_set_register(neighbor[j], greg_none);
+                break;
+            }
+        }
+
+        /* If above for loop exited and no suitable neighbor was found, current
+           node is left with no register assigned (spilled) */
+    }
+
+    /* Make one more pass through the spilled variables, see if they can be
+       given a register after other registers were spilled */
+    for (int i = vec_size(&p->ig) - 1; i >= 0; --i) {
+        IGNode* node = nodes[i];
+
+        if (ignode_register(node) != greg_none) {
+            continue;
+        }
+
+        /* Search for an available register, otherwise give up and the node
+           remains spilled */
+
+        /* Initialize number of times register used */
+        int used_greg[X86_REGISTER_COUNT];
+        for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
+            used_greg[j] = used_greg_init[j];
+        }
+
+        /* Count registers used by neighbors */
+        for (int j = 0; j < ignode_neighbor_count(node); ++j) {
+            IGNode* neighbor = ignode_neighbor(node, j);
+            GRegister greg = ignode_register(neighbor);
+            if (greg != greg_none) {
+                ++used_greg[greg];
+            }
+        }
+
+        /* Find first available register to use */
+        for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
+            if (used_greg[j] == 0) {
+                ignode_set_register(node, j);
+                break;
+            }
+        }
     }
 }
 

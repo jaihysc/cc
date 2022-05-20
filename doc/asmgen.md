@@ -32,7 +32,15 @@ The cost is calculated for each interference graph node by iterating through eac
 
 ### 5. Simplify
 
-Nodes in the interference graph are chosen either for register assignment (coloring) or spilling. Given $k$ registers and some node $l_i$, if $\operatorname{neighbor}(l_i) < k$, $l_i$ is marked for coloring and $l_i$ with all of its edges are removed from the graph. Otherwise, a node $m_i$ is marked for spilling and $m_i$ with all of its edges are removed from the graph such that $l_i$ can be trivially colored.
+Nodes in the interference graph are iterated in descending spill cost (highest spill cost first) for register assignment (coloring) or spilling. If a node N is reached which cannot be assigned a register, choose to spill either a neighbor of N or node N itself according to the following algorithm:
+
+- Sort the neighbors of N in order of ascending spill cost and find the first neighbor M1 which has a register assigned.
+- If the neighbor M1 has a lower spill cost compared node N and its register can be used for node N, spill the neighbor M1, take the register of neighbor M1 for node N. Otherwise find the second neighbor M2 and spill it if it has a lower spill cost compared to node N and its register can be used for node N, and so on.
+- If no suitable neighbors of node N are found, spill node N.
+
+Afterwards, make one final pass through the spilled variables and see if they can be assigned a register after other variables were spilled.
+
+The algorithm above minimizes unnecessary spilling and prioritizes the allocation of registers to those with the highest spill cost.
 
 ### 7. Select
 

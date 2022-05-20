@@ -550,6 +550,10 @@ typedef struct {
     vec_t(SymbolId) in;
     vec_t(SymbolId) out;
 
+    /* Loop nesting depth of block
+       0 if not nested in any loop */
+    int depth;
+
     /* At most 2 options:
        1. Flow through to next block
        2. Jump at end
@@ -566,6 +570,7 @@ static void block_construct(Block* blk) {
     vec_construct(&blk->def);
     vec_construct(&blk->in);
     vec_construct(&blk->out);
+    blk->depth = 0;
     blk->next[0] = 0;
     blk->next[1] = 0;
 }
@@ -736,6 +741,24 @@ static int block_add_out(Block* blk, SymbolId sym_id) {
         }
     }
     return vec_push_back(&blk->out, sym_id);
+}
+
+/* Increments the loop nesting depth for block */
+static void block_inc_depth(Block* blk) {
+    ASSERT(blk != NULL, "Block is null");
+    ++blk->depth;
+}
+
+/* Returns the loop nesting depth for block */
+static int block_depth(Block* blk) {
+    ASSERT(blk != NULL, "Block is null");
+    return blk->depth;
+}
+
+/* Sets the loop nesting depth for block */
+static void block_set_depth(Block* blk, int depth) {
+    ASSERT(blk != NULL, "Block is null");
+    blk->depth = depth;
 }
 
 /* Links block to next block */
@@ -1231,6 +1254,104 @@ static void cfg_compute_liveness(Parser* p) {
     ASSERT(0, "Liveness behavior if stability not found unimplemented");
 }
 
+/* Performs recursive traversal to compute loop nesting depth for blocks
+   The algorithm is as follows, I could not find any existing algorithms
+   so I made my own which I *believe* is correct.
+
+   Traverse depth first, keeping track of the path. A cycle is found if
+   the current node is in the path, if so increment the depth for all the
+   nodes along the path.
+   A node is fully visited if the traversal visited and left the node.
+   If a node visited is fully visited, scan backwards along the path:
+   for each non fully visited node along the path, if the depth of the
+   node is less than the depth of the fully visited node, set the depth
+   to be equal to the depth of the fully visited node. Stop at the first
+   node along the path that is a fully visited node.
+
+   status: Set to 1 if node is visited, index into status is index of node,
+           calculated as: block - base_block (Both of type Block*)
+           0 = Not traversed
+           1 = Traversed
+   path: Array of Block* in sequential order to reach the current block,
+         guarantee it has sufficient space to hold all blocks
+   path_len: Size of path array
+   base: Base block
+   blk: Current block */
+static void cfg_compute_loop_depth_traverse(
+        Parser* p, char* status, Block** path, int path_len,
+        Block* base, Block* blk) {
+    int index = blk - base;
+
+    /* Check if block already traversed,
+       if so increment the nesting depth along the path
+       The old path_len is used here (does not include the current
+       Block*) as it would wrongly think it found a cycle */
+    for (int i = 0; i < path_len; ++i) {
+        if (path[i] != blk) {
+            continue;
+        }
+
+        for (; i < path_len; ++i) {
+            block_inc_depth(path[i]);
+        }
+        goto exit;
+    }
+
+    /* Check if node already visited,
+       if so, scanning backwards, for each non fully visited node along
+       the path, if its depth is less than the fully visited node's depth,
+       set its depth to be equal to the fully visited node's depth.
+       Stop at the first fully visited node */
+    if (status[index] == 1) {
+        const int depth = block_depth(blk); /* Fully traversed node */
+        for (int i = path_len - 1; i >= 0; --i) {
+            Block* path_blk = path[i]; /* ith block in path */
+            int path_blk_index = path_blk - base;
+
+            if (status[path_blk_index] == 1) {
+                break;
+            }
+            if (block_depth(path_blk) < depth) {
+                block_set_depth(path_blk, depth);
+            }
+        }
+        goto exit;
+    }
+
+    ASSERT(status[index] == 0, "Expect block to be untraversed");
+    ASSERT(path_len < vec_size(&p->cfg), "Too many blocks");
+    path[path_len] = blk;
+
+    for (int i = 0; i < MAX_BLOCK_LINK; ++i) {
+        Block* next = block_next(blk, i);
+        if (next) {
+            cfg_compute_loop_depth_traverse(
+                    p, status, path, path_len + 1, base, next);
+        }
+    }
+
+exit:
+    status[index] = 1;
+}
+
+/* Computes the loop nesting depth for blocks in the control flow graph
+   Results are saved in Block member depth */
+static void cfg_compute_loop_depth(Parser* p) {
+    if (vec_size(&p->cfg) == 0) {
+        return;
+    }
+
+    int block_count = vec_size(&p->cfg);
+    char status[block_count];
+    Block* path[block_count];
+    for (int i = 0; i < block_count; ++i) {
+        status[i] = 0;
+    }
+
+    Block* base = &vec_at(&p->cfg, 0);
+    cfg_compute_loop_depth_traverse(p, status, path, 0, base, base);
+}
+
 /* Traverses the blocks in the control flow graph and emits assembly */
 static void cfg_output_asm(Parser* p) {
     /* Function labels always with prefix f@ */
@@ -1428,6 +1549,8 @@ static void debug_dump(Parser* p) {
             }
             LOG("\n");
         }
+
+        LOGF("    Loop depth: %d\n", block_depth(blk));
 
         /* Liveness use/def, in/out for block */
         LOG("    Liveness\n");
@@ -2155,6 +2278,7 @@ static void parse(Parser* p) {
     cfg_link_jump_dest(p);
     cfg_compute_liveness(p);
     ig_compute(p);
+    cfg_compute_loop_depth(p);
     cfg_output_asm(p);
 }
 

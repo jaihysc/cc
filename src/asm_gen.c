@@ -22,6 +22,7 @@ int g_debug_print_buffers = 0;
 /* x86 Registers */
 
 /* All the registers in x86-64 (just 8 byte ones for now) */
+#define X86_REGISTER_COUNT 16 /* Number of registers to store variables */
 #define X86_REGISTERS  \
     X86_REGISTER(al)   \
     X86_REGISTER(bl)   \
@@ -1564,6 +1565,99 @@ static void ig_compute_spill_cost(Parser* p) {
     }
 }
 
+/* Sorting function for use in ig_compute_color, lowest spill cost first */
+static int ig_compute_color_sort_neighbor(const void* a, const void* b) {
+    uint64_t l = ignode_cost(*(IGNode* const *)a);
+    uint64_t r = ignode_cost(*(IGNode* const *)b);
+    if (l < r) {
+        return -1;
+    }
+    if (l == r) {
+        return 0;
+    }
+    return 1;
+}
+
+/* Assigns register to each interference graph node or marks it for spilling
+   Requires interference graph by created and linked
+   Requires spill cost be computed */
+static void ig_compute_color(Parser* p) {
+    /* Mark each node for coloring or spilling */
+    /* mark, index by IGNode index in container:
+        0 = Unmarked
+        1 = Marked for coloring
+        2 = Marked for spilling */
+    char mark[vec_size(&p->ig)];
+    for (int i = 0; i < vec_size(&p->ig); ++i) {
+        mark[i] = 0;
+    }
+
+    for (int i = 0; i < vec_size(&p->ig); ++i) {
+        IGNode* node = &vec_at(&p->ig, i);
+        /* Already marked */
+        if (mark[i] != 0) {
+            continue;
+        }
+
+        /* Count number of neighbors (unmarked and marked for coloring)
+           Also obtain the neighbors for later use below */
+        IGNode* neighbor[ignode_neighbor_count(node)];
+        int neighbor_count = 0;
+        for (int j = 0; j < ignode_neighbor_count(node); ++j) {
+            IGNode* neigh = ignode_neighbor(node, j);
+            int neighbor_index = neigh - &vec_at(&p->ig, 0);
+            /* Not marked for spilling */
+            if (mark[neighbor_index] != 2) {
+                neighbor[neighbor_count++] = neigh;
+            }
+        }
+        if (neighbor_count < X86_REGISTER_COUNT) {
+            /* No spilling needed, this node gets colored */
+            mark[i] = 1;
+            continue;
+        }
+
+        /* Deciding whether to spill neighbors or self:
+           Find n lowest spill cost neighbors, where n is the number of nodes
+           which must be spilled to have (neighbors < registers)
+           If sum of spill cost for n neighbors < spill cost of self: spill
+           the neighbors.
+           Otherwise, spill self */
+
+        /* Sort neighbor by spill cost (lowest cost first) */
+        quicksort(neighbor, (size_t)neighbor_count, sizeof(IGNode*),
+                ig_compute_color_sort_neighbor);
+
+        /* Compute neighbor spill cost */
+        int spill_amount = neighbor_count - X86_REGISTER_COUNT + 1;
+        uint64_t neighbor_spill_cost = 0;
+        for (int j = 0; j < spill_amount; ++j) {
+            neighbor_spill_cost += ignode_cost(neighbor[j]);
+        }
+
+        /* Decide which to spill */
+        if (neighbor_spill_cost < ignode_cost(node)) {
+            /* Spill neighbors */
+            for (int j = 0; j < spill_amount; ++j) {
+                IGNode* neigh = ignode_neighbor(node, j);
+                int neighbor_index = neigh - &vec_at(&p->ig, 0);
+                mark[neighbor_index] = 2;
+            }
+            /* self gets colored */
+            mark[i] = 1;
+        }
+        else {
+            /* Spill self */
+            mark[i] = 2;
+        }
+    }
+
+    for (int i = 0; i < vec_size(&p->ig); ++i) {
+        ASSERTF(mark[i] != 0, "Node %d is unmarked", i);
+        /* TODO color each node */
+    }
+}
+
 /* Sets up parser data structures to begin parsing a new function */
 static void parser_clear_func(Parser* p) {
     cfg_clear(p);
@@ -2334,6 +2428,7 @@ static void parse(Parser* p) {
     ig_create_nodes(p);
     ig_compute_edge(p);
     ig_compute_spill_cost(p);
+    ig_compute_color(p);
     cfg_output_asm(p);
 }
 

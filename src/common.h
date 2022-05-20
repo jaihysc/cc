@@ -206,6 +206,15 @@ static inline int64_t powip(int base, unsigned exponent) {
     return result;
 }
 
+/* Quicksort implementation */
+static inline void quicksort(
+        void* ptr, size_t count, size_t size,
+        int (*comp)(const void*, const void*)) {
+    /* Write your own quicksort implementation when this
+       compiler has to self compile */
+    qsort(ptr, count, size, comp);
+}
+
 /* ============================================================ */
 /* Dynamic array, similar to the one in C++,
    adapted from https://github.com/rxi/vec */

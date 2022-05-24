@@ -98,55 +98,78 @@ int g_debug_print_buffers = 0;
     X86_REGISTER(r15)
 
 #define X86_REGISTER(reg__) reg_ ## reg__,
-typedef enum {reg_none = -2, reg_stack = -1, X86_REGISTERS} Register;
+typedef enum {reg_none = -1, X86_REGISTERS} Register;
 #undef X86_REGISTER
 #define X86_REGISTER(reg__) #reg__ ,
 const char* reg_strings[] = {X86_REGISTERS};
 #undef X86_REGISTER
 
-/* Refers to the various sizes of a register (GenericRegister)
-   e.g., greg_a refers to: al, ah, ax eax, rax */
-#define X86_GENERAL_REGISTERS \
-    X86_GENERAL_REGISTER(a)   \
-    X86_GENERAL_REGISTER(b)   \
-    X86_GENERAL_REGISTER(c)   \
-    X86_GENERAL_REGISTER(d)   \
-    X86_GENERAL_REGISTER(si)  \
-    X86_GENERAL_REGISTER(di)  \
-    X86_GENERAL_REGISTER(bp)  \
-    X86_GENERAL_REGISTER(sp)  \
-    X86_GENERAL_REGISTER(8)   \
-    X86_GENERAL_REGISTER(9)   \
-    X86_GENERAL_REGISTER(10)  \
-    X86_GENERAL_REGISTER(11)  \
-    X86_GENERAL_REGISTER(12)  \
-    X86_GENERAL_REGISTER(13)  \
-    X86_GENERAL_REGISTER(14)  \
-    X86_GENERAL_REGISTER(15)
-#define X86_GENERAL_REGISTER(reg__) greg_ ## reg__,
-/* a starts at 0 so all entries can be stored as an array */
-typedef enum {greg_none = -1, X86_GENERAL_REGISTERS} GRegister;
-#undef X86_GENERAL_REGISTER
-#define X86_GENERAL_REGISTER(reg__) #reg__,
-const char* greg_strings[] = {X86_GENERAL_REGISTERS};
-#undef X86_GENERAL_REGISTER
+/* Refers to a location:
+   - various sizes of a register
+     e.g., loc_a refers to: al, ah, ax eax, rax
+   - stack */
+#define SYMBOL_LOCATIONS \
+    SYMBOL_LOCATION(a)   \
+    SYMBOL_LOCATION(b)   \
+    SYMBOL_LOCATION(c)   \
+    SYMBOL_LOCATION(d)   \
+    SYMBOL_LOCATION(si)  \
+    SYMBOL_LOCATION(di)  \
+    SYMBOL_LOCATION(bp)  \
+    SYMBOL_LOCATION(sp)  \
+    SYMBOL_LOCATION(8)   \
+    SYMBOL_LOCATION(9)   \
+    SYMBOL_LOCATION(10)  \
+    SYMBOL_LOCATION(11)  \
+    SYMBOL_LOCATION(12)  \
+    SYMBOL_LOCATION(13)  \
+    SYMBOL_LOCATION(14)  \
+    SYMBOL_LOCATION(15)
+#define SYMBOL_LOCATION(loc__) loc_ ## loc__,
+/* a starts at 0 so all registers can be stored as an array */
+typedef enum {loc_none = -2, loc_stack = -1, SYMBOL_LOCATIONS} Location;
+#undef SYMBOL_LOCATION
+#define SYMBOL_LOCATION(loc__) #loc__,
+const char* loc_strings[] = {SYMBOL_LOCATIONS};
+#undef SYMBOL_LOCATION
 
 /* Returns the name to access a given register with the indicates size
    -1 for upper byte (ah), 1 for lower byte (al) */
-static Register reg_get(GRegister greg, int bytes) {
-    const Register reg_1l[] = {reg_al, reg_bl, reg_cl, reg_dl};
+static Register reg_get(Location loc, int bytes) {
+    ASSERT(loc >= 0, "Out of range");
+    const Register reg_1l[] = {
+        reg_al, reg_bl, reg_cl, reg_dl, reg_sil, reg_dil, reg_bpl, reg_spl,
+        reg_r8b, reg_r9b, reg_r10b, reg_r11b, reg_r12b, reg_r13b, reg_r14b,
+        reg_r15b
+    };
     const Register reg_1h[] = {reg_ah, reg_bh, reg_ch, reg_dh};
-    const Register reg_4[] = {reg_eax, reg_ebx, reg_ecx, reg_edx};
-    const Register reg_8[] = {reg_rax, reg_rbx, reg_rcx, reg_rdx};
+    const Register reg_2[] = {
+        reg_ax, reg_bx, reg_cx, reg_dx, reg_si, reg_di, reg_bp, reg_sp,
+        reg_r8w, reg_r9w, reg_r10w, reg_r11w, reg_r12w, reg_r13w, reg_r14w,
+        reg_r15w
+    };
+    const Register reg_4[] = {
+        reg_eax, reg_ebx, reg_ecx, reg_edx, reg_esi, reg_edi, reg_ebp, reg_esp,
+        reg_r8d, reg_r9d, reg_r10d, reg_r11d, reg_r12d, reg_r13d, reg_r14d,
+        reg_r15d
+    };
+    const Register reg_8[] = {
+        reg_rax, reg_rbx, reg_rcx, reg_rdx, reg_rsi, reg_rdi, reg_rbp, reg_rsp,
+        reg_r8, reg_r9, reg_r10, reg_r11, reg_r12, reg_r13, reg_r14,
+        reg_r15
+    };
     switch (bytes) {
         case 1:
-            return reg_1l[greg];
+            return reg_1l[loc];
         case -1:
-            return reg_1h[greg];
+            ASSERT(loc <= loc_d, "Out of range");
+            return reg_1h[loc];
+        case 2:
+            return reg_2[loc];
         case 4:
-            return reg_4[greg];
+            return reg_4[loc];
         case 8:
-            return reg_8[greg];
+            return reg_8[loc];
         default:
             ASSERT(0, "Bad byte size");
     }
@@ -158,19 +181,22 @@ static const char* reg_str(Register reg) {
     return reg_strings[reg];
 }
 
-/* Converts given GRegister to its corresponding c string */
-static const char* greg_str(GRegister greg) {
-    ASSERT(greg >= -1, "Invalid register");
-    if (greg == greg_none) {
+/* Converts given Location to its corresponding c string */
+static const char* loc_str(Location loc) {
+    ASSERT(loc >= -2, "Invalid register");
+    if (loc == loc_none) {
         return "none";
     }
-    return greg_strings[greg];
+    if (loc == loc_stack) {
+        return "stack";
+    }
+    return loc_strings[loc];
 }
 
 /* Returns the cstr of the register corresponding to the provided
-   register with the indicated size */
-static const char* reg_get_str(GRegister greg, int bytes) {
-    return reg_str(reg_get(greg, bytes));
+   location with the indicated size */
+static const char* reg_get_str(Location loc, int bytes) {
+    return reg_str(reg_get(loc, bytes));
 }
 
 /* ============================================================ */
@@ -226,7 +252,8 @@ typedef int SymbolId;
 typedef struct {
     Type type;
     char name[MAX_ARG_LEN + 1]; /* +1 for null terminator */
-    Register reg;
+    /* Location this variable is assigned to */
+    Location loc;
 } Symbol;
 
 /* Returns 1 if symbol name is considered a constant, 0 otherwise */
@@ -248,27 +275,39 @@ static const char* symbol_name(Symbol* sym) {
 }
 
 /* Returns where symbol is stored */
-static Register symbol_location(Symbol* sym) {
+static Location symbol_location(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    return sym->reg;
+    return sym->loc;
+}
+
+/* Sets symbol location */
+static void symbol_set_location(Symbol* sym, Location loc) {
+    ASSERT(sym != NULL, "Symbol is null");
+    sym->loc = loc;
+}
+
+/* Returns register where symbol is */
+static Register symbol_register(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return reg_get(sym->loc, type_bytes(sym->type));
 }
 
 /* Returns 1 if symbol is located on the stack, 0 otherwise */
 static int symbol_on_stack(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    return sym->reg == reg_stack;
+    return sym->loc == loc_stack;
 }
 
 /* Returns 1 if symbol is a constant */
 static int symbol_is_constant(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    return sym->reg == reg_none;
+    return sym->loc == loc_none;
 }
 
 /* Turns this symbol into a special symbol for representing constants */
 static void symbol_make_constant(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    sym->reg = reg_none;
+    sym->loc = loc_none;
 }
 
 /* Returns bytes for symbol */
@@ -822,15 +861,12 @@ typedef struct {
     /* Performance impact if this variable is not in register,
        lower = less impact */
     uint64_t spill_cost;
-    /* Register this variable is assigned to, or no register if spilled */
-    GRegister greg;
 } IGNode;
 
 static void ignode_construct(IGNode* node) {
     ASSERT(node != NULL, "IGNode is null");
     vec_construct(&node->neighbor);
     node->spill_cost = 0;
-    node->greg = greg_none;
 }
 
 static void ignode_destruct(IGNode* node) {
@@ -880,18 +916,6 @@ static void ignode_add_cost(IGNode* node, uint64_t cost) {
     node->spill_cost += cost;
 }
 
-/* Returns general register (color) for node */
-static GRegister ignode_register(IGNode* node) {
-    ASSERT(node != NULL, "Node is null");
-    return node->greg;
-}
-
-/* Sets general register (color) for node */
-static void ignode_set_register(IGNode* node, GRegister greg) {
-    ASSERT(node != NULL, "Node is null");
-    node->greg = greg;
-}
-
 struct Parser {
     ErrorCode ecode;
 
@@ -903,7 +927,6 @@ struct Parser {
     /* First symbol element is earliest in occurrence */
     vec_t(Symbol) symbol;
     char func_name[MAX_ARG_LEN]; /* Name of current function */
-    int stack_bytes; /* Bytes stack needs */
 
     /* Control flow graph */
     vec_t(Block) cfg;
@@ -916,7 +939,7 @@ struct Parser {
     /* Buffer of live symbols used when calculating interference graph */
     vec_t(SymbolId) ig_live;
     /* The registers which can be assigned (colored) to nodes */
-    GRegister ig_palette[X86_REGISTER_COUNT];
+    Location ig_palette[X86_REGISTER_COUNT];
     int ig_palette_size;
 
     /* Instruction, argument */
@@ -933,23 +956,23 @@ static void parser_construct(Parser* p) {
     vec_construct(&p->ig);
     vec_construct(&p->ig_live);
 
-    p->ig_palette[0] = greg_a;
-    p->ig_palette[1] = greg_b;
-    p->ig_palette[2] = greg_c;
-    p->ig_palette[3] = greg_d;
-    p->ig_palette[4] = greg_si;
-    p->ig_palette[5] = greg_di;
-    p->ig_palette[6] = greg_bp;
+    p->ig_palette[0] = loc_a;
+    p->ig_palette[1] = loc_b;
+    p->ig_palette[2] = loc_c;
+    p->ig_palette[3] = loc_d;
+    p->ig_palette[4] = loc_si;
+    p->ig_palette[5] = loc_di;
+    p->ig_palette[6] = loc_bp;
     /* Assume rsp not usuable for now
-    p->ig_palette[7] = greg_sp; */
-    p->ig_palette[7] = greg_8;
-    p->ig_palette[8] = greg_9;
-    p->ig_palette[9] = greg_10;
-    p->ig_palette[10] = greg_11;
-    p->ig_palette[11] = greg_12;
-    p->ig_palette[12] = greg_13;
-    p->ig_palette[13] = greg_14;
-    p->ig_palette[14] = greg_15;
+    p->ig_palette[7] = loc_sp; */
+    p->ig_palette[7] = loc_8;
+    p->ig_palette[8] = loc_9;
+    p->ig_palette[9] = loc_10;
+    p->ig_palette[10] = loc_11;
+    p->ig_palette[11] = loc_12;
+    p->ig_palette[12] = loc_13;
+    p->ig_palette[13] = loc_14;
+    p->ig_palette[14] = loc_15;
     p->ig_palette_size = 15;
 }
 
@@ -1085,8 +1108,20 @@ static SymbolId symtab_add(Parser* p, Type type, const char* name) {
     Symbol* sym = &vec_back(&p->symbol);
     sym->type = type;
     strcopy(name, sym->name);
-    sym->reg = reg_stack;
+    sym->loc = loc_none;
     return vec_size(&p->symbol) - 1;
+}
+
+/* Returns the size of the stack for the current function */
+static int symtab_stack_bytes(Parser* p) {
+    int size = 0;
+    for (int i = 0; i < vec_size(&p->symbol); ++i) {
+        Symbol* sym = &vec_at(&p->symbol, i);
+        if (symbol_location(sym) == loc_stack) {
+            size += symbol_bytes(sym);
+        }
+    }
+    return size;
 }
 
 /* Clears control flow graph */
@@ -1443,9 +1478,11 @@ static void cfg_output_asm(Parser* p) {
         "mov rbp,rsp\n",
         p->func_name
     );
+
     /* Reserve stack space */
-    if (p->stack_bytes != 0) {
-        parser_output_asm(p, "sub rsp,%d\n", p->stack_bytes);
+    int stack_bytes = symtab_stack_bytes(p);
+    if (stack_bytes != 0) {
+        parser_output_asm(p, "sub rsp,%d\n",stack_bytes);
     }
 
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
@@ -1468,6 +1505,11 @@ static void cfg_output_asm(Parser* p) {
             if (parser_has_error(p)) return;
         }
     }
+}
+
+/* Calculates the SymbolId for the given IGNode */
+static SymbolId ig_ignode_symbolid(Parser* p, IGNode* node) {
+    return node - &vec_at(&p->ig, 0);
 }
 
 /* Clears nodes in interference graph */
@@ -1650,17 +1692,17 @@ static void ig_compute_color(Parser* p) {
        between them, I believe this is fine as constants do not affect others
        as they are not linked */
 
-    /* Index corresponds to GRegister, number of times register is used
+    /* Index corresponds to Location, number of times register is used
 
        Disallow registers not in the palette by setting the use count as 1
        This array is copied to reset the number of times registers were used
        when computing the register to assign to a node */
-    int used_greg_init[X86_REGISTER_COUNT];
+    int used_loc_init[X86_REGISTER_COUNT];
     for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
-        used_greg_init[j] = 1;
+        used_loc_init[j] = 1;
     }
     for (int j = 0; j < p->ig_palette_size; ++j) {
-        used_greg_init[p->ig_palette[j]] = 0;
+        used_loc_init[p->ig_palette[j]] = 0;
     }
 
     /* Copy the nodes and sort them, cannot sort in place as it would
@@ -1676,29 +1718,39 @@ static void ig_compute_color(Parser* p) {
        for highest spill cost first */
     for (int i = vec_size(&p->ig) - 1; i >= 0; --i) {
         IGNode* node = nodes[i];
+        SymbolId node_id = ig_ignode_symbolid(p, node);
+        Symbol* node_sym = symtab_get(p, node_id);
+
+        /* Preassigned location */
+        if (symbol_location(node_sym) != loc_none) {
+            continue;
+        }
 
         /* Attempt to assign a register to the node */
 
         /* Initialize number of times register used */
-        int used_greg[X86_REGISTER_COUNT];
+        int used_loc[X86_REGISTER_COUNT];
         for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
-            used_greg[j] = used_greg_init[j];
+            used_loc[j] = used_loc_init[j];
         }
 
         /* Count registers used by neighbors */
         for (int j = 0; j < ignode_neighbor_count(node); ++j) {
             IGNode* neighbor = ignode_neighbor(node, j);
-            GRegister greg = ignode_register(neighbor);
-            if (greg != greg_none) {
-                ++used_greg[greg];
+            SymbolId neighbor_id = ig_ignode_symbolid(p, neighbor);
+            Symbol* neighbor_sym = symtab_get(p, neighbor_id);
+
+            Location loc = symbol_location(neighbor_sym);
+            if (loc != loc_none && loc != loc_stack) {
+                ++used_loc[loc];
             }
         }
 
         /* Find first available register to use */
         int found_reg = 0;
         for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
-            if (used_greg[j] == 0) {
-                ignode_set_register(node, j);
+            if (used_loc[j] == 0) {
+                symbol_set_location(node_sym, j);
                 found_reg = 1;
                 break;
             }
@@ -1714,8 +1766,12 @@ static void ig_compute_color(Parser* p) {
         int neighbor_count = 0;
         for (int j = 0; j < ignode_neighbor_count(node); ++j) {
             IGNode* neigh = ignode_neighbor(node, j);
-            /* Not already marked for spilling */
-            if (ignode_register(neigh) != greg_none) {
+            SymbolId neighbor_id = ig_ignode_symbolid(p, neigh);
+            Symbol* neighbor_sym = symtab_get(p, neighbor_id);
+
+            /* Candidate for spilling */
+            Location neighbor_loc = symbol_location(neighbor_sym);
+            if (neighbor_loc != loc_none && neighbor_loc != loc_stack) {
                 neighbor[neighbor_count++] = neigh;
             }
         }
@@ -1727,6 +1783,7 @@ static void ig_compute_color(Parser* p) {
 
         /* See if there are any suitable neighbors to spill and take
            their register */
+        int took_reg = 0;
         for (int j = 0; j < neighbor_count; ++j) {
             /* No need to check remainder of list as it will be all greater
                since it is sorted */
@@ -1734,29 +1791,39 @@ static void ig_compute_color(Parser* p) {
                 break;
             }
 
+            SymbolId neighbor_id = ig_ignode_symbolid(p, neighbor[j]);
+            Symbol* neighbor_sym = symtab_get(p, neighbor_id);
+            Location neighbor_loc = symbol_location(neighbor_sym);
             /* Spill neighbor, take neighbor's register if doing
                so has no conflicts with this node's neighbors
 
                One use means after neighbor is spilled, no other neighbors
                use the register */
-            GRegister neighbor_greg = ignode_register(neighbor[j]);
-            if (used_greg[neighbor_greg] == 1) {
-                ignode_set_register(node, ignode_register(neighbor[j]));
-                ignode_set_register(neighbor[j], greg_none);
+            if (used_loc[neighbor_loc] == 1) {
+                symbol_set_location(node_sym, neighbor_loc);
+                symbol_set_location(neighbor_sym, loc_stack);
+                found_reg = 1;
                 break;
             }
         }
 
         /* If above for loop exited and no suitable neighbor was found, current
            node is left with no register assigned (spilled) */
+        if (!took_reg) {
+            symbol_set_location(node_sym, loc_stack);
+        }
     }
 
     /* Make one more pass through the spilled variables, see if they can be
        given a register after other registers were spilled */
     for (int i = vec_size(&p->ig) - 1; i >= 0; --i) {
         IGNode* node = nodes[i];
+        SymbolId node_id = ig_ignode_symbolid(p, node);
+        Symbol* node_sym = symtab_get(p, node_id);
 
-        if (ignode_register(node) != greg_none) {
+        ASSERT(symbol_location(node_sym) != loc_none,
+                "Symbol unassigned location");
+        if (symbol_location(node_sym) != loc_stack) {
             continue;
         }
 
@@ -1764,24 +1831,26 @@ static void ig_compute_color(Parser* p) {
            remains spilled */
 
         /* Initialize number of times register used */
-        int used_greg[X86_REGISTER_COUNT];
+        int used_loc[X86_REGISTER_COUNT];
         for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
-            used_greg[j] = used_greg_init[j];
+            used_loc[j] = used_loc_init[j];
         }
 
         /* Count registers used by neighbors */
         for (int j = 0; j < ignode_neighbor_count(node); ++j) {
             IGNode* neighbor = ignode_neighbor(node, j);
-            GRegister greg = ignode_register(neighbor);
-            if (greg != greg_none) {
-                ++used_greg[greg];
+            SymbolId neighbor_id = ig_ignode_symbolid(p, neighbor);
+            Symbol* neighbor_sym = symtab_get(p, neighbor_id);
+            Location loc = symbol_location(neighbor_sym);
+            if (loc != loc_stack) {
+                ++used_loc[loc];
             }
         }
 
         /* Find first available register to use */
         for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
-            if (used_greg[j] == 0) {
-                ignode_set_register(node, j);
+            if (used_loc[j] == 0) {
+                symbol_set_location(node_sym, j);
                 break;
             }
         }
@@ -1805,7 +1874,7 @@ static void debug_dump(Parser* p) {
         for (int j = 0; j < type.pointers; ++j) {
             LOG("*");
         }
-        LOGF(" %s %d\n", symbol_name(sym), symbol_location(sym));
+        LOGF(" %s (%s)\n", symbol_name(sym), loc_str(symbol_location(sym)));
     }
 
     /* Print out instructions and arguments of each node */
@@ -1889,7 +1958,6 @@ static void debug_dump(Parser* p) {
 
         /* Spill cost */
         LOGF("    Spill cost %ld\n", ignode_cost(node));
-        LOGF("    Register %s\n", greg_str(ignode_register(node)));
 
         /* Neighbors of node */
         LOGF("    Neighbors [%d]", ignode_neighbor_count(node));
@@ -1920,8 +1988,8 @@ static void cg_testjmpcc(
 static void cg_divide(
         Parser* p, SymbolId op1_id, SymbolId op2_id,
         const char* ins);
-static void cg_mov_tor(Parser* p, SymbolId source, GRegister dest);
-static void cg_mov_fromr(Parser* p, GRegister source, SymbolId dest);
+static void cg_mov_tor(Parser* p, SymbolId source, Location dest);
+static void cg_mov_fromr(Parser* p, Location source, SymbolId dest);
 static void cg_ref_symbol(Parser* p, SymbolId sym_id);
 static void cg_extract_param(const char* str, char* type, char* name);
 static void cg_validate_equal_size2(Parser* p,
@@ -1944,9 +2012,7 @@ static INSTRUCTION_PROC(def) {
     char type[MAX_ARG_LEN];
     char name[MAX_ARG_LEN];
     cg_extract_param(pparg[0], type, name);
-
-    Symbol* sym = symtab_get(p, symtab_add(p, type_from_str(type), name));
-    p->stack_bytes += symbol_bytes(sym);
+    symtab_get(p, symtab_add(p, type_from_str(type), name));
 }
 
 static INSTRUCTION_PROC(func) {
@@ -1981,8 +2047,8 @@ static INSTRUCTION_PROC(func) {
 
         /* Wait on obtaining pointers until all symbols added
            as add may invalidate pointer */
-        symtab_get(p, argc_id)->reg = reg_edi;
-        symtab_get(p, pparg_id)->reg = reg_esi;
+        symbol_set_location(symtab_get(p, argc_id), loc_di);
+        symbol_set_location(symtab_get(p, pparg_id), loc_si);
 
         /* Generate a _start function which calls main */
         parser_output_asm(p, "%s",
@@ -2119,7 +2185,7 @@ static INSTRUCTION_CG(div) {
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     cg_divide(p, op1_id, op2_id, "idiv");
-    cg_mov_fromr(p, greg_a, lval_id);
+    cg_mov_fromr(p, loc_a, lval_id);
 }
 
 static INSTRUCTION_CG(jmp) {
@@ -2157,7 +2223,7 @@ static INSTRUCTION_CG(mod) {
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     cg_divide(p, op1_id, op2_id, "idiv");
-    cg_mov_fromr(p, greg_d, lval_id);
+    cg_mov_fromr(p, loc_d, lval_id);
 }
 
 static INSTRUCTION_CG(mov) {
@@ -2170,8 +2236,8 @@ static INSTRUCTION_CG(mov) {
     SymbolId rval_id = stat_arg(stat, 1);
     cg_validate_equal_size2(p, lval_id, rval_id);
 
-    cg_mov_tor(p, rval_id, greg_a);
-    cg_mov_fromr(p, greg_a, lval_id);
+    cg_mov_tor(p, rval_id, loc_a);
+    cg_mov_fromr(p, loc_a, lval_id);
 }
 
 static INSTRUCTION_CG(mul) {
@@ -2197,10 +2263,10 @@ static INSTRUCTION_CG(not) {
     cg_validate_equal_size2(p, lval_id, rval_id);
 
     Symbol* rval = symtab_get(p, rval_id);
-    GRegister reg = greg_a; /* Where to store intermediate value */
+    Location reg = loc_a; /* Where to store intermediate value */
     int bytes = symbol_bytes(rval);
-    const char* reg_name = reg_get_str(greg_a, bytes);
-    const char* reg_lower_name = reg_get_str(greg_a, 1);
+    const char* reg_name = reg_get_str(loc_a, bytes);
+    const char* reg_lower_name = reg_get_str(loc_a, 1);
 
     cg_mov_tor(p, rval_id, reg);
     parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
@@ -2224,7 +2290,7 @@ static INSTRUCTION_CG(ret) {
 
     int bytes = symbol_bytes(sym);
     /* Return integer types in rax */
-    parser_output_asm(p, "mov %s,", reg_get_str(greg_a, bytes));
+    parser_output_asm(p, "mov %s,", reg_get_str(loc_a, bytes));
     cg_ref_symbol(p, sym_id);
     parser_output_asm(p, "\n");
 
@@ -2261,8 +2327,8 @@ static void cg_arithmetic(
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins) {
     cg_validate_equal_size3(p, dest_id, op1_id, op2_id);
 
-    GRegister op1_reg = greg_a;
-    GRegister op2_reg = greg_c;
+    Location op1_reg = loc_a;
+    Location op2_reg = loc_c;
     Symbol* dest = symtab_get(p, dest_id);
     int bytes = symbol_bytes(dest);
 
@@ -2285,8 +2351,8 @@ static void cg_cmpsetcc(
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* set) {
     cg_validate_equal_size3(p, dest_id, op1_id, op2_id);
 
-    GRegister op1_reg = greg_a;
-    GRegister op2_reg = greg_c;
+    Location op1_reg = loc_a;
+    Location op2_reg = loc_c;
     Symbol* dest = symtab_get(p, dest_id);
     int bytes = symbol_bytes(dest);
     const char* op1_reg_name = reg_get_str(op1_reg, bytes);
@@ -2310,7 +2376,7 @@ static void cg_cmpsetcc(
 static void cg_testjmpcc(
         Parser* p,
         SymbolId label_id, SymbolId op1_id, const char* jmp) {
-    GRegister reg = greg_a;
+    Location reg = loc_a;
     Symbol* label = symtab_get(p, label_id);
     Symbol* op1 = symtab_get(p, op1_id);
     const char* reg_name = reg_get_str(reg, symbol_bytes(op1));
@@ -2325,23 +2391,23 @@ static void cg_testjmpcc(
 static void cg_divide(
         Parser* p, SymbolId op1_id, SymbolId op2_id,
         const char* ins) {
-    GRegister op2_reg = greg_c;
+    Location op2_reg = loc_c;
 
     Symbol* op1 = symtab_get(p, op1_id);
     int bytes = symbol_bytes(op1);
 
-    cg_mov_tor(p, op1_id, greg_a);
+    cg_mov_tor(p, op1_id, loc_a);
     cg_mov_tor(p, op2_id, op2_reg);
     /* dx has to be zeroed, other it is interpreted as part of dividend */
     parser_output_asm(p, "xor %s,%s\n",
-            reg_get_str(greg_d, bytes),
-            reg_get_str(greg_d, bytes));
+            reg_get_str(loc_d, bytes),
+            reg_get_str(loc_d, bytes));
 
     parser_output_asm(p, "%s %s\n", ins, reg_get_str(op2_reg, bytes));
 }
 
 /* Generates code for reg/mem -> reg */
-static void cg_mov_tor(Parser* p, SymbolId source, GRegister dest) {
+static void cg_mov_tor(Parser* p, SymbolId source, Location dest) {
     Symbol* sym = symtab_get(p, source);
     int bytes = symbol_bytes(sym);
 
@@ -2351,7 +2417,7 @@ static void cg_mov_tor(Parser* p, SymbolId source, GRegister dest) {
 }
 
 /* Generates code for reg -> reg/mem */
-static void cg_mov_fromr(Parser* p, GRegister source, SymbolId dest) {
+static void cg_mov_fromr(Parser* p, Location source, SymbolId dest) {
     Symbol* sym = symtab_get(p, dest);
     int bytes = symbol_bytes(sym);
 
@@ -2380,7 +2446,7 @@ static void cg_ref_symbol(Parser* p, SymbolId sym_id) {
     }
     else {
         /* Symbol in register */
-        parser_output_asm(p, "%s", reg_str(symbol_location(sym)));
+        parser_output_asm(p, "%s", reg_str(symbol_register(sym)));
     }
 }
 

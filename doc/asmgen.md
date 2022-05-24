@@ -46,6 +46,10 @@ The algorithm above minimizes unnecessary spilling and prioritizes the allocatio
 
 Registers are assigned to the nodes of the interference graph first based on constraints from x86 instructions which require specific registers. The remaining nodes are then assigned registers by placing them back in the graph one by one (last node removed is first node placed back) giving each a register distinct from its neighbors as it is placed.
 
+## Code generation
+
+The code generator uses the results from register allocation, which determines the register each variable resides in.
+
 ### References
 
 [1] Preston Briggs, Keith D. Cooper and Linda Torczon, "Improvements to Graph Coloring Register Allocation," Rice University, May 1994. DOI: 10.1145/177492.177575

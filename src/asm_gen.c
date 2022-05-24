@@ -127,7 +127,9 @@ const char* reg_strings[] = {X86_REGISTERS};
     SYMBOL_LOCATION(15)
 #define SYMBOL_LOCATION(loc__) loc_ ## loc__,
 /* a starts at 0 so all registers can be stored as an array */
-typedef enum {loc_none = -2, loc_stack = -1, SYMBOL_LOCATIONS} Location;
+typedef enum {
+    loc_none = -3, loc_constant = -2, loc_stack = -1,
+    SYMBOL_LOCATIONS} Location;
 #undef SYMBOL_LOCATION
 #define SYMBOL_LOCATION(loc__) #loc__,
 const char* loc_strings[] = {SYMBOL_LOCATIONS};
@@ -183,9 +185,12 @@ static const char* reg_str(Register reg) {
 
 /* Converts given Location to its corresponding c string */
 static const char* loc_str(Location loc) {
-    ASSERT(loc >= -2, "Invalid register");
+    ASSERT(loc >= -3, "Invalid register");
     if (loc == loc_none) {
         return "none";
+    }
+    if (loc == loc_constant) {
+        return "constant";
     }
     if (loc == loc_stack) {
         return "stack";
@@ -301,13 +306,13 @@ static int symbol_on_stack(Symbol* sym) {
 /* Returns 1 if symbol is a constant */
 static int symbol_is_constant(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    return sym->loc == loc_none;
+    return sym->loc == loc_constant;
 }
 
 /* Turns this symbol into a special symbol for representing constants */
 static void symbol_make_constant(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    sym->loc = loc_none;
+    sym->loc = loc_constant;
 }
 
 /* Returns bytes for symbol */
@@ -1688,10 +1693,6 @@ static int ig_compute_color_sort(const void* a, const void* b) {
    Requires interference graph by created and linked
    Requires spill cost be computed */
 static void ig_compute_color(Parser* p) {
-    /* NOTE: this assigns a register to constants as it does not distinguish
-       between them, I believe this is fine as constants do not affect others
-       as they are not linked */
-
     /* Index corresponds to Location, number of times register is used
 
        Disallow registers not in the palette by setting the use count as 1
@@ -1722,7 +1723,8 @@ static void ig_compute_color(Parser* p) {
         Symbol* node_sym = symtab_get(p, node_id);
 
         /* Preassigned location */
-        if (symbol_location(node_sym) != loc_none) {
+        if (symbol_location(node_sym) != loc_none ||
+            symbol_is_constant(node_sym)) {
             continue;
         }
 
@@ -1976,20 +1978,26 @@ static void debug_dump(Parser* p) {
    validity as it runs first, otherwise INSTRUCTION_CG checks */
 
 /* Helpers */
-static void cg_arithmetic(
-        Parser* p,
-        SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins);
 static void cg_cmpsetcc(
         Parser* p,
         SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* set);
 static void cg_testjmpcc(
         Parser* p,
         SymbolId label_id, SymbolId op1_id, const char* jmp);
-static void cg_divide(
-        Parser* p, SymbolId op1_id, SymbolId op2_id,
-        const char* ins);
-static void cg_mov_tor(Parser* p, SymbolId source, Location dest);
-static void cg_mov_fromr(Parser* p, Location source, SymbolId dest);
+/* Suffix meaning:
+    s: Symbol
+    r: Register
+    e.g., movss is mov symbol to register
+    insss is Instruction with 2 symbols */
+static void cg_inss(Parser* p, const char* ins, SymbolId op1_id);
+static void cg_insr(Parser* p, const char* ins, Register op1_reg);
+static void cg_insss(
+        Parser* p, const char* ins, SymbolId op1_id, SymbolId op2_id);
+static void cg_insrs(
+        Parser* p, const char* ins, Location op1_loc, SymbolId op2_id);
+static void cg_movss(Parser* p, SymbolId source, SymbolId dest);
+static void cg_movsr(Parser* p, SymbolId source, Location dest);
+static void cg_movrs(Parser* p, Location source, SymbolId dest);
 static void cg_ref_symbol(Parser* p, SymbolId sym_id);
 static void cg_extract_param(const char* str, char* type, char* name);
 static void cg_validate_equal_size2(Parser* p,
@@ -2120,56 +2128,70 @@ static INSTRUCTION_CG(add) {
     SymbolId lval_id = stat_arg(stat, 0);
     SymbolId op1_id = stat_arg(stat, 1);
     SymbolId op2_id = stat_arg(stat, 2);
+    cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
-    cg_arithmetic(p, lval_id, op1_id, op2_id, "add");
+    Symbol* lval = symtab_get(p, lval_id);
+    Symbol* op1 = symtab_get(p, op1_id);
+    Symbol* op2 = symtab_get(p, op2_id);
+
+    if (symbol_location(lval) == symbol_location(op1)) {
+        cg_insss(p, "add", op1_id, op2_id);
+    }
+    else if (symbol_location(lval) == symbol_location(op2)) {
+        cg_insss(p, "add", op2_id, op1_id);
+    }
+    else {
+        cg_movss(p, op1_id, lval_id);
+        cg_insss(p, "add", lval_id, op2_id);
+    }
 }
 
 static INSTRUCTION_CG(ce) {
-    if (stat_argc(stat) != 3) {
-        parser_set_error(p, ec_badargs);
-        return;
-    }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    //if (stat_argc(stat) != 3) {
+    //    parser_set_error(p, ec_badargs);
+    //    return;
+    //}
+    //SymbolId lval_id = stat_arg(stat, 0);
+    //SymbolId op1_id = stat_arg(stat, 1);
+    //SymbolId op2_id = stat_arg(stat, 2);
 
-    cg_cmpsetcc(p, lval_id, op1_id, op2_id, "sete");
+    //cg_cmpsetcc(p, lval_id, op1_id, op2_id, "sete");
 }
 
 static INSTRUCTION_CG(cl) {
-    if (stat_argc(stat) != 3) {
-        parser_set_error(p, ec_badargs);
-        return;
-    }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    //if (stat_argc(stat) != 3) {
+    //    parser_set_error(p, ec_badargs);
+    //    return;
+    //}
+    //SymbolId lval_id = stat_arg(stat, 0);
+    //SymbolId op1_id = stat_arg(stat, 1);
+    //SymbolId op2_id = stat_arg(stat, 2);
 
-    cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setl");
+    //cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setl");
 }
 
 static INSTRUCTION_CG(cle) {
-    if (stat_argc(stat) != 3) {
-        parser_set_error(p, ec_badargs);
-        return;
-    }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    //if (stat_argc(stat) != 3) {
+    //    parser_set_error(p, ec_badargs);
+    //    return;
+    //}
+    //SymbolId lval_id = stat_arg(stat, 0);
+    //SymbolId op1_id = stat_arg(stat, 1);
+    //SymbolId op2_id = stat_arg(stat, 2);
 
-    cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setle");
+    //cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setle");
 }
 
 static INSTRUCTION_CG(cne) {
-    if (stat_argc(stat) != 3) {
-        parser_set_error(p, ec_badargs);
-        return;
-    }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    //if (stat_argc(stat) != 3) {
+    //    parser_set_error(p, ec_badargs);
+    //    return;
+    //}
+    //SymbolId lval_id = stat_arg(stat, 0);
+    //SymbolId op1_id = stat_arg(stat, 1);
+    //SymbolId op2_id = stat_arg(stat, 2);
 
-    cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setne");
+    //cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setne");
 }
 
 static INSTRUCTION_CG(div) {
@@ -2177,15 +2199,49 @@ static INSTRUCTION_CG(div) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    /* Division needs special handling, since it behaves differently
-       Dividend in ax, Result in ax */
     SymbolId lval_id = stat_arg(stat, 0);
     SymbolId op1_id = stat_arg(stat, 1);
     SymbolId op2_id = stat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
-    cg_divide(p, op1_id, op2_id, "idiv");
-    cg_mov_fromr(p, loc_a, lval_id);
+    Symbol* lval = symtab_get(p, lval_id);
+    Symbol* op2 = symtab_get(p, op2_id);
+    int bytes = symbol_bytes(lval);
+
+    /* rax:rdx is dividend,
+       rdx is unused and zeroed */
+
+    /* TODO in the future, less registers need to be saved
+       depending on the size of the division */
+    if (symbol_location(lval) != loc_a) {
+        cg_insr(p, "push", reg_rax);
+    }
+    if (symbol_location(lval) != loc_d) {
+        cg_insr(p, "push", reg_rdx);
+    }
+    parser_output_asm(p, "xor %s,%s\n",
+            reg_get_str(loc_d, bytes),
+            reg_get_str(loc_d, bytes));
+
+    cg_movsr(p, op1_id, loc_a);
+    /* Put the immediate into a register to divide */
+    if (symbol_is_constant(op2)) {
+        cg_insr(p, "push", reg_rbx);
+        cg_insrs(p, "mov", loc_b, op2_id);
+        cg_insr(p, "idiv", reg_get(loc_b, bytes));
+        cg_insr(p, "pop", reg_rbx);
+    }
+    else {
+        cg_inss(p, "idiv", op2_id);
+    }
+    cg_movrs(p, loc_a, lval_id);
+
+    if (symbol_location(lval) != loc_d) {
+        cg_insr(p, "pop", reg_rdx);
+    }
+    if (symbol_location(lval) != loc_a) {
+        cg_insr(p, "pop", reg_rax);
+    }
 }
 
 static INSTRUCTION_CG(jmp) {
@@ -2222,8 +2278,42 @@ static INSTRUCTION_CG(mod) {
     SymbolId op2_id = stat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
-    cg_divide(p, op1_id, op2_id, "idiv");
-    cg_mov_fromr(p, loc_d, lval_id);
+    Symbol* lval = symtab_get(p, lval_id);
+    Symbol* op2 = symtab_get(p, op2_id);
+    int bytes = symbol_bytes(lval);
+
+    /* rax:rdx is dividend,
+       rdx is unused and zeroed */
+
+    if (symbol_location(lval) != loc_a) {
+        cg_insr(p, "push", reg_rax);
+    }
+    if (symbol_location(lval) != loc_d) {
+        cg_insr(p, "push", reg_rdx);
+    }
+    parser_output_asm(p, "xor %s,%s\n",
+            reg_get_str(loc_d, bytes),
+            reg_get_str(loc_d, bytes));
+
+    cg_movsr(p, op1_id, loc_a);
+    /* Put the immediate into a register to divide */
+    if (symbol_is_constant(op2)) {
+        cg_insr(p, "push", reg_rbx);
+        cg_insrs(p, "mov", loc_b, op2_id);
+        cg_insr(p, "idiv", reg_get(loc_b, bytes));
+        cg_insr(p, "pop", reg_rbx);
+    }
+    else {
+        cg_inss(p, "idiv", op2_id);
+    }
+    cg_movrs(p, loc_d, lval_id);
+
+    if (symbol_location(lval) != loc_d) {
+        cg_insr(p, "pop", reg_rdx);
+    }
+    if (symbol_location(lval) != loc_a) {
+        cg_insr(p, "pop", reg_rax);
+    }
 }
 
 static INSTRUCTION_CG(mov) {
@@ -2236,8 +2326,7 @@ static INSTRUCTION_CG(mov) {
     SymbolId rval_id = stat_arg(stat, 1);
     cg_validate_equal_size2(p, lval_id, rval_id);
 
-    cg_mov_tor(p, rval_id, loc_a);
-    cg_mov_fromr(p, loc_a, lval_id);
+    cg_movss(p, rval_id, lval_id);
 }
 
 static INSTRUCTION_CG(mul) {
@@ -2248,36 +2337,50 @@ static INSTRUCTION_CG(mul) {
     SymbolId lval_id = stat_arg(stat, 0);
     SymbolId op1_id = stat_arg(stat, 1);
     SymbolId op2_id = stat_arg(stat, 2);
+    cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
-    cg_arithmetic(p, lval_id, op1_id, op2_id, "imul");
+    Symbol* lval = symtab_get(p, lval_id);
+    Symbol* op1 = symtab_get(p, op1_id);
+    Symbol* op2 = symtab_get(p, op2_id);
+
+    if (symbol_location(lval) == symbol_location(op1)) {
+        cg_insss(p, "imul", op1_id, op2_id);
+    }
+    else if (symbol_location(lval) == symbol_location(op2)) {
+        cg_insss(p, "imul", op2_id, op1_id);
+    }
+    else {
+        cg_movss(p, op1_id, lval_id);
+        cg_insss(p, "imul", lval_id, op2_id);
+    }
 }
 
 static INSTRUCTION_CG(not) {
-    if (stat_argc(stat) != 2) {
-        parser_set_error(p, ec_badargs);
-        return;
-    }
+    //if (stat_argc(stat) != 2) {
+    //    parser_set_error(p, ec_badargs);
+    //    return;
+    //}
 
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId rval_id = stat_arg(stat, 1);
-    cg_validate_equal_size2(p, lval_id, rval_id);
+    //SymbolId lval_id = stat_arg(stat, 0);
+    //SymbolId rval_id = stat_arg(stat, 1);
+    //cg_validate_equal_size2(p, lval_id, rval_id);
 
-    Symbol* rval = symtab_get(p, rval_id);
-    Location reg = loc_a; /* Where to store intermediate value */
-    int bytes = symbol_bytes(rval);
-    const char* reg_name = reg_get_str(loc_a, bytes);
-    const char* reg_lower_name = reg_get_str(loc_a, 1);
+    //Symbol* rval = symtab_get(p, rval_id);
+    //Location reg = loc_a; /* Where to store intermediate value */
+    //int bytes = symbol_bytes(rval);
+    //const char* reg_name = reg_get_str(loc_a, bytes);
+    //const char* reg_lower_name = reg_get_str(loc_a, 1);
 
-    cg_mov_tor(p, rval_id, reg);
-    parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
-    parser_output_asm(p, "setz %s\n", reg_lower_name);
+    //cg_mov_tor(p, rval_id, reg);
+    //parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
+    //parser_output_asm(p, "setz %s\n", reg_lower_name);
 
-    /* Setz only sets 1 byte, thus the the remaining register
-       has to be cleared to obtain 1 or 0 */
-    if (bytes > 1) {
-        parser_output_asm(p, "movzx %s,%s\n", reg_name, reg_lower_name);
-    }
-    cg_mov_fromr(p, reg, lval_id);
+    ///* Setz only sets 1 byte, thus the the remaining register
+    //   has to be cleared to obtain 1 or 0 */
+    //if (bytes > 1) {
+    //    parser_output_asm(p, "movzx %s,%s\n", reg_name, reg_lower_name);
+    //}
+    //cg_mov_fromr(p, reg, lval_id);
 }
 
 static INSTRUCTION_CG(ret) {
@@ -2288,11 +2391,8 @@ static INSTRUCTION_CG(ret) {
         goto exit;
     }
 
-    int bytes = symbol_bytes(sym);
     /* Return integer types in rax */
-    parser_output_asm(p, "mov %s,", reg_get_str(loc_a, bytes));
-    cg_ref_symbol(p, sym_id);
-    parser_output_asm(p, "\n");
+    cg_movsr(p, sym_id, loc_a);
 
     /* Function epilogue */
     parser_output_asm(p,
@@ -2312,32 +2412,23 @@ static INSTRUCTION_CG(sub) {
     SymbolId lval_id = stat_arg(stat, 0);
     SymbolId op1_id = stat_arg(stat, 1);
     SymbolId op2_id = stat_arg(stat, 2);
+    cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
-    cg_arithmetic(p, lval_id, op1_id, op2_id, "sub");
-}
+    Symbol* lval = symtab_get(p, lval_id);
+    Symbol* op1 = symtab_get(p, op1_id);
+    Symbol* op2 = symtab_get(p, op2_id);
 
-/* Generates the necessary instructions to implement each arithmetic operation
-   Generates very inefficient code, but goal is to get something functioning
-   right now.
-   1. Moves both operands into registers
-   2. Performs operation using instruction
-   3. Moves register where op_1 used to be to destination */
-static void cg_arithmetic(
-        Parser* p,
-        SymbolId dest_id, SymbolId op1_id, SymbolId op2_id, const char* ins) {
-    cg_validate_equal_size3(p, dest_id, op1_id, op2_id);
-
-    Location op1_reg = loc_a;
-    Location op2_reg = loc_c;
-    Symbol* dest = symtab_get(p, dest_id);
-    int bytes = symbol_bytes(dest);
-
-    cg_mov_tor(p, op1_id, op1_reg);
-    cg_mov_tor(p, op2_id, op2_reg);
-    parser_output_asm(p, "%s %s,%s\n",
-        ins,
-        reg_get_str(op1_reg, bytes), reg_get_str(op2_reg, bytes));
-    cg_mov_fromr(p, op1_reg, dest_id);
+    if (symbol_location(lval) == symbol_location(op1)) {
+        cg_insss(p, "sub", op1_id, op2_id);
+    }
+    else if (symbol_location(lval) == symbol_location(op2)) {
+        cg_insss(p, "sub", op2_id, op1_id);
+        cg_inss(p, "neg", lval_id);
+    }
+    else {
+        cg_movss(p, op1_id, lval_id);
+        cg_insss(p, "sub", lval_id, op2_id);
+    }
 }
 
 /* Generates the necessary instructions to implement logical operators:
@@ -2358,15 +2449,15 @@ static void cg_cmpsetcc(
     const char* op1_reg_name = reg_get_str(op1_reg, bytes);
     const char* op1_reg_lower_name = reg_get_str(op1_reg, 1);
 
-    cg_mov_tor(p, op1_id, op1_reg);
-    cg_mov_tor(p, op2_id, op2_reg);
+    cg_movsr(p, op1_id, op1_reg);
+    cg_movsr(p, op2_id, op2_reg);
     parser_output_asm(p, "cmp %s,%s\n",
         op1_reg_name, reg_get_str(op2_reg, bytes));
     parser_output_asm(p, "%s %s\n", set, op1_reg_lower_name);
     if (bytes > 1) {
         parser_output_asm(p, "movzx %s,%s\n", op1_reg_name, op1_reg_lower_name);
     }
-    cg_mov_fromr(p, op1_reg, dest_id);
+    cg_movrs(p, op1_reg, dest_id);
 }
 
 /* Generates the necessary instructions to implement conditional jump
@@ -2381,34 +2472,66 @@ static void cg_testjmpcc(
     Symbol* op1 = symtab_get(p, op1_id);
     const char* reg_name = reg_get_str(reg, symbol_bytes(op1));
 
-    cg_mov_tor(p, op1_id, reg);
+    cg_movsr(p, op1_id, reg);
     parser_output_asm(p, "test %s,%s\n", reg_name, reg_name);
     parser_output_asm(p, "%s %s\n", jmp, symbol_name(label));
 }
 
-/* Places op1 and op2 in the appropriate locations for op1 / op2
-   ins is the instruction to apply to perform the division */
-static void cg_divide(
-        Parser* p, SymbolId op1_id, SymbolId op2_id,
-        const char* ins) {
-    Location op2_reg = loc_c;
-
-    Symbol* op1 = symtab_get(p, op1_id);
-    int bytes = symbol_bytes(op1);
-
-    cg_mov_tor(p, op1_id, loc_a);
-    cg_mov_tor(p, op2_id, op2_reg);
-    /* dx has to be zeroed, other it is interpreted as part of dividend */
-    parser_output_asm(p, "xor %s,%s\n",
-            reg_get_str(loc_d, bytes),
-            reg_get_str(loc_d, bytes));
-
-    parser_output_asm(p, "%s %s\n", ins, reg_get_str(op2_reg, bytes));
+/* Generates assembly for instruction, with additional assembly as necessary
+   to reference operand 1 (symbol) */
+static void cg_inss(Parser* p, const char* ins, SymbolId op1_id) {
+    parser_output_asm(p, "%s ", ins);
+    cg_ref_symbol(p, op1_id);
+    parser_output_asm(p, "\n");
 }
 
-/* Generates code for reg/mem -> reg */
-static void cg_mov_tor(Parser* p, SymbolId source, Location dest) {
+/* Generates assembly for instruction, with additional assembly as necessary
+   to reference operand 1 (register) */
+static void cg_insr(Parser* p, const char* ins, Register op1_reg) {
+    parser_output_asm(p, "%s %s\n", ins, reg_str(op1_reg));
+}
+
+/* Generates assembly for instruction, with additional assembly as necessary
+   to reference operand 1 (symbol) and operand 2 (symbol) */
+static void cg_insss(
+        Parser* p, const char* ins, SymbolId op1_id, SymbolId op2_id) {
+    parser_output_asm(p, "%s ", ins);
+    cg_ref_symbol(p, op1_id);
+    parser_output_asm(p, ",");
+    cg_ref_symbol(p, op2_id);
+    parser_output_asm(p, "\n");
+}
+
+/* Generates assembly for instruction, with additional assembly as necessary
+   to reference operand 1 (register) and operand 2 (symbol) */
+static void cg_insrs(Parser* p, const char* ins, Location op1_loc, SymbolId op2_id) {
+    Symbol* op2 = symtab_get(p, op2_id);
+    int bytes = symbol_bytes(op2);
+
+    parser_output_asm(p, "%s %s,", ins, reg_get_str(op1_loc, bytes));
+    cg_ref_symbol(p, op2_id);
+    parser_output_asm(p, "\n");
+}
+
+/* Generates the required assembly to copy from source (symbol) to
+   destination (symbol) */
+static void cg_movss(Parser* p, SymbolId src, SymbolId dest) {
+    /* src already in dest */
+    Symbol* dest_sym = symtab_get(p, dest);
+    Symbol* src_sym = symtab_get(p, src);
+    if (symbol_location(dest_sym) == symbol_location(src_sym)) {
+        return;
+    }
+    cg_insss(p, "mov", dest, src);
+}
+
+/* Generates the required assembly to copy from source (symbol) to
+   destination (register) */
+static void cg_movsr(Parser* p, SymbolId source, Location dest) {
     Symbol* sym = symtab_get(p, source);
+    if (dest == symbol_location(sym)) {
+        return;
+    }
     int bytes = symbol_bytes(sym);
 
     parser_output_asm(p, "mov %s,", reg_get_str(dest, bytes));
@@ -2416,9 +2539,13 @@ static void cg_mov_tor(Parser* p, SymbolId source, Location dest) {
     parser_output_asm(p, "\n");
 }
 
-/* Generates code for reg -> reg/mem */
-static void cg_mov_fromr(Parser* p, Location source, SymbolId dest) {
+/* Generates the required assembly to copy from source (register) to
+   destination (symbol) */
+static void cg_movrs(Parser* p, Location source, SymbolId dest) {
     Symbol* sym = symtab_get(p, dest);
+    if (source == symbol_location(sym)) {
+        return;
+    }
     int bytes = symbol_bytes(sym);
 
     parser_output_asm(p, "mov ");

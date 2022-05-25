@@ -1761,102 +1761,17 @@ static void ig_compute_color(Parser* p) {
             continue;
         }
 
-        /* Choose self or a neighbor to spill */
+        /* Always spill self as this has the lowest spill cost, neighbors were
+           assigned earlier, thus they have a higher spill cost */
 
-        /* Fetch all the neighbors which can be spilled to take its register */
-        IGNode* neighbor[ignode_neighbor_count(node)];
-        int neighbor_count = 0;
-        for (int j = 0; j < ignode_neighbor_count(node); ++j) {
-            IGNode* neigh = ignode_neighbor(node, j);
-            SymbolId neighbor_id = ig_ignode_symbolid(p, neigh);
-            Symbol* neighbor_sym = symtab_get(p, neighbor_id);
-
-            /* Candidate for spilling */
-            Location neighbor_loc = symbol_location(neighbor_sym);
-            if (neighbor_loc != loc_none && neighbor_loc != loc_stack) {
-                neighbor[neighbor_count++] = neigh;
-            }
-        }
-
-        /* Sort the neighbors into lowest spill cost first, as spilling
-           lower spill cost is preferred */
-        quicksort(neighbor, (size_t)neighbor_count, sizeof(IGNode*),
-                ig_compute_color_sort);
-
-        /* See if there are any suitable neighbors to spill and take
-           their register */
-        int took_reg = 0;
-        for (int j = 0; j < neighbor_count; ++j) {
-            /* No need to check remainder of list as it will be all greater
-               since it is sorted */
-            if (ignode_cost(neighbor[j]) >= ignode_cost(node)) {
-                break;
-            }
-
-            SymbolId neighbor_id = ig_ignode_symbolid(p, neighbor[j]);
-            Symbol* neighbor_sym = symtab_get(p, neighbor_id);
-            Location neighbor_loc = symbol_location(neighbor_sym);
-            /* Spill neighbor, take neighbor's register if doing
-               so has no conflicts with this node's neighbors
-
-               One use means after neighbor is spilled, no other neighbors
-               use the register */
-            if (used_loc[neighbor_loc] == 1) {
-                symbol_set_location(node_sym, neighbor_loc);
-                symbol_set_location(neighbor_sym, loc_stack);
-                found_reg = 1;
-                break;
-            }
-        }
-
-        /* If above for loop exited and no suitable neighbor was found, current
-           node is left with no register assigned (spilled) */
-        if (!took_reg) {
-            symbol_set_location(node_sym, loc_stack);
-        }
+        symbol_set_location(node_sym, loc_stack);
     }
 
-    /* Make one more pass through the spilled variables, see if they can be
-       given a register after other registers were spilled */
-    for (int i = vec_size(&p->ig) - 1; i >= 0; --i) {
-        IGNode* node = nodes[i];
-        SymbolId node_id = ig_ignode_symbolid(p, node);
-        Symbol* node_sym = symtab_get(p, node_id);
-
-        ASSERT(symbol_location(node_sym) != loc_none,
-                "Symbol unassigned location");
-        if (symbol_location(node_sym) != loc_stack) {
-            continue;
-        }
-
-        /* Search for an available register, otherwise give up and the node
-           remains spilled */
-
-        /* Initialize number of times register used */
-        int used_loc[X86_REGISTER_COUNT];
-        for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
-            used_loc[j] = used_loc_init[j];
-        }
-
-        /* Count registers used by neighbors */
-        for (int j = 0; j < ignode_neighbor_count(node); ++j) {
-            IGNode* neighbor = ignode_neighbor(node, j);
-            SymbolId neighbor_id = ig_ignode_symbolid(p, neighbor);
-            Symbol* neighbor_sym = symtab_get(p, neighbor_id);
-            Location loc = symbol_location(neighbor_sym);
-            if (loc != loc_stack) {
-                ++used_loc[loc];
-            }
-        }
-
-        /* Find first available register to use */
-        for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
-            if (used_loc[j] == 0) {
-                symbol_set_location(node_sym, j);
-                break;
-            }
-        }
-    }
+    /* Spilled variables are guaranteed to remain spilled, as nodes
+       which were assigned registers never give them away. Any unassigned
+       neighbors when the variable was spilled will have been assigned or
+       spilled, offering no openings for the spilled variable to be assigned
+       a register. */
 }
 
 /* Sets up parser data structures to begin parsing a new function */

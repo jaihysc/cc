@@ -41,9 +41,9 @@ These concepts are referenced in this document.
 
 The program graph is currently represented as a control flow graph, in the future it can be a program dependency graph (PDG) or static single assignment (SSA) graph to aid instruction scheduling and optimizations. It contains data and control flow information together, with the goal of giving the instruction selector a broader view of the program under compilation to generate better assembly.
 
-Blocks in the control flow graph are used to build expression trees. By using a tree, it reduces various arrangements of IL instructions into a single form, making it easier for the instruction selector to recognize patterns. An expression tree is formed from IL instructions which are dependent on each other, with the top node being the result of calculations using the leaves. When an IL instruction is encountered which does not fit in an expression tree (not dependent on or by anything in the tree), it is put into a new expression tree.
+Blocks in the control flow graph hold IL instructions. In the future a graph form can be chosen to reduce various arrangements of IL instructions into a single form, making it easier for the instruction selector to recognize patterns.
 
-The control flow graph is built in 2 phases. The first phase creates the blocks plus its contents and links blocks to blocks immediately following it, the second phase links jumps from blocks to labels in other blocks. The expression trees at built one at a time as required by the instruction selector, accomplished by scanning IL instructions in a block and adding it to the tree until an instruction is encountered which does not fit in the tree (instruction is not dependent on or by anything in the tree).
+The control flow graph is built in 2 phases. The first phase creates the blocks plus its contents and links blocks to blocks immediately following it, the second phase links jumps from blocks to labels in other blocks.
 
 ### Register preferences
 
@@ -108,11 +108,9 @@ ret
 
 ## Instruction Selector
 
-The instruction selector performs tree rewriting of expression trees in the program graph to select the optimal pseudo-assembly. Each pattern contains information on cost, register preferences, and pseudo-assembly replacement. Cost guides the search for the optimal pattern, register preferences are added to the variables' respective register preference scores, pseudo-assembly replacement maps the IL instruction(s) to pseudo-assembly and creates additional temporaries where necessary. Different patterns exist to cover different cases of how the operands are stored, i.e., in register, in memory, is immediate. See below for an example.
+The instruction selector uses macro expansion of the program graph to select the optimal pseudo-assembly. Each pattern contains information on cost, register preferences, and pseudo-assembly replacement. Cost guides the search for the optimal pattern, register preferences are added to the variables' respective register preference scores, pseudo-assembly replacement maps the IL instruction(s) to pseudo-assembly and creates additional temporaries where necessary. Different patterns exist to cover different cases of how the operands are stored, i.e., in register, in memory, is immediate. See below for an example.
 
 To prepare for this stage, the assembly generator makes a pass through the intermediate language to load the symbol table and generate a program graph.
-
-The matching of patterns to rewrite the expression tree is performed bottom up from the leaves, applying the largest possible pattern at each opportunity. Patterns are stored as an arrangement of nodes which the pattern matcher compares against, if a match is made, the matched nodes of the tree is replaced and pseudo-assembly is emitted.
 
 More complex optimizations which are not possible with expression trees such as sub-expression elimination are the job of the optimizer.
 

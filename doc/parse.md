@@ -2,6 +2,20 @@
 
 The parser utilizes recursive descent with 1 token lookahead to determine the production rule to apply. Parsed terminals and nonterminals are attached to form a parse tree, where the parser may choose to either backtrack or emit intermediate code. If the parser determines that a production rule applied was incorrect, it will backtrack on the parse tree to when the production rule was applied. If the parser completed certain production rules such as function-definitions or is at certain points in the program, the parser will generate intermediate code and clear the parse tree.
 
+## Options
+
+Pass these on the command line, if running using `cc.sh`, prefix with `-P` to indicate the option is for the parser, e.g., `-Pdprint-symtab`.
+
+### Debug options
+
+| Flag | Description |
+|-|-|
+| `-dprint-cg-recursion` | Shows the recursive walk through the parse tree while generating intermediate language |
+| `-dprint-buffers` | Prints out parser's buffers while running |
+| `-dprint-parse-recursion` | Shows the recursive matching of language productions as the input C source file is parsed |
+| `-dprint-parse-tree` | Prints out the parse tree when it is about to be cleared |
+| `-dprint-symtab` | Prints out the symbol table when it about to be cleared |
+
 ## Concepts
 
 ### Output symbols

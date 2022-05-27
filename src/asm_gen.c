@@ -16,7 +16,10 @@
 /* ============================================================ */
 /* Parser global configuration */
 
-int g_debug_print_buffers = 0;
+int g_debug_print_cfg = 0;
+int g_debug_print_ig = 0;
+int g_debug_print_info = 0;
+int g_debug_print_symtab = 0;
 
 /* ============================================================ */
 /* x86 Registers */
@@ -1075,7 +1078,7 @@ static SymbolId symtab_find(Parser* p, const char* name) {
         return sym_id;
     }
 
-    if (g_debug_print_buffers) {
+    if (g_debug_print_info) {
         LOGF("Cannot find %s\n", name);
     }
     return -1;
@@ -1782,7 +1785,8 @@ static void parser_clear_func(Parser* p) {
 }
 
 /* Dumps contents stored in parser */
-static void debug_dump(Parser* p) {
+
+static void debug_print_symtab(Parser* p) {
     LOGF("Symbol table: [%d]\n", vec_size(&p->symbol));
     for (int i = 0; i < vec_size(&p->symbol); ++i) {
         Symbol* sym = &vec_at(&p->symbol, i);
@@ -1793,7 +1797,9 @@ static void debug_dump(Parser* p) {
         }
         LOGF(" %s (%s)\n", symbol_name(sym), loc_str(symbol_location(sym)));
     }
+}
 
+static void debug_print_cfg(Parser* p) {
     /* Print out instructions and arguments of each node */
     LOGF("Control flow graph [%d]\n", vec_size(&p->cfg));
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
@@ -1867,7 +1873,9 @@ static void debug_dump(Parser* p) {
         }
         LOG("\n");
     }
+}
 
+static void debug_print_ig(Parser* p) {
     LOGF("Interference graph [%d]\n", vec_size(&p->ig));
     for (int i = 0; i < vec_size(&p->ig); ++i) {
         LOGF("  Node %d %s\n", i, symbol_name(symtab_get(p, i)));
@@ -1883,9 +1891,7 @@ static void debug_dump(Parser* p) {
         }
         LOG("\n");
     }
-
 }
-
 
 /* ============================================================ */
 /* Instruction handlers */
@@ -2683,6 +2689,24 @@ static void parse(Parser* p) {
     cfg_output_asm(p);
 }
 
+/* The index of the option's string in the string array
+   is the index of the pointer for the variable corresponding to the option
+
+   SWITCH_OPTION(option string, variable to set)
+   Order by option string, see strbinfind for ordering requirements */
+#define SWITCH_OPTIONS                                  \
+    SWITCH_OPTION(-dprint-cfg, g_debug_print_cfg)       \
+    SWITCH_OPTION(-dprint-ig, g_debug_print_ig)         \
+    SWITCH_OPTION(-dprint-info, g_debug_print_info)     \
+    SWITCH_OPTION(-dprint-symtab, g_debug_print_symtab)
+
+#define SWITCH_OPTION(str__, var__) #str__,
+const char* option_switch_str[] = {SWITCH_OPTIONS};
+#undef SWITCH_OPTION
+#define SWITCH_OPTION(str__, var__) &var__,
+int* option_switch_value[] = {SWITCH_OPTIONS};
+#undef SWITCH_OPTION
+
 /* Parses cli args and processes them */
 /* NOTE: will not clean up file handles at exit */
 /* Returns non zero if error */
@@ -2690,6 +2714,17 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
     int rt_code = 0;
     /* Skip first argv since it is path */
     for (int i = 1; i < argc; ++i) {
+        /* Handle switch options */
+        int i_switch = strbinfind(
+                argv[i],
+                strlength(argv[i]),
+                option_switch_str,
+                ARRAY_SIZE(option_switch_str));
+        if (i_switch >= 0) {
+            *option_switch_value[i_switch] = 1;
+            continue;
+        }
+
         if (strequ(argv[i], "-o")) {
             if (p->of != NULL) {
                 ERRMSG("Only one output file can be specified\n");
@@ -2709,9 +2744,6 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
                 rt_code = 1;
                 break;
             }
-        }
-        else if (strequ(argv[i], "-Zd4")) {
-            g_debug_print_buffers = 1;
         }
         else {
             if (p->rf != NULL) {
@@ -2766,8 +2798,15 @@ exit:
         ERRMSGF("Error during parsing: %d %s\n", ecode, errcode_str[ecode]);
         exitcode = ecode;
     }
-    if (g_debug_print_buffers) {
-        debug_dump(&p);
+
+    if (g_debug_print_symtab) {
+        debug_print_symtab(&p);
+    }
+    if (g_debug_print_cfg) {
+        debug_print_cfg(&p);
+    }
+    if (g_debug_print_ig) {
+        debug_print_ig(&p);
     }
 
     if (p.rf != NULL) {

@@ -20,6 +20,19 @@ Planned
 - Optimizer after the instruction selector
 - Optimizer after the code generator
 
+## Options
+
+Pass these on the command line, if running from `cc.sh`, prefix with `-S` to indicate the option is for the assembly generator, e.g., `-Sdprint-symtab`.
+
+### Debug options
+
+| Flag | Description |
+|-|-|
+| `-dprint-cfg` | Prints out the control flow graph for each function |
+| `-dprint-ig` | Prints out the interference graph used for register allocation for each function |
+| `-dprint-info` | Prints out debug information while running |
+| `-dprint-symtab` | Prints out the symbol table after assembly generation for each function |
+
 ## Concepts
 
 These concepts are referenced in this document.

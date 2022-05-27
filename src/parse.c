@@ -15,10 +15,11 @@
 /* ============================================================ */
 /* Parser global configuration */
 
-int g_debug_print_parse_recursion = 0;
-int g_debug_print_cg_recursion = 0;
-int g_debug_print_parse_tree = 0;
 int g_debug_print_buffers = 0;
+int g_debug_print_cg_recursion = 0;
+int g_debug_print_parse_recursion = 0;
+int g_debug_print_parse_tree = 0;
+int g_debug_print_symtab = 0;
 
 /* ============================================================ */
 /* Parser data structure + functions */
@@ -319,8 +320,8 @@ static SymbolId symtab_last_cat(Parser* p, SymbolCat cat) {
     return p->symtab_cat[cat][p->i_symtab_cat[cat] - 1];
 }
 
-static void debug_parser_buf_dump(Parser* p);
-static void debug_draw_parse_tree(Parser* p);
+static void debug_print_buffers(Parser* p);
+static void debug_print_parse_tree(Parser* p);
 static void debug_parse_node_walk(
         Parser* p, ParseNode* node,
         char* branch, int i_branch, const int max_branch_len);
@@ -477,7 +478,7 @@ static void tree_detach_node_child(Parser* p, ParseNode* node) {
 }
 
 /* Prints out contents of parser buffers */
-static void debug_parser_buf_dump(Parser* p) {
+static void debug_print_buffers(Parser* p) {
     LOG("Read buffer:\n");
     LOGF("%s\n", p->read_buf);
 
@@ -498,7 +499,9 @@ static void debug_parser_buf_dump(Parser* p) {
             LOGF("%c", c);
         }
     }
+}
 
+static void debug_print_symtab(Parser* p) {
     LOG("Symbol table:\n");
     LOGF("Scopes: [%d]\n", p->i_scope);
     for (int i = 0; i < p->i_scope; ++i) {
@@ -515,7 +518,7 @@ static void debug_parser_buf_dump(Parser* p) {
     }
 }
 
-static void debug_draw_parse_tree(Parser* p) {
+static void debug_print_parse_tree(Parser* p) {
     LOG("Parse tree:\n");
     /* 2 characters per node */
     int max_branch = MAX_PARSE_TREE_NODE * 2;
@@ -602,12 +605,16 @@ static void symtab_push_scope(Parser* p) {
 static void symtab_pop_scope(Parser* p) {
     ASSERT(p->i_scope > 0, "No scope after popping first scope");
 
+    if (g_debug_print_symtab) {
+        debug_print_symtab(p);
+    }
+
     --p->i_scope;
     if (g_debug_print_parse_recursion) {
         LOGF("Pop scope at depth %d\n", p->i_scope);
     }
     if (g_debug_print_buffers) {
-        debug_parser_buf_dump(p);
+        debug_print_buffers(p);
     }
 }
 
@@ -1232,7 +1239,7 @@ int debug_parse_func_recursion_depth = 0;
 /* Deletes child nodes of current location */
 #define PARSE_TRIM_TREE()                                           \
     if (g_debug_print_parse_recursion) {LOG("Parse tree clear\n");} \
-    if (g_debug_print_parse_tree) {debug_draw_parse_tree(p);}       \
+    if (g_debug_print_parse_tree) {debug_print_parse_tree(p);}      \
     tree_detach_node_child(p, node__)
 
 /* Name for the pointer to the current node */
@@ -3405,6 +3412,25 @@ static void cg_increment(Parser* p, SymbolId id, int n) {
 /* ============================================================ */
 /* Initialization and configuration */
 
+/* The index of the option's string in the string array
+   is the index of the pointer for the variable corresponding to the option
+
+   SWITCH_OPTION(option string, variable to set)
+   Order by option string, see strbinfind for ordering requirements */
+#define SWITCH_OPTIONS                                                    \
+    SWITCH_OPTION(-dprint-buffers, g_debug_print_buffers)                 \
+    SWITCH_OPTION(-dprint-cg-recursion, g_debug_print_cg_recursion)       \
+    SWITCH_OPTION(-dprint-parse-recursion, g_debug_print_parse_recursion) \
+    SWITCH_OPTION(-dprint-parse-tree, g_debug_print_parse_tree)           \
+    SWITCH_OPTION(-dprint-symtab, g_debug_print_symtab)
+
+#define SWITCH_OPTION(str__, var__) #str__,
+const char* option_switch_str[] = {SWITCH_OPTIONS};
+#undef SWITCH_OPTION
+#define SWITCH_OPTION(str__, var__) &var__,
+int* option_switch_value[] = {SWITCH_OPTIONS};
+#undef SWITCH_OPTION
+
 /* Parses cli args and processes them */
 /* NOTE: will not clean up file handles at exit */
 /* Returns non zero if error */
@@ -3412,6 +3438,17 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
     int rt_code = 0;
     /* Skip first argv since it is path */
     for (int i = 1; i < argc; ++i) {
+        /* Handle switch options */
+        int i_switch = strbinfind(
+                argv[i],
+                strlength(argv[i]),
+                option_switch_str,
+                ARRAY_SIZE(option_switch_str));
+        if (i_switch >= 0) {
+            *option_switch_value[i_switch] = 1;
+            continue;
+        }
+
         if (strequ(argv[i], "-o")) {
             if (p->of != NULL) {
                 ERRMSG("Only one output file can be specified\n");
@@ -3431,18 +3468,6 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
                 rt_code = 1;
                 break;
             }
-        }
-        else if (strequ(argv[i], "-Zd1")) {
-            g_debug_print_parse_recursion = 1;
-        }
-        else if (strequ(argv[i], "-Zd2")) {
-            g_debug_print_cg_recursion = 1;
-        }
-        else if (strequ(argv[i], "-Zd3")) {
-            g_debug_print_parse_tree = 1;
-        }
-        else if (strequ(argv[i], "-Zd4")) {
-            g_debug_print_buffers = 1;
         }
         else {
             if (p->rf != NULL) {
@@ -3500,12 +3525,9 @@ int main(int argc, char** argv) {
     }
 
     /* Debug options */
-    if (g_debug_print_buffers) {
-        debug_parser_buf_dump(&p);
-    }
     if (g_debug_print_parse_tree) {
         LOG("Remaining ");
-        debug_draw_parse_tree(&p);
+        debug_print_parse_tree(&p);
     }
 
     if (parser_has_error(&p)) {

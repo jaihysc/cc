@@ -12,8 +12,8 @@ cc_flags="-Wall -Wextra -Wshadow -pedantic -Wmissing-prototypes -Wpointer-arith 
     -Wduplicated-cond -Wduplicated-branches\
     -Wno-unused-parameter"
 
-cc $cc_flags src/parse.c   -o out/parse
-cc $cc_flags src/asm_gen.c -o out/asm_gen
+cc $cc_flags src/parse.c          -o out/parse
+cc $cc_flags src/asmgen/asm_gen.c -o out/asm_gen
 
 cp "src/cc.sh" out/ || exit 3
 

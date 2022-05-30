@@ -72,9 +72,9 @@ If $v_p$ is not applicable ($r$ is not the same as the register chosen for $v_p$
 
 ### Pseudo-assembly
 
-Pseudo-assembly (pasm) is a low level IR, target specific language which closely resembles assembly. Its difference from assembly is unlimited registers, each variable is seen as a register, written `%name`.
+Pseudo-assembly (pasm) is a low level IR, target specific language which closely resembles assembly. Its difference from assembly is unlimited registers and no memory addressing, each variable/memory location is written `%name` and referred to as virtual registers.
 
-On X86, do not confuse the % for AT&T syntax, pseudo-assembly on X86 is in Intel syntax and the % here represents a virtual register for the variable. For example, targeting X86, the following pseudo-assembly may be generated from the intermediate language:
+On X86, do not confuse the % for AT&T syntax, pseudo-assembly on X86 is in Intel syntax and the % here represents a virtual register for the variable or a memory location. For example, targeting X86, the following pseudo-assembly may be generated from the intermediate language:
 
 ```
 Intermediate language

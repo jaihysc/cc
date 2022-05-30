@@ -9,13 +9,13 @@ struct Statement {
 };
 
 /* Returns ILIns for statement */
-static ILIns stat_ins(Statement* stat) {
+static ILIns stat_ins(const Statement* stat) {
     ASSERT(stat != NULL, "Statement is null");
     return stat->ins;
 }
 
 /* Returns arg at index i for statement */
-static ILIns stat_arg(Statement* stat, int i) {
+static SymbolId stat_arg(const Statement* stat, int i) {
     ASSERT(stat != NULL, "Statement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->argc, "Index out of range");
@@ -23,7 +23,7 @@ static ILIns stat_arg(Statement* stat, int i) {
 }
 
 /* Returns the number of arguments in statement */
-static int stat_argc(Statement* stat) {
+static int stat_argc(const Statement* stat) {
     ASSERT(stat != NULL, "Statement is null");
     return stat->argc;
 }
@@ -31,7 +31,7 @@ static int stat_argc(Statement* stat) {
 /* Returns the number of symbols the instruction of this statement
    uses and puts the used symbols into provided symbol buffer.
    At most MAX_ARGS */
-static int stat_use(Statement* stat, SymbolId* out_sym_id) {
+static int stat_use(const Statement* stat, SymbolId* out_sym_id) {
     switch (stat->ins) {
         /* 2 use, argument index 1 and 2 */
         case il_add:
@@ -78,7 +78,7 @@ static int stat_use(Statement* stat, SymbolId* out_sym_id) {
 /* Returns the number of symbols the instruction of this statement
    defines (sets) and puts the defined symbols into provided symbol buffer.
    At most 1 */
-static int stat_def(Statement* stat, SymbolId* out_sym_id) {
+static int stat_def(const Statement* stat, SymbolId* out_sym_id) {
     switch (stat->ins) {
         case il_add:
         case il_ce:

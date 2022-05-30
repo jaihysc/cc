@@ -202,4 +202,10 @@ static const char* asm_size_directive(int bytes) {
     }
 }
 
+typedef enum {
+    asmins_add = 0,
+    asmins_mov
+    /* to be continued ... */
+} AsmIns;
+
 #endif

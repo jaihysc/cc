@@ -29,6 +29,92 @@ int g_debug_print_symtab = 0;
 /* ============================================================ */
 /* Parser data structure + functions */
 
+typedef struct {
+    AsmIns ins;
+    /* See INSSEL_MACRO_REPLACE for usage of type */
+    int op1_type;
+    int op2_type;
+    union {
+        Location loc;
+        SymbolId id;
+    } op1;
+    union {
+        Location loc;
+        SymbolId id;
+    } op2;
+} InsSelMacroReplace;
+
+/* Returns 1 if operand 1 is a virtual register, 0 if not */
+static int ismr_op1_virtual(const InsSelMacroReplace* ismr) {
+    ASSERT(ismr != NULL, "Macro replace is null");
+    return ismr->op1_type;
+}
+
+/* Returns 1 if operand 2 is a virtual register, 0 if not */
+static int ismr_op2_virtual(const InsSelMacroReplace* ismr) {
+    ASSERT(ismr != NULL, "Macro replace is null");
+    return ismr->op2_type;
+}
+
+typedef struct {
+    /* See INSSEL_MACRO_CASE for usage of constraint string */
+    const char* constraint;
+    int reg_pref[X86_REGISTER_COUNT];
+    vec_t(InsSelMacroReplace) replace;
+} InsSelMacroCase;
+
+/* Returns constraint string for instruction selection macro case */
+static const char* ismc_constraint(const InsSelMacroCase* ismc) {
+    ASSERT(ismc != NULL, "Macro case is null");
+    return ismc->constraint;
+}
+
+/* Returns the number of pseudo-assembly replacements for instruction selection
+   macro case */
+static int ismc_replace_count(const InsSelMacroCase* ismc) {
+    ASSERT(ismc != NULL, "Macro case is null");
+    return vec_size(&ismc->replace);
+}
+
+/* Returns the replacement at index for the instruction selection macro case */
+static InsSelMacroReplace* ismc_replace(InsSelMacroCase* ismc, int index) {
+    ASSERT(ismc != NULL, "Macro case is null");
+    ASSERT(index >= 0, "Index out of range");
+    ASSERT(index < ismc_replace_count(ismc), "Index out of range");
+    return &vec_at(&ismc->replace, index);
+}
+
+typedef struct {
+    ILIns ins;
+    vec_t(InsSelMacroCase) cases;
+} InsSelMacro;
+
+/* Returns the IL instruction that the instruction selection macro is for */
+static ILIns ism_il_ins(const InsSelMacro* macro) {
+    ASSERT(macro != NULL, "Macro is null");
+    return macro->ins;
+}
+
+/* Returns the number of cases the instruction selection macro has */
+static int ism_case_count(const InsSelMacro* macro) {
+    ASSERT(macro != NULL, "Macro is null");
+    return vec_size(&macro->cases);
+}
+
+/* Returns the case at index for the instruction selection macro */
+static InsSelMacroCase* ism_case(InsSelMacro* macro, int index) {
+    ASSERT(macro != NULL, "Macro is null");
+    ASSERT(index >= 0, "Index out of range");
+    ASSERT(index < ism_case_count(macro), "Index out of range");
+    return &vec_at(&macro->cases, index);
+}
+
+typedef vec_t(InsSelMacro) vec_InsSelMacro;
+
+static int inssel_macro_construct(vec_InsSelMacro* macros);
+static void inssel_macro_destruct(vec_InsSelMacro* macros);
+static void parser_set_error(Parser* p, ErrorCode ecode);
+
 struct Parser {
     ErrorCode ecode;
 
@@ -40,6 +126,9 @@ struct Parser {
     /* First symbol element is earliest in occurrence */
     vec_t(Symbol) symbol;
     char func_name[MAX_ARG_LEN]; /* Name of current function */
+
+    /* Instruction selection */
+    vec_InsSelMacro inssel_macro;
 
     /* Control flow graph */
     vec_t(Block) cfg;
@@ -63,8 +152,10 @@ struct Parser {
     int arg_count; /* Number of arguments */
 };
 
-static void parser_construct(Parser* p) {
+/* Returns 1 if succeeded, 0 if error */
+static int parser_construct(Parser* p) {
     vec_construct(&p->symbol);
+    if (!inssel_macro_construct(&p->inssel_macro)) goto error;
     vec_construct(&p->cfg);
     vec_construct(&p->ig);
     vec_construct(&p->ig_live);
@@ -87,6 +178,12 @@ static void parser_construct(Parser* p) {
     p->ig_palette[12] = loc_14;
     p->ig_palette[13] = loc_15;
     p->ig_palette_size = 14;
+
+    return 1;
+
+error:
+    parser_set_error(p, ec_outofmemory);
+    return 0;
 }
 
 static void parser_destruct(Parser* p) {
@@ -99,6 +196,7 @@ static void parser_destruct(Parser* p) {
         block_destruct(&vec_at(&p->cfg, i));
     }
     vec_destruct(&p->cfg);
+    inssel_macro_destruct(&p->inssel_macro);
     vec_destruct(&p->symbol);
 }
 
@@ -1148,6 +1246,249 @@ static INSTRUCTION_PROC(ret) {
     cfg_new_block(p);
 }
 
+/* ============================================================ */
+/* Instruction selector */
+
+/* Defines the macros used for expanding IL instructions to pseudo-assembly
+
+   ILINS_MACRO(ilins__, cases__)
+     A instruction selector macro is for an IL instruction, each macro
+     contains various cases depending on the arguments for the IL instruction.
+
+     ilins__: Name of the ILIns this macro and cases is for, no prefix,
+              i.e., mov instead of ilins_mov
+     cases__: Define cases for the macro with INSSEL_MACRO_CASE
+
+   INSSEL_MACRO_CASE(constraint__, reg_pref__, replaces__)
+     Cases are sorted in increasing cost, i.e., the lowest cost is written
+     first and the highest written last.
+
+     constraint__: A string which constrains when this case can be applied,
+                   using a string allows for more complex constraints.
+                   e.g., Apply only to a constant 1 (for x86 inc)
+                   s = Register/Memory
+                   i = Immediate
+                   Example: si for arg 1 to be register/memory and arg2 to
+                   be immediate
+     ref_pref__: Define register preferences for this case using
+                 REGISTER_PREFERENCE, REGISTER_PREFERENCE only needs to be used
+                 once
+     replaces__: Define pseudo-assembly which this macro replaces to using
+                 INSSEL_MACRO_REPLACE
+
+   INSSEL_MACRO_REPLACE(asmins__, op1_t__, op1__, op2_t__, op2__)
+     Each INSSEL_MACRO_REPLACE replaces to one pseudo-assembly instruction.
+
+     asmins__: Name of the AsmIns this macro replaces with, no prefix,
+               i.e., mov instead of asmins_mov
+     rop_t__: Type of the operands for performing the replacement,
+              in order from first operand to last
+              0 = Physical register
+              1 = Virtual register
+              Use the provided macros REGISTER_PHYSICAl and REGISTER_VIRTUAL
+              to declare the types
+
+     If the operand is a physical register, operand should be of type
+     Location. If virtual register, operand should be an integer corresponding
+     to the argument (Symbol) index in the IL instructions, e.g., 0 to refer to
+     the first symbol in the IL instruction.
+
+     op1__: Operand 1
+     op2__: Operand 2
+
+   REGISTER_PREFERENCE(
+       p0__, p1__, p2__, p3__, p4__, p5__, p6__, p7__,
+       p8__, p9__, p10__, p11__, p12__, p13__, p14__, p15__)
+     Each parameter takes an integer representing the register preference score
+
+*/
+
+/* TODO These are placeholders until the actual macros get written */
+#define INSSEL_MACROS                                             \
+    INSSEL_MACRO(add,                                             \
+        INSSEL_MACRO_CASE(ii,                                     \
+            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
+            INSSEL_MACRO_REPLACE(mov,                             \
+                REGISTER_VIRTUAL, 0,                              \
+                REGISTER_PHYSICAL, loc_a                          \
+            )                                                     \
+            INSSEL_MACRO_REPLACE(mov,                             \
+                REGISTER_VIRTUAL, 0,                              \
+                REGISTER_PHYSICAL, loc_a                          \
+            )                                                     \
+        )                                                         \
+    )                                                             \
+    INSSEL_MACRO(ret,                                             \
+        INSSEL_MACRO_CASE(s,                                      \
+            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
+            INSSEL_MACRO_REPLACE(mov,                             \
+                REGISTER_VIRTUAL, 0,                              \
+                REGISTER_PHYSICAL, loc_c                          \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(i,                                      \
+            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
+            INSSEL_MACRO_REPLACE(mov,                             \
+                REGISTER_VIRTUAL, 0,                              \
+                REGISTER_PHYSICAL, loc_b                          \
+            )                                                     \
+        )                                                         \
+    )
+
+/* Creates a new instruction selection macro, expands cases__ to add
+   cases to the macro */
+#define INSSEL_MACRO(ilins__, cases__)       \
+    if (!vec_push_backu(macros)) goto error; \
+    macro__ = &vec_back(macros);             \
+    macro__->ins = il_ ## ilins__;           \
+    cases__
+
+/* Sets the register preference for a case with provided scores */
+#define REGISTER_PREFERENCE(                                   \
+        p0__, p1__, p2__, p3__, p4__, p5__, p6__, p7__,        \
+        p8__, p9__, p10__, p11__, p12__, p13__, p14__, p15__)  \
+    case__->reg_pref[0] = p0__;                                \
+    case__->reg_pref[1] = p1__;                                \
+    case__->reg_pref[2] = p2__;                                \
+    case__->reg_pref[3] = p3__;                                \
+    case__->reg_pref[4] = p4__;                                \
+    case__->reg_pref[5] = p5__;                                \
+    case__->reg_pref[6] = p6__;                                \
+    case__->reg_pref[7] = p7__;                                \
+    case__->reg_pref[8] = p8__;                                \
+    case__->reg_pref[9] = p9__;                                \
+    case__->reg_pref[10] = p10__;                              \
+    case__->reg_pref[11] = p11__;                              \
+    case__->reg_pref[12] = p12__;                              \
+    case__->reg_pref[13] = p13__;                              \
+    case__->reg_pref[14] = p14__;                              \
+    case__->reg_pref[15] = p15__;
+
+/* Creates a case for a macro, with provided match requirement.
+   Expands reg_pref__ to add register preference, expands macro
+   replaces__ to add replacement pseudo-assembly to the macro */
+#define INSSEL_MACRO_CASE(constraint__, reg_pref__, replaces__) \
+    if (!vec_push_backu(&macro__->cases)) goto error;           \
+    case__ = &vec_back(&macro__->cases);                        \
+    case__->constraint = #constraint__;                         \
+    reg_pref__                                                  \
+    replaces__
+
+/* Creates a pseudo-assembly instruction for a case of a macro with provided
+   assembly instruction, operand type, and provided operands */
+#define INSSEL_MACRO_REPLACE(asmins__, op1_t__, op1__, op2_t__, op2__)       \
+    if (!vec_push_backu(&case__->replace)) goto error;                       \
+    replace__ = &vec_back(&case__->replace);                                 \
+    replace__->ins = asmins_ ## asmins__;                                    \
+    replace__->op1_type = op1_t__;                                           \
+    replace__->op2_type = op2_t__;                                           \
+    if (op1_t__) replace__->op1.loc = op1__; else replace__->op1.id = op1__; \
+    if (op2_t__) replace__->op2.loc = op2__; else replace__->op2.id = op2__;
+
+#define REGISTER_PHYSICAL 0
+#define REGISTER_VIRTUAL 1
+
+/* Initializes macros into provided vec of macros
+   Returns 1 if succeeded, non-zero if out of memory */
+static int inssel_macro_construct(vec_InsSelMacro* macros) {
+    InsSelMacro* macro__;
+    InsSelMacroCase* case__;
+    InsSelMacroReplace* replace__;
+    INSSEL_MACROS
+    return 1;
+error:
+    return 0;
+}
+
+#undef INSSEL_MACRO
+#undef REGISTER_PREFERENCE
+#undef INSSEL_MACRO_CASE
+#undef INSSEL_MACRO_REPLACE
+#undef REGISTER_PHYSICAL
+#undef REGISTER_VIRTUAL
+
+/* Destructs provided vec of macros */
+static void inssel_macro_destruct(vec_InsSelMacro* macros) {
+    for (int i = 0; i < vec_size(macros); ++i) {
+        InsSelMacro* macro = &vec_at(macros, i);
+        for (int j = 0; j < vec_size(&macro->cases); ++j) {
+            InsSelMacroCase* c = &vec_at(&macro->cases, j);
+            vec_destruct(&c->replace);
+        }
+        vec_destruct(&macro->cases);
+    }
+    vec_destruct(macros);
+}
+
+/* Finds and returns the lowest cost macro case for the provided
+   IL statement
+   Returns null if not found */
+static InsSelMacroCase* inssel_find(Parser* p, const Statement* stat) {
+    for (int i = 0; i < vec_size(&p->inssel_macro); ++i) {
+        InsSelMacro* ism = &vec_at(&p->inssel_macro, i);
+
+        /* Macro must be for IL instruction */
+        if (ism_il_ins(ism) != stat_ins(stat)) {
+            continue;
+        }
+
+        /* Pick the first case which matches (picks lowest cost) */
+        for (int j = 0; j < ism_case_count(ism); ++j) {
+            InsSelMacroCase* ismc = ism_case(ism, j);
+
+            /* Parse the constraint string */
+            const char* constraint = ismc_constraint(ismc);
+            int i_constraint = 0; /* Current location in constraint str */
+            for (int k = 0; k < stat_argc(stat); ++k) {
+                ASSERT(constraint[i_constraint] != '\0',
+                        "Constraint string ended too early");
+                int isconstant = constraint[i_constraint] == 'i';
+                ++i_constraint;
+
+                SymbolId arg_id = stat_arg(stat, k);
+                if (isconstant != symtab_isconstant(p, arg_id)) {
+                    goto no_match;
+                }
+            }
+            /* Match made */
+            return ismc;
+no_match:
+            ;
+        }
+
+        /* Only one macro is for an IL instructions, after the macro
+           is found, no need to keep searching */
+        break;
+    }
+    return NULL;
+}
+
+/* Computes pseudo-assembly for statements in blocks
+   Requires statements in blocks */
+static void cfg_compute_pasm(Parser* p) {
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = 0; j < block_stat_count(blk); ++j) {
+            Statement* stat = block_stat(blk, j);
+            InsSelMacroCase* ismc = inssel_find(p, stat);
+            ASSERTF(ismc != NULL,
+                    "Could not find macro for IL statement %s",
+                    ins_str(stat_ins(stat)));
+
+            /* Print out the replacement for now as a test */
+            LOG("Replacement: \n");
+            for (int k = 0; k < ismc_replace_count(ismc); ++k) {
+                InsSelMacroReplace* ismr = ismc_replace(ismc, k);
+                LOGF("Type: %d %d",
+                        ismr_op1_virtual(ismr),
+                        ismr_op2_virtual(ismr));
+                LOGF("| %d %d\n", ismr->op1.loc, ismr->op2.loc);
+            }
+        }
+    }
+}
+
+
 static INSTRUCTION_CG(add) {
     if (stat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
@@ -1791,6 +2132,7 @@ static void parse(Parser* p) {
     ig_compute_edge(p);
     ig_compute_spill_cost(p);
     ig_compute_color(p);
+    cfg_compute_pasm(p);
     cfg_output_asm(p);
 }
 
@@ -1874,7 +2216,7 @@ int main(int argc, char** argv) {
     int exitcode = 0;
 
     Parser p = {.rf = NULL, .of = NULL};
-    parser_construct(&p);
+    if (!parser_construct(&p)) goto exit;
 
     exitcode = handle_cli_arg(&p, argc, argv);
     if (exitcode != 0) {

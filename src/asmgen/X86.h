@@ -202,10 +202,37 @@ static const char* asm_size_directive(int bytes) {
     }
 }
 
-typedef enum {
-    asmins_add = 0,
-    asmins_mov
-    /* to be continued ... */
-} AsmIns;
+#define ASMINSS   \
+    ASMINS(add)   \
+    ASMINS(cmp)   \
+    ASMINS(idiv)  \
+    ASMINS(imul)  \
+    ASMINS(jmp)   \
+    ASMINS(jnz)   \
+    ASMINS(jz)    \
+    ASMINS(mov)   \
+    ASMINS(pop)   \
+    ASMINS(push)  \
+    ASMINS(sete)  \
+    ASMINS(setl)  \
+    ASMINS(setle) \
+    ASMINS(setne) \
+    ASMINS(setz)  \
+    ASMINS(sub)   \
+    ASMINS(test)  \
+    ASMINS(xor)
+
+#define ASMINS(name__) asmins_ ## name__,
+typedef enum {ASMINSS} AsmIns;
+#undef ASMINS
+
+/* Returns x86 instruction string for AsmIns */
+static const char* asmins_str(AsmIns asmins) {
+#define ASMINS(name__) #name__,
+    const char* strings[] = {ASMINSS};
+#undef ASMINS
+    ASSERT(asmins >= 0, "Invalid AsmIns");
+    return strings[asmins];
+}
 
 #endif

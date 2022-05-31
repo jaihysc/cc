@@ -197,10 +197,15 @@ struct Parser {
 
 /* Returns 1 if succeeded, 0 if error */
 static int parser_construct(Parser* p) {
+    p->ecode = ec_noerr;
+    p->rf = NULL;
+    p->of = NULL;
     vec_construct(&p->symbol);
     p->symtab_temp_num = 0;
+    p->func_name[0] = '\0';
     if (!inssel_macro_construct(&p->inssel_macro)) goto error;
     vec_construct(&p->cfg);
+    p->latest_blk = NULL;
     vec_construct(&p->ig);
     vec_construct(&p->ig_live);
 
@@ -223,6 +228,8 @@ static int parser_construct(Parser* p) {
     p->ig_palette[13] = loc_15;
     p->ig_palette_size = 14;
 
+    /* Instruction and argument does not need to be initialized
+       it is set when reading from file */
     return 1;
 
 error:
@@ -2166,7 +2173,7 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
 int main(int argc, char** argv) {
     int exitcode = 0;
 
-    Parser p = {.rf = NULL, .of = NULL};
+    Parser p;
     if (!parser_construct(&p)) goto exit;
 
     exitcode = handle_cli_arg(&p, argc, argv);

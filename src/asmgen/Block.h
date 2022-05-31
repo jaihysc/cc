@@ -8,7 +8,8 @@
 typedef struct {
     /* Labels at the entry of this block */
     vec_t(SymbolId) labels;
-    vec_t(Statement) stats;
+    vec_t(ILStatement) il_stats;
+    vec_t(PasmStatement) pasm_stats;
 
     /* Symbols used, defined by this bock */
     vec_t(SymbolId) use;
@@ -34,7 +35,8 @@ typedef struct {
 static void block_construct(Block* blk) {
     ASSERT(blk != NULL, "Block is null");
     vec_construct(&blk->labels);
-    vec_construct(&blk->stats);
+    vec_construct(&blk->il_stats);
+    vec_construct(&blk->pasm_stats);
     vec_construct(&blk->use);
     vec_construct(&blk->def);
     vec_construct(&blk->in);
@@ -50,7 +52,8 @@ static void block_destruct(Block* blk) {
     vec_destruct(&blk->in);
     vec_destruct(&blk->def);
     vec_destruct(&blk->use);
-    vec_destruct(&blk->stats);
+    vec_destruct(&blk->pasm_stats);
+    vec_destruct(&blk->il_stats);
     vec_destruct(&blk->labels);
 }
 
@@ -68,20 +71,6 @@ static SymbolId block_lab(Block* blk, int i) {
     return vec_at(&blk->labels, i);
 }
 
-/* Returns number of statements in block */
-static int block_stat_count(Block* blk) {
-    ASSERT(blk != NULL, "Block is null");
-    return vec_size(&blk->stats);
-}
-
-/* Returns statement at index in block */
-static Statement* block_stat(Block* blk, int i) {
-    ASSERT(blk != NULL, "Block is null");
-    ASSERT(i >= 0, "Index out of range");
-    ASSERT(i < block_stat_count(blk), "Index out of range");
-    return &vec_at(&blk->stats, i);
-}
-
 /* Adds a new label at the entry of this block
    Returns 1 if successful, 0 if not */
 static int block_add_label(Block* blk, SymbolId lab_id) {
@@ -89,11 +78,46 @@ static int block_add_label(Block* blk, SymbolId lab_id) {
     return vec_push_back(&blk->labels, lab_id);
 }
 
-/* Adds statement to block
-   Returns 1 if successful, 0 if not */
-static int block_add_stat(Block* blk, Statement stat) {
+/* Returns number of IL statements in block */
+static int block_ilstat_count(Block* blk) {
     ASSERT(blk != NULL, "Block is null");
-    return vec_push_back(&blk->stats, stat);
+    return vec_size(&blk->il_stats);
+}
+
+/* Returns IL statement at index in block */
+static ILStatement* block_ilstat(Block* blk, int i) {
+    ASSERT(blk != NULL, "Block is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < block_ilstat_count(blk), "Index out of range");
+    return &vec_at(&blk->il_stats, i);
+}
+
+/* Adds IL statement to block
+   Returns 1 if successful, 0 if not */
+static int block_add_ilstat(Block* blk, ILStatement stat) {
+    ASSERT(blk != NULL, "Block is null");
+    return vec_push_back(&blk->il_stats, stat);
+}
+
+/* Returns number of pseudo-assembly statements in block */
+static int block_pasmstat_count(Block* blk) {
+    ASSERT(blk != NULL, "Block is null");
+    return vec_size(&blk->pasm_stats);
+}
+
+/* Returns pseudo-assembly statement at index in block */
+static PasmStatement* block_pasmstat(Block* blk, int i) {
+    ASSERT(blk != NULL, "Block is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < block_pasmstat_count(blk), "Index out of range");
+    return &vec_at(&blk->pasm_stats, i);
+}
+
+/* Adds pseudo-assembly statement to block
+   Returns 1 if successful, 0 if not */
+static int block_add_pasmstat(Block* blk, PasmStatement stat) {
+    ASSERT(blk != NULL, "Block is null");
+    return vec_push_back(&blk->pasm_stats, stat);
 }
 
 /* Adds provided SymbolId to liveness 'def'ed symbols for this block

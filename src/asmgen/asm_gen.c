@@ -14,7 +14,8 @@
 #include "X86.h"
 #include "ErrorCode.h"
 #include "Symbol.h"
-#include "Statement.h"
+#include "ILStatement.h"
+#include "PasmStatement.h"
 #include "Block.h"
 #include "IGNode.h"
 
@@ -32,17 +33,13 @@ int g_debug_print_symtab = 0;
 typedef struct {
     AsmIns ins;
     /* See INSSEL_MACRO_REPLACE for usage of type */
-    int op1_type;
-    int op2_type;
+    int op_type[MAX_ASM_OP];
     union {
         Location loc;
         /* Index of the argument in IL instruction */
         int index;
-    } op1;
-    union {
-        Location loc;
-        int index;
-    } op2;
+    } op[MAX_ASM_OP];
+    int op_count;
 } InsSelMacroReplace;
 
 /* Returns AsmIns */
@@ -51,70 +48,51 @@ static AsmIns ismr_ins(const InsSelMacroReplace* ismr) {
     return ismr->ins;
 }
 
-/* Returns 1 if operand 1 is a new virtual register, 0 if not */
-static int ismr_op1_new(const InsSelMacroReplace* ismr) {
+/* Returns 1 if operand at index i is a new virtual register, 0 if not */
+static int ismr_op_new(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
-    return ismr->op1_type == 0;
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < ismr->op_count, "Index out of range");
+    return ismr->op_type[i] == 0;
 }
 
-/* Returns 1 if operand 1 is a virtual register, 0 if not */
-static int ismr_op1_virtual(const InsSelMacroReplace* ismr) {
+/* Returns 1 if operand at index i is a virtual register, 0 if not */
+static int ismr_op_virtual(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
-    return ismr->op1_type == 1;
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < ismr->op_count, "Index out of range");
+    return ismr->op_type[i] == 1;
 }
 
-/* Returns 1 if operand 1 is a physical register, 0 if not */
-static int ismr_op1_physical(const InsSelMacroReplace* ismr) {
+/* Returns 1 if operand at index i is a physical register, 0 if not */
+static int ismr_op_physical(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
-    return ismr->op1_type == 2;
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < ismr->op_count, "Index out of range");
+    return ismr->op_type[i] == 2;
 }
 
-/* Returns 1 if operand 2 is a new virtual register, 0 if not */
-static int ismr_op2_new(const InsSelMacroReplace* ismr) {
+/* Interprets operand at index i as a virtual register (Symbol) and returns the
+   index of the argument (SymbolId) in the IL instruction (to perform macro
+   replacement) */
+static int ismr_op_index(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
-    return ismr->op2_type == 0;
+    ASSERT(ismr_op_virtual(ismr, i), "Incorrect op1 type");
+    return ismr->op[i].index;
 }
 
-/* Returns 1 if operand 2 is a virtual register, 0 if not */
-static int ismr_op2_virtual(const InsSelMacroReplace* ismr) {
+/* Interprets operand at index i as a physical register (Location) and returns
+   it */
+static Location ismr_op_loc(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
-    return ismr->op2_type == 1;
+    ASSERT(ismr_op_physical(ismr, i), "Incorrect op1 type");
+    return ismr->op[i].loc;
 }
 
-/* Returns 1 if operand 2 is a physical register, 0 if not */
-static int ismr_op2_physical(const InsSelMacroReplace* ismr) {
+/* Returns number of operands this replacement specifies */
+static int ismr_op_count(const InsSelMacroReplace* ismr) {
     ASSERT(ismr != NULL, "Macro replace is null");
-    return ismr->op2_type == 2;
-}
-
-/* Interprets op1 as a virtual register (Symbol) and returns the index of the
-   argument (SymbolId) in the IL instruction (to perform macro replacement) */
-static int ismr_op1_index(const InsSelMacroReplace* ismr) {
-    ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op1_virtual(ismr), "Incorrect op1 type");
-    return ismr->op1.index;
-}
-
-/* Interprets op1 as a physical register (Location) and returns it */
-static Location ismr_op1_loc(const InsSelMacroReplace* ismr) {
-    ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op1_physical(ismr), "Incorrect op1 type");
-    return ismr->op1.loc;
-}
-
-/* Interprets op2 as a virtual register (Symbol) and returns the index of the
-   argument (SymbolId) in the IL instruction (to perform macro replacement) */
-static int ismr_op2_index(const InsSelMacroReplace* ismr) {
-    ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op2_virtual(ismr), "Incorrect op2 type");
-    return ismr->op2.index;
-}
-
-/* Interprets op2 as a physical register (Location) and returns it */
-static Location ismr_op2_loc(const InsSelMacroReplace* ismr) {
-    ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op2_physical(ismr), "Incorrect op2 type");
-    return ismr->op2.loc;
+    return ismr->op_count;
 }
 
 typedef struct {
@@ -450,13 +428,13 @@ static Block* cfg_find_labelled(Parser* p, SymbolId lab_id) {
 static void cfg_link_jump_dest(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
-        if (block_stat_count(blk) == 0) {
+        if (block_ilstat_count(blk) == 0) {
             continue;
         }
 
-        Statement* last_stat = block_stat(blk, block_stat_count(blk) - 1);
-        if (ins_isjump(stat_ins(last_stat))) {
-            SymbolId lab_id = stat_arg(last_stat, 0);
+        ILStatement* last_stat = block_ilstat(blk, block_ilstat_count(blk) - 1);
+        if (ins_isjump(ilstat_ins(last_stat))) {
+            SymbolId lab_id = ilstat_arg(last_stat, 0);
             Block* target_blk = cfg_find_labelled(p, lab_id);
             if (target_blk == NULL) {
                 Symbol* lab = symtab_get(p, lab_id);
@@ -470,9 +448,9 @@ static void cfg_link_jump_dest(Parser* p) {
 }
 
 /* Appends statement into the latest block */
-static void cfg_append_latest(Parser* p, Statement stat) {
+static void cfg_append_latest(Parser* p, ILStatement stat) {
     ASSERT(p->latest_blk, "No block exists");
-    if (!block_add_stat(p->latest_blk, stat)) {
+    if (!block_add_ilstat(p->latest_blk, stat)) {
         parser_set_error(p, ec_outofmemory);
     }
 }
@@ -481,13 +459,13 @@ static void cfg_append_latest(Parser* p, Statement stat) {
 static void cfg_compute_use_def(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
-        for (int j = block_stat_count(blk) - 1; j >= 0; --j) {
-            Statement* stat = block_stat(blk, j);
+        for (int j = block_ilstat_count(blk) - 1; j >= 0; --j) {
+            ILStatement* stat = block_ilstat(blk, j);
             SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
 
             /* Add 'def'ed symbol from statement to 'def' for block
                Remove occurrences of 'def'd symbol from 'use' for block */
-            int def_count = stat_def(stat, syms);
+            int def_count = ilstat_def(stat, syms);
             for (int k = 0; k < def_count; ++k) {
                 ASSERT(!symtab_isconstant(p, syms[k]),
                         "Assigned symbol should not be constant");
@@ -500,7 +478,7 @@ static void cfg_compute_use_def(Parser* p) {
 
             /* Add 'use'd symbols from statement to 'use' for block */
             ASSERT(MAX_ARGS >= 1, "Need at least 1 to hold def");
-            int use_count = stat_use(stat, syms);
+            int use_count = ilstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
                 if (symtab_isconstant(p, syms[k])) {
                     continue;
@@ -767,10 +745,10 @@ static void cfg_output_asm(Parser* p) {
             parser_output_asm(p, "%s:\n", symbol_name(symtab_get(p, lab_id)));
         }
 
-        /* Statements for block */
-        for (int j = 0; j < block_stat_count(blk); ++j) {
-            Statement* stat = block_stat(blk, j);
-            InsCgHandler cg_handler = il_get_cgi(stat_ins(stat));
+        /* ILStatements for block */
+        for (int j = 0; j < block_ilstat_count(blk); ++j) {
+            ILStatement* stat = block_ilstat(blk, j);
+            InsCgHandler cg_handler = il_get_cgi(ilstat_ins(stat));
             ASSERT(cg_handler != NULL, "Failed to find handler for codegen");
 
             cg_handler(p, stat);
@@ -890,19 +868,19 @@ static void ig_compute_edge(Parser* p) {
 
         /* Calculate live symbols at each statement and
            link them */
-        for (int j = block_stat_count(blk) - 1; j >= 0; --j) {
-            Statement* stat = block_stat(blk, j);
+        for (int j = block_ilstat_count(blk) - 1; j >= 0; --j) {
+            ILStatement* stat = block_ilstat(blk, j);
             SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
 
             ASSERT(MAX_ARGS >= 1, "Need at least 1 to hold def");
-            int def_count = stat_def(stat, syms);
+            int def_count = ilstat_def(stat, syms);
             for (int k = 0; k < def_count; ++k) {
                 ASSERT(!symtab_isconstant(p, syms[k]),
                         "Assigned symbol should not be constant");
                 ig_remove_live(p, syms[k]);
             }
 
-            int use_count = stat_use(stat, syms);
+            int use_count = ilstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
                 if (symtab_isconstant(p, syms[k])) {
                     continue;
@@ -926,11 +904,11 @@ static void ig_compute_spill_cost(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
 
-        for (int j = 0; j < block_stat_count(blk); ++j) {
-            Statement* stat = block_stat(blk, j);
+        for (int j = 0; j < block_ilstat_count(blk); ++j) {
+            ILStatement* stat = block_ilstat(blk, j);
             SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
 
-            int use_count = stat_use(stat, syms);
+            int use_count = ilstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
                 if (symtab_isconstant(p, syms[k])) {
                     continue;
@@ -1109,14 +1087,13 @@ static void debug_print_cfg(Parser* p) {
         }
         LOG("\n");
 
-
-
-        /* Print instruction and arguments */
-        for (int j = 0; j < block_stat_count(blk); ++j) {
-            Statement* stat = block_stat(blk, j);
-            LOGF("    %d %s", j, ins_str(stat_ins(stat)));
-            for (int k = 0; k < stat_argc(stat); ++k) {
-                Symbol* arg_sym = symtab_get(p, stat_arg(stat, k));
+        /* Print IL instruction and arguments */
+        LOG("    IL:\n");
+        for (int j = 0; j < block_ilstat_count(blk); ++j) {
+            ILStatement* stat = block_ilstat(blk, j);
+            LOGF("    %d %s", j, ins_str(ilstat_ins(stat)));
+            for (int k = 0; k < ilstat_argc(stat); ++k) {
+                Symbol* arg_sym = symtab_get(p, ilstat_arg(stat, k));
                 if (k == 0) {
                     LOG(" ");
                 }
@@ -1124,6 +1101,31 @@ static void debug_print_cfg(Parser* p) {
                     LOG(",");
                 }
                 LOGF("%s", symbol_name(arg_sym));
+            }
+            LOG("\n");
+        }
+
+        /* Print pseudo assembly */
+        LOG("    Pseudo-assembly:\n");
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
+            LOGF("    %d %s", j, asmins_str(pasmstat_ins(stat)));
+            for (int k = 0; k < pasmstat_op_count(stat); ++k) {
+                if (k == 0) {
+                    LOG(" ");
+                }
+                else {
+                    LOG(",");
+                }
+                if (pasmstat_is_loc(stat, k)) {
+                    Location loc = pasmstat_op_loc(stat, k);
+                    LOGF("%s", loc_str(loc));
+                }
+                else if (pasmstat_is_sym(stat, k)) {
+                    SymbolId id = pasmstat_op_sym(stat, k);
+                    Symbol* sym = symtab_get(p, id);
+                    LOGF("%%%s", symbol_name(sym));
+                }
             }
             LOG("\n");
         }
@@ -1196,7 +1198,7 @@ static void cg_validate_equal_size3(Parser* p,
 #define INSTRUCTION_PROC(name__) \
     void il_proc_ ## name__ (Parser* p, char** pparg, int arg_count)
 #define INSTRUCTION_CG(name__) \
-    void il_cg_ ## name__ (Parser* p, Statement* stat)
+    void il_cg_ ## name__ (Parser* p, ILStatement* stat)
 
 static INSTRUCTION_PROC(def) {
     if (arg_count != 1) {
@@ -1293,7 +1295,7 @@ static INSTRUCTION_PROC(lab) {
     }
     Block* blk = cfg_latest_block(p);
     /* Simplify cfg by making consecutive labels part of one block */
-    if (block_stat_count(blk) != 0) {
+    if (block_ilstat_count(blk) != 0) {
         blk = cfg_link_new_block(p);
     }
     block_add_label(blk, symtab_find(p, pparg[0]));
@@ -1315,12 +1317,12 @@ static INSTRUCTION_PROC(ret) {
 /* Finds and returns the lowest cost macro case for the provided
    IL statement
    Returns null if not found */
-static InsSelMacroCase* inssel_find(Parser* p, const Statement* stat) {
+static InsSelMacroCase* inssel_find(Parser* p, const ILStatement* stat) {
     for (int i = 0; i < vec_size(&p->inssel_macro); ++i) {
         InsSelMacro* ism = &vec_at(&p->inssel_macro, i);
 
         /* Macro must be for IL instruction */
-        if (ism_il_ins(ism) != stat_ins(stat)) {
+        if (ism_il_ins(ism) != ilstat_ins(stat)) {
             continue;
         }
 
@@ -1331,13 +1333,13 @@ static InsSelMacroCase* inssel_find(Parser* p, const Statement* stat) {
             /* Parse the constraint string */
             const char* constraint = ismc_constraint(ismc);
             int i_constraint = 0; /* Current location in constraint str */
-            for (int k = 0; k < stat_argc(stat); ++k) {
+            for (int k = 0; k < ilstat_argc(stat); ++k) {
                 ASSERT(constraint[i_constraint] != '\0',
                         "Constraint string ended too early");
                 int isconstant = constraint[i_constraint] == 'i';
                 ++i_constraint;
 
-                SymbolId arg_id = stat_arg(stat, k);
+                SymbolId arg_id = ilstat_arg(stat, k);
                 if (isconstant != symtab_isconstant(p, arg_id)) {
                     goto no_match;
                 }
@@ -1360,37 +1362,38 @@ no_match:
 static void cfg_compute_pasm(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
-        for (int j = 0; j < block_stat_count(blk); ++j) {
-            Statement* stat = block_stat(blk, j);
-            InsSelMacroCase* ismc = inssel_find(p, stat);
+        for (int j = 0; j < block_ilstat_count(blk); ++j) {
+            ILStatement* ilstat = block_ilstat(blk, j);
+            InsSelMacroCase* ismc = inssel_find(p, ilstat);
             ASSERTF(ismc != NULL,
                     "Could not find macro for IL statement %s",
-                    ins_str(stat_ins(stat)));
+                    ins_str(ilstat_ins(ilstat)));
 
-            /* Print out the replacement for now as a test */
+            /* Add pseudo-assembly to block */
             for (int k = 0; k < ismc_replace_count(ismc); ++k) {
                 InsSelMacroReplace* ismr = ismc_replace(ismc, k);
-                LOGF("%s ", asmins_str(ismr_ins(ismr)));
-                if (ismr_op1_new(ismr)) {
-                    LOG("%new");
-                }
-                else if (ismr_op1_virtual(ismr)) {
-                    LOGF("%%%d", ismr_op1_index(ismr));
-                }
-                else if (ismr_op1_physical(ismr)) {
-                    LOGF("%s", loc_str(ismr_op1_loc(ismr)));
+
+                PasmStatement pasmstat;
+                pasmstat_construct(&pasmstat,
+                        ismr_ins(ismr), ismr_op_count(ismr));
+                for (int l = 0; l < ismr_op_count(ismr); ++l) {
+                    if (ismr_op_new(ismr, l)) {
+                        /* TODO make new symbol */
+                        pasmstat_set_op_sym(&pasmstat, l, 0);
+                    }
+                    else if (ismr_op_virtual(ismr, l)) {
+                        int index = ismr_op_index(ismr, l);
+                        SymbolId id = ilstat_arg(ilstat, index);
+                        pasmstat_set_op_sym(&pasmstat, l, id);
+                    }
+                    else {
+                        ASSERT(ismr_op_physical(ismr, l),
+                                "Incorrect InsSelMacroReplace operand type");
+                        pasmstat_set_op_loc(&pasmstat, l, ismr_op_loc(ismr, l));
+                    }
                 }
 
-                if (ismr_op2_new(ismr)) {
-                    LOG(",%new");
-                }
-                else if (ismr_op2_virtual(ismr)) {
-                    LOGF(",%%%d", ismr_op2_index(ismr));
-                }
-                else if (ismr_op2_physical(ismr)) {
-                    LOGF(",%s", loc_str(ismr_op2_loc(ismr)));
-                }
-                LOG("\n");
+                block_add_pasmstat(blk, pasmstat);
             }
         }
     }
@@ -1398,13 +1401,13 @@ static void cfg_compute_pasm(Parser* p) {
 
 
 static INSTRUCTION_CG(add) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     Symbol* lval = symtab_get(p, lval_id);
@@ -1424,61 +1427,61 @@ static INSTRUCTION_CG(add) {
 }
 
 static INSTRUCTION_CG(ce) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
 
     cg_cmpsetcc(p, lval_id, op1_id, op2_id, "sete");
 }
 
 static INSTRUCTION_CG(cl) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
 
     cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setl");
 }
 
 static INSTRUCTION_CG(cle) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
 
     cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setle");
 }
 
 static INSTRUCTION_CG(cne) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
 
     cg_cmpsetcc(p, lval_id, op1_id, op2_id, "setne");
 }
 
 static INSTRUCTION_CG(div) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     Symbol* lval = symtab_get(p, lval_id);
@@ -1523,37 +1526,37 @@ static INSTRUCTION_CG(div) {
 }
 
 static INSTRUCTION_CG(jmp) {
-    SymbolId label_id = stat_arg(stat, 0);
+    SymbolId label_id = ilstat_arg(stat, 0);
     Symbol* label = symtab_get(p, label_id);
 
     parser_output_asm(p, "jmp %s\n", symbol_name(label));
 }
 
 static INSTRUCTION_CG(jnz) {
-    SymbolId label_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId label_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
 
     cg_testjmpcc(p, label_id, op1_id, "jnz");
 }
 
 static INSTRUCTION_CG(jz) {
-    SymbolId label_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
+    SymbolId label_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
 
     cg_testjmpcc(p, label_id, op1_id, "jz");
 }
 
 static INSTRUCTION_CG(mod) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
 
     /* Mod is division but returning different part of result
        Dividend in ax, Remainder in dx */
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     Symbol* lval = symtab_get(p, lval_id);
@@ -1596,26 +1599,26 @@ static INSTRUCTION_CG(mod) {
 }
 
 static INSTRUCTION_CG(mov) {
-    if (stat_argc(stat) != 2) {
+    if (ilstat_argc(stat) != 2) {
         parser_set_error(p, ec_badargs);
         return;
     }
 
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId rval_id = stat_arg(stat, 1);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId rval_id = ilstat_arg(stat, 1);
     cg_validate_equal_size2(p, lval_id, rval_id);
 
     cg_movss(p, rval_id, lval_id);
 }
 
 static INSTRUCTION_CG(mul) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     Symbol* lval = symtab_get(p, lval_id);
@@ -1635,13 +1638,13 @@ static INSTRUCTION_CG(mul) {
 }
 
 static INSTRUCTION_CG(not) {
-    if (stat_argc(stat) != 2) {
+    if (ilstat_argc(stat) != 2) {
         parser_set_error(p, ec_badargs);
         return;
     }
 
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId rval_id = stat_arg(stat, 1);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId rval_id = ilstat_arg(stat, 1);
     cg_validate_equal_size2(p, lval_id, rval_id);
 
     Symbol* lval = symtab_get(p, lval_id);
@@ -1667,7 +1670,7 @@ static INSTRUCTION_CG(not) {
 }
 
 static INSTRUCTION_CG(ret) {
-    SymbolId sym_id = stat_arg(stat, 0);
+    SymbolId sym_id = ilstat_arg(stat, 0);
     Symbol* sym = symtab_get(p, sym_id);
     if (sym == NULL) {
         parser_set_error(p, ec_unknownsym);
@@ -1688,13 +1691,13 @@ exit:
 }
 
 static INSTRUCTION_CG(sub) {
-    if (stat_argc(stat) != 3) {
+    if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
         return;
     }
-    SymbolId lval_id = stat_arg(stat, 0);
-    SymbolId op1_id = stat_arg(stat, 1);
-    SymbolId op2_id = stat_arg(stat, 2);
+    SymbolId lval_id = ilstat_arg(stat, 0);
+    SymbolId op1_id = ilstat_arg(stat, 1);
+    SymbolId op2_id = ilstat_arg(stat, 2);
     cg_validate_equal_size3(p, lval_id, op1_id, op2_id);
 
     Symbol* lval = symtab_get(p, lval_id);
@@ -2014,7 +2017,7 @@ static void parse(Parser* p) {
         }
 
         if (ins_incfg(ins_from_str(p->ins))) {
-            Statement stat =
+            ILStatement stat =
                 {.ins = ins_from_str(p->ins), .argc = p->arg_count};
             for (int i = 0; i < p->arg_count; ++i) {
                 SymbolId sym_id = symtab_find(p, p->arg_table[i]);

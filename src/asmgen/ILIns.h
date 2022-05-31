@@ -50,14 +50,14 @@ const char* il_string[] = {INSTRUCTIONS};
 
 /* Forward declarations */
 typedef void(*InsProcHandler) (Parser*, char**, int);
-typedef void(*InsCgHandler) (Parser*, Statement*);
+typedef void(*InsCgHandler) (Parser*, ILStatement*);
 #define INSTRUCTION_P(name__) \
     static void il_proc_ ## name__ (Parser*, char**, int);
 #define INSTRUCTION_C(name__) \
-    static void il_cg_ ## name__ (Parser*, Statement*);
+    static void il_cg_ ## name__ (Parser*, ILStatement*);
 #define INSTRUCTION_PC(name__)                             \
     static void il_proc_ ## name__ (Parser*, char**, int); \
-    static void il_cg_ ## name__ (Parser*, Statement*);
+    static void il_cg_ ## name__ (Parser*, ILStatement*);
 INSTRUCTIONS
 #undef INSTRUCTION_P
 #undef INSTRUCTION_C

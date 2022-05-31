@@ -1,37 +1,37 @@
-/* Assembly generator, struct Statement */
-#ifndef ASMGEN_STATEMENT_H
-#define ASMGEN_STATEMENT_H
+/* Assembly generator, struct ILStatement */
+#ifndef ASMGEN_ILSTATEMENT_H
+#define ASMGEN_ILSTATEMENT_H
 
-struct Statement {
+struct ILStatement {
     ILIns ins;
     SymbolId arg[MAX_ARGS];
     int argc;
 };
 
-/* Returns ILIns for statement */
-static ILIns stat_ins(const Statement* stat) {
-    ASSERT(stat != NULL, "Statement is null");
+/* Returns ILIns for IL statement */
+static ILIns ilstat_ins(const ILStatement* stat) {
+    ASSERT(stat != NULL, "ILStatement is null");
     return stat->ins;
 }
 
-/* Returns arg at index i for statement */
-static SymbolId stat_arg(const Statement* stat, int i) {
-    ASSERT(stat != NULL, "Statement is null");
+/* Returns arg at index i for IL statement */
+static SymbolId ilstat_arg(const ILStatement* stat, int i) {
+    ASSERT(stat != NULL, "ILStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->argc, "Index out of range");
     return stat->arg[i];
 }
 
-/* Returns the number of arguments in statement */
-static int stat_argc(const Statement* stat) {
-    ASSERT(stat != NULL, "Statement is null");
+/* Returns the number of arguments in IL statement */
+static int ilstat_argc(const ILStatement* stat) {
+    ASSERT(stat != NULL, "ILStatement is null");
     return stat->argc;
 }
 
-/* Returns the number of symbols the instruction of this statement
+/* Returns the number of symbols the instruction of this IL statement
    uses and puts the used symbols into provided symbol buffer.
    At most MAX_ARGS */
-static int stat_use(const Statement* stat, SymbolId* out_sym_id) {
+static int ilstat_use(const ILStatement* stat, SymbolId* out_sym_id) {
     switch (stat->ins) {
         /* 2 use, argument index 1 and 2 */
         case il_add:
@@ -75,10 +75,10 @@ static int stat_use(const Statement* stat, SymbolId* out_sym_id) {
     }
 }
 
-/* Returns the number of symbols the instruction of this statement
+/* Returns the number of symbols the instruction of this IL statement
    defines (sets) and puts the defined symbols into provided symbol buffer.
    At most 1 */
-static int stat_def(const Statement* stat, SymbolId* out_sym_id) {
+static int ilstat_def(const ILStatement* stat, SymbolId* out_sym_id) {
     switch (stat->ins) {
         case il_add:
         case il_ce:

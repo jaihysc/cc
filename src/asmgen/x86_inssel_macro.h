@@ -44,7 +44,6 @@
                   the same newly created virtual register
               1 = Virtual register
               2 = Physical register
-              8 = None (Operand is not used)
               Use the provided macros REGISTER_PHYSICAL and REGISTER_VIRTUAL
               to declare the types
 
@@ -781,15 +780,16 @@
     replace__ = &vec_back(&case__->replace);                                 \
     replace__->ins = asmins_ ## asmins__;                                    \
     /* Initialize the other operand type to no operand */                    \
-    replace__->op1_type = op1_t__;                                           \
-    replace__->op2_type = 8;                                                 \
-    if (op1_t__ <= 1) replace__->op1.index = op1__;                          \
-    if (op1_t__ == 2) replace__->op1.loc = op1__;
+    replace__->op_type[0] = op1_t__;                                         \
+    replace__->op_count = 1;                                                 \
+    if (op1_t__ <= 1) replace__->op[0].index = op1__;                        \
+    if (op1_t__ == 2) replace__->op[0].loc = op1__;
 #define INSSEL_MACRO_REPLACE2(asmins__, op1_t__, op1__, op2_t__, op2__)      \
     INSSEL_MACRO_REPLACE1(asmins__, op1_t__, op1__)                          \
-    replace__->op2_type = op2_t__;                                           \
-    if (op2_t__ <= 1) replace__->op2.index = op2__;                          \
-    if (op2_t__ == 2) replace__->op2.loc = op2__;
+    replace__->op_type[1] = op2_t__;                                         \
+    replace__->op_count = 2;                                                 \
+    if (op2_t__ <= 1) replace__->op[1].index = op2__;                        \
+    if (op2_t__ == 2) replace__->op[1].loc = op2__;
 
 #define REGISTER_NEW 0
 #define REGISTER_VIRTUAL 1

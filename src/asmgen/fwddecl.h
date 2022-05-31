@@ -3,6 +3,7 @@
 #define ASMGEN_FWDDECL_H
 
 typedef struct Parser Parser;
-typedef struct Statement Statement;
+typedef struct ILStatement ILStatement;
+typedef struct PasmStatement PasmStatement;
 
 #endif

@@ -202,6 +202,7 @@ static const char* asm_size_directive(int bytes) {
     }
 }
 
+#define MAX_ASM_OP 2 /* Maximum operands for assembly instruction */
 #define ASMINSS   \
     ASMINS(add)   \
     ASMINS(cmp)   \

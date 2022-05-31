@@ -90,4 +90,104 @@ static int pasmstat_op_count(const PasmStatement* stat) {
     return stat->op_count;
 }
 
+/* Sets out_sym_id with Symbols which are used by the provided pseudo-assembly
+   statement
+   Returns the number of symbols
+   At most MAX_ASM_OP */
+static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
+    switch (stat->ins) {
+        /* Uses 1, def 1 */
+        case asmins_add:
+        case asmins_imul:
+        case asmins_mov:
+        case asmins_sub:
+        case asmins_xor:
+            if (pasmstat_is_sym(stat, 1)) {
+                out_sym_id[0] = pasmstat_op_sym(stat, 1);
+                return 1;
+            }
+            return 0;
+
+        /* Uses 1 */
+        case asmins_idiv:
+        case asmins_push:
+            if (pasmstat_is_sym(stat, 0)) {
+                out_sym_id[0] = pasmstat_op_sym(stat, 0);
+                return 1;
+            }
+            return 0;
+
+        /* Uses 2 */
+        case asmins_cmp:
+        case asmins_test:
+            {
+                int used = 0;
+                for (int i = 0; i < 2; ++i) {
+                    if (pasmstat_is_sym(stat, i)) {
+                        out_sym_id[used] = pasmstat_op_sym(stat, i);
+                        ++used;
+                    }
+                }
+                return used;
+            }
+
+        /* Uses none */
+        case asmins_jmp:
+        case asmins_jnz:
+        case asmins_jz:
+        case asmins_pop:
+        case asmins_sete:
+        case asmins_setl:
+        case asmins_setle:
+        case asmins_setne:
+        case asmins_setz:
+            return 0;
+
+        default:
+            ASSERT(0, "Unimplemented");
+            return 0;
+    }
+}
+
+/* Sets out_sym_id with Symbols which are defined by the provided
+   pseudo-assembly statement
+   Returns the number of symbols
+   At most 1 */
+static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
+    switch (stat->ins) {
+        /* Uses 1, def 1 */
+        case asmins_add:
+        case asmins_imul:
+        case asmins_mov:
+        case asmins_sub:
+        case asmins_xor:
+        /* Def 1 */
+        case asmins_pop:
+        case asmins_sete:
+        case asmins_setl:
+        case asmins_setle:
+        case asmins_setne:
+        case asmins_setz:
+            if (pasmstat_is_sym(stat, 0)) {
+                out_sym_id[0] = pasmstat_op_sym(stat, 0);
+                return 1;
+            }
+            return 0;
+
+        /* Def none */
+        case asmins_cmp:
+        case asmins_idiv:
+        case asmins_jmp:
+        case asmins_jnz:
+        case asmins_jz:
+        case asmins_push:
+        case asmins_test:
+            return 0;
+
+        default:
+            ASSERT(0, "Unimplemented");
+            return 0;
+    }
+}
+
 #endif

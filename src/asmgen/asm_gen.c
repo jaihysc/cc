@@ -479,13 +479,13 @@ static void cfg_append_latest(Parser* p, ILStatement stat) {
 static void cfg_compute_use_def(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
-        for (int j = block_ilstat_count(blk) - 1; j >= 0; --j) {
-            ILStatement* stat = block_ilstat(blk, j);
-            SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
+        for (int j = block_pasmstat_count(blk) - 1; j >= 0; --j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
+            SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
 
             /* Add 'def'ed symbol from statement to 'def' for block
                Remove occurrences of 'def'd symbol from 'use' for block */
-            int def_count = ilstat_def(stat, syms);
+            int def_count = pasmstat_def(stat, syms);
             for (int k = 0; k < def_count; ++k) {
                 ASSERT(!symtab_isconstant(p, syms[k]),
                         "Assigned symbol should not be constant");
@@ -497,8 +497,8 @@ static void cfg_compute_use_def(Parser* p) {
             }
 
             /* Add 'use'd symbols from statement to 'use' for block */
-            ASSERT(MAX_ARGS >= 1, "Need at least 1 to hold def");
-            int use_count = ilstat_use(stat, syms);
+            ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
+            int use_count = pasmstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
                 if (symtab_isconstant(p, syms[k])) {
                     continue;
@@ -580,7 +580,8 @@ error:
 }
 
 /* Computes liveness (live-variable analysis) of blocks in the cfg
-   Results saved are Block use/def and in/out */
+   Results saved are Block use/def and in/out
+   Requires pseudo-assembly statements in blocks */
 static void cfg_compute_liveness(Parser* p) {
     /* Avoid segfault trying to traverse nothing for IN[B]/OUT[B] */
     if (vec_size(&p->cfg) == 0) {
@@ -738,7 +739,8 @@ static void cfg_compute_loop_depth(Parser* p) {
     cfg_compute_loop_depth_traverse(p, status, path, 0, base, base);
 }
 
-/* Traverses the blocks in the control flow graph and emits assembly */
+/* Traverses the blocks in the control flow graph and emits assembly
+   Requires register allocation decision */
 static void cfg_output_asm(Parser* p) {
     /* Function labels always with prefix f@ */
     parser_output_asm(p,
@@ -852,7 +854,9 @@ static int ig_link_live(Parser* p, SymbolId sym_id) {
 /* Creates unlinked interference graph nodes for all the symbols
    in the symbol table
    The index of the symbol in the symbol table corresponds to the
-   index of the node in the interference graph */
+   index of the node in the interference graph
+   Requires that the symbol table contents be finalized
+   (will not be changed in the future) */
 static void ig_create_nodes(Parser* p) {
     ASSERT(vec_size(&p->ig) == 0, "Interference graph nodes already exist");
 
@@ -888,19 +892,19 @@ static void ig_compute_edge(Parser* p) {
 
         /* Calculate live symbols at each statement and
            link them */
-        for (int j = block_ilstat_count(blk) - 1; j >= 0; --j) {
-            ILStatement* stat = block_ilstat(blk, j);
-            SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
+        for (int j = block_pasmstat_count(blk) - 1; j >= 0; --j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
+            SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
 
-            ASSERT(MAX_ARGS >= 1, "Need at least 1 to hold def");
-            int def_count = ilstat_def(stat, syms);
+            ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
+            int def_count = pasmstat_def(stat, syms);
             for (int k = 0; k < def_count; ++k) {
                 ASSERT(!symtab_isconstant(p, syms[k]),
                         "Assigned symbol should not be constant");
                 ig_remove_live(p, syms[k]);
             }
 
-            int use_count = ilstat_use(stat, syms);
+            int use_count = pasmstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
                 if (symtab_isconstant(p, syms[k])) {
                     continue;
@@ -918,17 +922,18 @@ error:
 }
 
 /* Computes the spill cost for all nodes in the interference graph
+   Requires statements in blocks
    Requires interference graph nodes to have been created
    Requires loop nesting depth information for blocks to be computed */
 static void ig_compute_spill_cost(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
 
-        for (int j = 0; j < block_ilstat_count(blk); ++j) {
-            ILStatement* stat = block_ilstat(blk, j);
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
             SymbolId syms[MAX_ARGS]; /* Buffer to hold symbols */
 
-            int use_count = ilstat_use(stat, syms);
+            int use_count = pasmstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
                 if (symtab_isconstant(p, syms[k])) {
                     continue;
@@ -2084,13 +2089,19 @@ static void parse(Parser* p) {
 
     /* Process the last (most recent) function */
     cfg_link_jump_dest(p);
+
+    /* Instruction selection */
+    cfg_compute_pasm(p);
+
+    /* Register allocation */
     cfg_compute_liveness(p);
     cfg_compute_loop_depth(p);
     ig_create_nodes(p);
     ig_compute_edge(p);
     ig_compute_spill_cost(p);
     ig_compute_color(p);
-    cfg_compute_pasm(p);
+
+    /* Code generation */
     cfg_output_asm(p);
 }
 

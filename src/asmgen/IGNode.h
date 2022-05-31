@@ -36,7 +36,7 @@ static int ignode_link(IGNode* node, IGNode* other) {
     ASSERT(node != NULL, "Node is null");
     ASSERT(other != NULL, "Other node is null");
     ASSERT(node != other, "Cannot link node to self");
-    int offset = other - node;
+    int offset = (int)(other - node);
     for (int i = 0; i < vec_size(&node->neighbor); ++i) {
         if (vec_at(&node->neighbor, i) == offset) {
             return 1;

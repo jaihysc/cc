@@ -12,8 +12,8 @@ if [ ! -d "out" ]; then
 fi
 
 cc_flags="-Wall -Wextra -Wshadow -pedantic -Wmissing-prototypes -Wpointer-arith -Wcast-qual -Wswitch-default\
-    -Wswitch -Wbad-function-cast -Wlogical-op -Wredundant-decls -Wsign-conversion -Wdouble-promotion -Wmisleading-indentation\
-    -Wduplicated-cond -Wduplicated-branches\
+    -Wswitch -Wbad-function-cast -Wlogical-op -Wredundant-decls -Wconversion -Wsign-conversion -Wdouble-promotion -Wmisleading-indentation\
+    -Wduplicated-cond -Wduplicated-branches -Wunreachable-code -Wuninitialized -Wmaybe-uninitialized -Wundef\
     -Wno-unused-parameter"
 
 cc_debug_flags="-g"

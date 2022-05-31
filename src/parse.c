@@ -473,7 +473,7 @@ static void tree_detach_node_child(Parser* p, ParseNode* node) {
         node->child[i] = NULL;
     }
     /* Free memory of children */
-    int i_node = node - p->parse_node_buf; /* Index current node */
+    int i_node = (int)(node - p->parse_node_buf); /* Index current node */
     p->i_parse_node_buf = i_node + 1;
 }
 
@@ -1049,7 +1049,7 @@ static int tok_isidentifier(const char* str) {
    Does not advance read position */
 static char read_char(Parser* p) {
     /* Perhaps this can be a buffer in the future to reduce system calls */
-    char c = getc(p->rf);
+    char c = (char)getc(p->rf);
 
     /* Handle line marker from preprocessor*/
     if (p->char_num == 1) {
@@ -1058,15 +1058,15 @@ static char read_char(Parser* p) {
 
             /* Line number */
             int line_num = 0;
-            while ((c = getc(p->rf)) != ' ') {
+            while ((c = (char)getc(p->rf)) != ' ') {
                 line_num *= 10;
                 line_num += c - '0';
             }
             p->line_num = line_num;
 
             /* Consume linemarker */
-            while ((c = getc(p->rf)) != '\n');
-            c = getc(p->rf); /* First char of next line */
+            while ((c = (char)getc(p->rf)) != '\n');
+            c = (char)getc(p->rf); /* First char of next line */
         }
     }
 
@@ -1079,7 +1079,7 @@ static char read_char(Parser* p) {
    Does not advance read position */
 static char read_char_next(Parser* p) {
     getc(p->rf);
-    char c = getc(p->rf);
+    char c = (char)getc(p->rf);
     fseek(p->rf, -2, SEEK_CUR);
     return c;
 }
@@ -1088,7 +1088,7 @@ static char read_char_next(Parser* p) {
 /* Advances read position to next char */
 static void consume_char(Parser* p) {
     /* Move the file position forwards */
-    char c = getc(p->rf);
+    char c = (char)getc(p->rf);
 
     if (c == '\n') {
         ++p->line_num;

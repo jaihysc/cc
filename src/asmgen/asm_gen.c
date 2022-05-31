@@ -526,7 +526,7 @@ static void cfg_compute_use_def(Parser* p) {
    blk: The current block */
 static void cfg_compute_liveness_traverse(
         Parser* p, char* status, Block* base, Block* blk) {
-    int index = blk - base;
+    int index = (int)(blk - base);
     ASSERT(status[index] == 0, "Block should be untraversed");
     status[index] = 1; /* Block traversed */
 
@@ -668,7 +668,7 @@ static void cfg_compute_liveness(Parser* p) {
 static void cfg_compute_loop_depth_traverse(
         Parser* p, char* status, Block** path, int path_len,
         Block* base, Block* blk) {
-    int index = blk - base;
+    int index = (int)(blk - base);
 
     /* Check if block already traversed,
        if so increment the nesting depth along the path
@@ -694,7 +694,7 @@ static void cfg_compute_loop_depth_traverse(
         const int depth = block_depth(blk); /* Fully traversed node */
         for (int i = path_len - 1; i >= 0; --i) {
             Block* path_blk = path[i]; /* ith block in path */
-            int path_blk_index = path_blk - base;
+            int path_blk_index = (int)(path_blk - base);
 
             if (status[path_blk_index] == 1) {
                 break;
@@ -781,7 +781,7 @@ static void cfg_output_asm(Parser* p) {
 
 /* Calculates the SymbolId for the given IGNode */
 static SymbolId ig_ignode_symbolid(Parser* p, IGNode* node) {
-    return node - &vec_at(&p->ig, 0);
+    return (SymbolId)(node - &vec_at(&p->ig, 0));
 }
 
 /* Clears nodes in interference graph */
@@ -1931,7 +1931,7 @@ static int read_instruction(Parser* p) {
     p->ins_len = 0;
     char c;
     while(1) {
-        c = getc(p->rf);
+        c = (char)getc(p->rf);
         if (c == EOF) {
             p->ins[p->ins_len] = '\0';
             return 0;
@@ -1970,7 +1970,7 @@ static int read_instruction(Parser* p) {
 
     int i = 0;
     while(1) {
-        c = getc(p->rf);
+        c = (char)getc(p->rf);
         if (c == EOF) {
             p->arg[i] = '\0';
             return 0;

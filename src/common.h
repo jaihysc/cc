@@ -179,11 +179,11 @@ static inline void itostr(int i, char* buf) {
     }
     /* Take off digit at a time from end of number (right) */
     buf += len - 1;
-    *buf = i % 10 + '0';
+    *buf = (char)(i % 10) + '0';
     i /= 10;
     while (i != 0) {
         --buf;
-        *buf = i % 10 + '0';
+        *buf = (char)(i % 10) + '0';
         i /= 10;
     }
 }

@@ -236,7 +236,7 @@ static void block_link(Block* blk, Block* next) {
     ASSERT(blk != next, "Cannot link block to self");
     for (int i = 0; i < MAX_BLOCK_LINK; ++i ) {
         if (blk->next[i] == 0) {
-            blk->next[i] = next - blk;
+            blk->next[i] = (int)(next - blk);
             return;
         }
     }

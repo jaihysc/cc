@@ -13,17 +13,17 @@
 #define ERRMSG(msg__) printf("\033[1;31m%s\033[0m", msg__);
 #define ERRMSGF(fmt__, ...) printf("\033[1;31m" fmt__ "\033[0m", __VA_ARGS__);
 
-#define ASSERT(expr__, msg__)              \
-    if (!(expr__)) {                       \
-        ERRMSG("ICE: " msg__);             \
-        ERRMSGF("  Line: %d\n", __LINE__); \
-        exit(1);                           \
+#define ASSERT(expr__, msg__)                           \
+    if (!(expr__)) {                                    \
+        ERRMSG("ICE: " msg__);                          \
+        ERRMSGF("  Line: %d %s\n", __LINE__, __FILE__); \
+        exit(1);                                        \
     } do {} while (0)
-#define ASSERTF(expr__, fmt__, ...)          \
-    if (!(expr__)) {                         \
-        ERRMSGF("ICE: " fmt__, __VA_ARGS__); \
-        ERRMSGF("  Line: %d\n", __LINE__);   \
-        exit(1);                             \
+#define ASSERTF(expr__, fmt__, ...)                     \
+    if (!(expr__)) {                                    \
+        ERRMSGF("ICE: " fmt__, __VA_ARGS__);            \
+        ERRMSGF("  Line: %d %s\n", __LINE__, __FILE__); \
+        exit(1);                                        \
     } do {} while (0)
 
 #define TOKEN_COLOR "\033[1;97m" /* Color for tokens when printed */

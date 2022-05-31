@@ -38,12 +38,13 @@
                i.e., mov instead of asmins_mov
      rop_t__: Type of the operands for performing the replacement,
               in order from first operand to last
-              0 = New virtual register - Creates a virtual register. The
-                  number for operand refers to the virtual register.
-                  e.g., 2 operands with this type and operand 0, refers to
-                  the same newly created virtual register
-              1 = Virtual register
-              2 = Physical register
+              0 = New virtual register - operand corresponds to index in
+                  IL argument for SymbolId. The new register will have the
+                  same type as the symbol at the SymbolId
+                  at the SymbolId
+              1 = Virtual register - operand corresponds to index in IL
+                  argument for SymbolId
+              2 = Physical register - operand corresponds to an enum Location
               Use the provided macros REGISTER_PHYSICAL and REGISTER_VIRTUAL
               to declare the types
 

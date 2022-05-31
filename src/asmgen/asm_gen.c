@@ -77,7 +77,8 @@ static int ismr_op_physical(const InsSelMacroReplace* ismr, int i) {
    replacement) */
 static int ismr_op_index(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op_virtual(ismr, i), "Incorrect op1 type");
+    ASSERT(ismr_op_new(ismr, i) || ismr_op_virtual(ismr, i),
+            "Incorrect op1 type");
     return ismr->op[i].index;
 }
 
@@ -164,6 +165,9 @@ struct Parser {
 
     /* First symbol element is earliest in occurrence */
     vec_t(Symbol) symbol;
+    /* Used to create unique compiler generated symbols */
+    int symtab_temp_num; /* Temporaries */
+
     char func_name[MAX_ARG_LEN]; /* Name of current function */
 
     /* Instruction selection */
@@ -194,6 +198,7 @@ struct Parser {
 /* Returns 1 if succeeded, 0 if error */
 static int parser_construct(Parser* p) {
     vec_construct(&p->symbol);
+    p->symtab_temp_num = 0;
     if (!inssel_macro_construct(&p->inssel_macro)) goto error;
     vec_construct(&p->cfg);
     vec_construct(&p->ig);
@@ -360,6 +365,14 @@ static SymbolId symtab_add(Parser* p, Type type, const char* name) {
     strcopy(name, sym->name);
     sym->loc = loc_none;
     return vec_size(&p->symbol) - 1;
+}
+
+/* Creates a new compiler generated Symbol of given type */
+static SymbolId symtab_add_temporary(Parser* p, Type type) {
+    /* Double t so know this is from asm_gen */
+    AAPPENDI(name, "__tt", p->symtab_temp_num);
+    ++p->symtab_temp_num;
+    return symtab_add(p, type, name);
 }
 
 /* Returns the size of the stack for the current function */
@@ -1369,6 +1382,18 @@ static void cfg_compute_pasm(Parser* p) {
                     "Could not find macro for IL statement %s",
                     ins_str(ilstat_ins(ilstat)));
 
+            /* Holds newly created symbols for this macro
+
+               This is setup such that in the future multiple
+               registers can be created. The index can be stored
+               as part of the operand, i.e., half of the operand
+               is the SymbolId, other half is the index */
+            SymbolId created_id[1];
+            char created[1]; /* 0 if not created, 1 if created */
+            for (int k = 0; k < 1; ++k) {
+                created[k] = 0;
+            }
+
             /* Add pseudo-assembly to block */
             for (int k = 0; k < ismc_replace_count(ismc); ++k) {
                 InsSelMacroReplace* ismr = ismc_replace(ismc, k);
@@ -1378,8 +1403,23 @@ static void cfg_compute_pasm(Parser* p) {
                         ismr_ins(ismr), ismr_op_count(ismr));
                 for (int l = 0; l < ismr_op_count(ismr); ++l) {
                     if (ismr_op_new(ismr, l)) {
-                        /* TODO make new symbol */
-                        pasmstat_set_op_sym(&pasmstat, l, 0);
+                        /* Use the newly created symbol if it exists
+                           otherwise create it */
+                        SymbolId id;
+                        if (created[0] == 0) {
+                            /* Make a new Symbol with the same type */
+                            int index = ismr_op_index(ismr, l);
+                            SymbolId arg_id = ilstat_arg(ilstat, index);
+                            Symbol* arg_sym = symtab_get(p, arg_id);
+
+                            id = symtab_add_temporary(p, symbol_type(arg_sym));
+                            created_id[0] = id;
+                            created[0] = 1;
+                        }
+                        else {
+                            id = created_id[0];
+                        }
+                        pasmstat_set_op_sym(&pasmstat, l, id);
                     }
                     else if (ismr_op_virtual(ismr, l)) {
                         int index = ismr_op_index(ismr, l);

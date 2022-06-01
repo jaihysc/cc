@@ -52,6 +52,9 @@ static void block_destruct(Block* blk) {
     vec_destruct(&blk->in);
     vec_destruct(&blk->def);
     vec_destruct(&blk->use);
+    for (int i = 0; i < vec_size(&blk->pasm_stats); ++i) {
+        pasmstat_destruct(&vec_at(&blk->pasm_stats, i));
+    }
     vec_destruct(&blk->pasm_stats);
     vec_destruct(&blk->il_stats);
     vec_destruct(&blk->labels);

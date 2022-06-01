@@ -176,13 +176,13 @@ struct Parser {
     /* Control flow graph */
     vec_t(Block) cfg;
     Block* latest_blk;
+    /* Buffer of live symbols used when calculating per statement liveness */
+    vec_t(SymbolId) cfg_live_buf;
 
     /* Interference graph
        Index of symbol in symbol table corresponds to index of its node
        in the interference graph */
     vec_t(IGNode) ig;
-    /* Buffer of live symbols used when calculating interference graph */
-    vec_t(SymbolId) ig_live;
     /* The registers which can be assigned (colored) to nodes */
     Location ig_palette[X86_REGISTER_COUNT];
     int ig_palette_size;
@@ -205,9 +205,9 @@ static int parser_construct(Parser* p) {
     p->func_name[0] = '\0';
     if (!inssel_macro_construct(&p->inssel_macro)) goto error;
     vec_construct(&p->cfg);
+    vec_construct(&p->cfg_live_buf);
     p->latest_blk = NULL;
     vec_construct(&p->ig);
-    vec_construct(&p->ig_live);
 
     p->ig_palette[0] = loc_a;
     p->ig_palette[1] = loc_b;
@@ -238,11 +238,11 @@ error:
 }
 
 static void parser_destruct(Parser* p) {
-    vec_destruct(&p->ig_live);
     for (int i = 0; i < vec_size(&p->ig); ++i) {
         ignode_destruct(&vec_at(&p->ig, i));
     }
     vec_destruct(&p->ig);
+    vec_destruct(&p->cfg_live_buf);
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         block_destruct(&vec_at(&p->cfg, i));
     }
@@ -579,6 +579,34 @@ error:
     parser_set_error(p, ec_outofmemory);
 }
 
+/* Adds symbol to buffer of live symbols
+   Does nothing if already exists, returns 1
+   Returns 1 if successful, 0 otherwise */
+static int cfg_live_buf_add(Parser* p, SymbolId sym_id) {
+    for (int i = 0; i < vec_size(&p->cfg_live_buf); ++i) {
+        if (vec_at(&p->cfg_live_buf, i) == sym_id) {
+            return 1;
+        }
+    }
+    return vec_push_back(&p->cfg_live_buf, sym_id);
+}
+
+/* Removes symbol from buffer of live symbols,
+   does nothing if symbol does not exist */
+static void cfg_live_buf_remove(Parser* p, SymbolId sym_id) {
+    for (int i = 0; i < vec_size(&p->cfg_live_buf); ++i) {
+        if (vec_at(&p->cfg_live_buf, i) == sym_id) {
+            vec_splice(&p->cfg_live_buf, i, 1);
+            return;
+        }
+    }
+}
+
+/* Remove all live symbols from buffer */
+static void cfg_live_buf_clear(Parser* p) {
+    vec_clear(&p->cfg_live_buf);
+}
+
 /* Computes liveness (live-variable analysis) of blocks in the cfg
    Results saved are Block use/def and in/out
    Requires pseudo-assembly statements in blocks */
@@ -590,6 +618,9 @@ static void cfg_compute_liveness(Parser* p) {
 
     cfg_compute_use_def(p);
 
+    int block_count = vec_size(&p->cfg);
+    char status[block_count]; /* Used by cfg_compute_liveness_traverse */
+
     /* IN[B] = use(B) union (OUT[B] - def(B))
        Thus add use(B) to IN[B] for all blocks
        (Cannot do this while computing use/def as use may change
@@ -598,10 +629,7 @@ static void cfg_compute_liveness(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = 0; j < block_use_count(blk); ++j) {
-            if (!block_add_in(blk, block_use(blk, j))) {
-                parser_set_error(p, ec_outofmemory);
-                return;
-            }
+            if (!block_add_in(blk, block_use(blk, j))) goto error;
         }
     }
 
@@ -612,9 +640,6 @@ static void cfg_compute_liveness(Parser* p) {
        if the results does not stabilize after some number of traversals
        and assume worst case */
     int max_traverse = 10;
-
-    int block_count = vec_size(&p->cfg);
-    char status[block_count];
     for (int i = 0; i < max_traverse; ++i) {
         /* Reset status to not traversed */
         for (int j = 0; j < block_count; ++j) {
@@ -625,20 +650,61 @@ static void cfg_compute_liveness(Parser* p) {
         cfg_compute_liveness_traverse(p, status, base, base);
 
         /* Check if results are stable (no modifications) */
-        int stable = 1;
         for (int j = 0; j < block_count; ++j) {
             if (status[j] == 2) {
-                stable = 0;
-                break;
+                goto instable;
             }
         }
-        if (stable) {
-            return;
-        }
+        goto stable;
+instable:
+        ;
     }
 
     /* TODO implement something to handle liveness if give up */
     ASSERT(0, "Liveness behavior if stability not found unimplemented");
+
+stable:
+    /* Compute the liveness per statement */
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+
+        /* Start with OUT[B] live */
+        cfg_live_buf_clear(p);
+        for (int j = 0; j < block_out_count(blk); ++j) {
+            if (!cfg_live_buf_add(p, block_out(blk, j))) goto error;
+        }
+
+        /* Calculate live symbols at each statement */
+        for (int j = block_pasmstat_count(blk) - 1; j >= 0; --j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
+            SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
+
+            ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
+            if (pasmstat_def(stat, syms) == 1) {
+                ASSERT(!symtab_isconstant(p, syms[0]),
+                        "Assigned symbol should not be constant");
+                cfg_live_buf_remove(p, syms[0]);
+            }
+
+            int use_count = pasmstat_use(stat, syms);
+            for (int k = 0; k < use_count; ++k) {
+                if (symtab_isconstant(p, syms[k])) {
+                    continue;
+                }
+                if (!cfg_live_buf_add(p, syms[k])) goto error;
+            }
+
+            /* Save the live information for the statement */
+            if (!pasmstat_set_live(
+                        stat,
+                        vec_data(&p->cfg_live_buf),
+                        vec_size(&p->cfg_live_buf))) goto error;
+        }
+    }
+    return;
+
+error:
+    parser_set_error(p, ec_outofmemory);
 }
 
 /* Performs recursive traversal to compute loop nesting depth for blocks
@@ -799,58 +865,6 @@ static IGNode* ig_node(Parser* p, int i) {
     return &vec_at(&p->ig, i);
 }
 
-/* Adds symbol to buffer of live symbols
-   Does nothing if already exists, returns 1
-   Returns 1 if successful, 0 otherwise */
-static int ig_add_live(Parser* p, SymbolId sym_id) {
-    for (int i = 0; i < vec_size(&p->ig_live); ++i) {
-        if (vec_at(&p->ig_live, i) == sym_id) {
-            return 1;
-        }
-    }
-    return vec_push_back(&p->ig_live, sym_id);
-}
-
-/* Removes symbol from buffer of live symbols,
-   does nothing if symbol does not exist */
-static void ig_remove_live(Parser* p, SymbolId sym_id) {
-    for (int i = 0; i < vec_size(&p->ig_live); ++i) {
-        if (vec_at(&p->ig_live, i) == sym_id) {
-            vec_splice(&p->ig_live, i, 1);
-            return;
-        }
-    }
-    /* If symbol to remove is not in live symbol buffer,
-       it is because the symbol is unused */
-}
-
-/* Remove all live symbols from buffer */
-static void ig_clear_live(Parser* p) {
-    vec_clear(&p->ig_live);
-}
-
-/* Links given symbol in interference graph with edges to all live symbols,
-   2 way (live symbols also have edges to this symbol)
-   Returns 1 if successful, 0 otherwise */
-static int ig_link_live(Parser* p, SymbolId sym_id) {
-    IGNode* node = &vec_at(&p->ig, sym_id);
-    for (int i = 0 ; i < vec_size(&p->ig_live); ++i) {
-        SymbolId other_id = vec_at(&p->ig_live, i);
-        /* Do not link to self */
-        if (other_id == sym_id) {
-            continue;
-        }
-
-        IGNode* other_node = &vec_at(&p->ig, other_id);
-
-        /* Link 2 way, this symbol to live symbol,
-           live symbol to this symbol */
-        if (!ignode_link(node, other_node)) return 0;
-        if (!ignode_link(other_node, node)) return 0;
-    }
-    return 1;
-}
-
 /* Creates unlinked interference graph nodes for all the symbols
    in the symbol table
    The index of the symbol in the symbol table corresponds to the
@@ -880,37 +894,40 @@ static void ig_compute_edge(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
 
-        /* New block, recalculate live symbols
-           OUT[B] symbols are live for entire block,
-           thus they are linked to each other */
-        ig_clear_live(p);
-        for (int j = 0; j < block_out_count(blk); ++j) {
-            SymbolId sym_id = block_out(blk, j);
-            if (!ig_link_live(p, sym_id)) goto error;
-            if (!ig_add_live(p, block_out(blk, j))) goto error;
-        }
-
-        /* Calculate live symbols at each statement and
-           link them */
-        for (int j = block_pasmstat_count(blk) - 1; j >= 0; --j) {
+        /* An edge connects two nodes if one is live at a point where
+           the other is defined */
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* stat = block_pasmstat(blk, j);
-            SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
+            SymbolId use_id[MAX_ASM_OP]; /* Buffer to hold symbols */
 
-            ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
-            int def_count = pasmstat_def(stat, syms);
-            for (int k = 0; k < def_count; ++k) {
-                ASSERT(!symtab_isconstant(p, syms[k]),
+            int use_count = pasmstat_use(stat, use_id);
+            SymbolId def_id;
+            int def_count = pasmstat_def(stat, &def_id);
+            if (def_count != 0) {
+                ASSERT(!symtab_isconstant(p, def_id),
                         "Assigned symbol should not be constant");
-                ig_remove_live(p, syms[k]);
-            }
 
-            int use_count = pasmstat_use(stat, syms);
-            for (int k = 0; k < use_count; ++k) {
-                if (symtab_isconstant(p, syms[k])) {
-                    continue;
+                /* Make the link */
+                IGNode* node = &vec_at(&p->ig, def_id);
+                for (int k = 0; k < pasmstat_live_count(stat); ++k) {
+                    SymbolId other_id = pasmstat_live(stat, k);
+
+                    /* Do not link to used symbols (they are now dead) */
+                    for (int l = 0; l < use_count; ++l) {
+                        if (other_id == use_id[l]) {
+                            goto skip_symbol;
+                        }
+                    }
+
+                    IGNode* other_node = &vec_at(&p->ig, other_id);
+
+                    /* Link 2 way, this symbol to live symbol,
+                       live symbol to this symbol */
+                    if (!ignode_link(node, other_node)) goto error;
+                    if (!ignode_link(other_node, node)) goto error;
+skip_symbol:
+                    ;
                 }
-                if (!ig_link_live(p, syms[k])) goto error;
-                if (!ig_add_live(p, syms[k])) goto error;
             }
         }
     }
@@ -1130,11 +1147,28 @@ static void debug_print_cfg(Parser* p) {
             LOG("\n");
         }
 
-        /* Print pseudo assembly */
+        /* Print pseudo assembly statement */
         LOG("    Pseudo-assembly:\n");
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* stat = block_pasmstat(blk, j);
-            LOGF("    %d %s", j, asmins_str(pasmstat_ins(stat)));
+
+            /* Live information */
+            LOGF("    %d Live:", j);
+            for (int k = 0; k < pasmstat_live_count(stat); ++k) {
+                SymbolId id = pasmstat_live(stat, k);
+                Symbol* sym = symtab_get(p, id);
+                LOGF(" %s", symbol_name(sym));
+            }
+            LOG("\n");
+
+            /* Pseudo-assembly */
+            /* Align with the "Live" */
+            int spaces = ichar(j);
+            for (int k = 0; k < spaces; ++k) {
+                LOG(" ");
+            }
+
+            LOGF("     %s", asmins_str(pasmstat_ins(stat)));
             for (int k = 0; k < pasmstat_op_count(stat); ++k) {
                 if (k == 0) {
                     LOG(" ");

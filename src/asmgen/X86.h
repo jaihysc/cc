@@ -236,4 +236,14 @@ static const char* asmins_str(AsmIns asmins) {
     return strings[asmins];
 }
 
+/* Returns 1 if asmins has the effect of pushing onto a stack, 0 if not */
+static int asmins_is_push(AsmIns asmins) {
+    return asmins == asmins_push;
+}
+
+/* Returns 1 if asmins has the effect of popping from a stack, 0 if not */
+static int asmins_is_pop(AsmIns asmins) {
+    return asmins == asmins_pop;
+}
+
 #endif

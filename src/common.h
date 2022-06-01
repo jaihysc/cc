@@ -251,6 +251,10 @@ static inline void quicksort(
 #define vec_size(v__) \
     (v__)->length
 
+/* Returns 1 if vec is empty, 0 if not */
+#define vec_empty(v__) \
+    (v__)->length == 0
+
 /* Reserses capacity for at least n elements in vector
    Pointers to elements are invalidated if resize occurs
    Returns 1 if successful, 0 if error (vector remains unchanged) */

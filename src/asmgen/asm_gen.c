@@ -187,6 +187,10 @@ struct Parser {
     Location ig_palette[X86_REGISTER_COUNT];
     int ig_palette_size;
 
+    /* Buffer of PasmStatement to calculate save + restore range for register
+       preference */
+    vec_t(PasmStatement*) cfg_pasm_stack;
+
     /* Instruction, argument */
     char ins[MAX_INSTRUCTION_LEN];
     int ins_len;
@@ -228,6 +232,7 @@ static int parser_construct(Parser* p) {
     p->ig_palette[13] = loc_15;
     p->ig_palette_size = 14;
 
+    vec_construct(&p->cfg_pasm_stack);
     /* Instruction and argument does not need to be initialized
        it is set when reading from file */
     return 1;
@@ -238,6 +243,7 @@ error:
 }
 
 static void parser_destruct(Parser* p) {
+    vec_destruct(&p->cfg_pasm_stack);
     for (int i = 0; i < vec_size(&p->ig); ++i) {
         ignode_destruct(&vec_at(&p->ig, i));
     }
@@ -803,6 +809,85 @@ static void cfg_compute_loop_depth(Parser* p) {
 
     Block* base = &vec_at(&p->cfg, 0);
     cfg_compute_loop_depth_traverse(p, status, path, 0, base, base);
+}
+
+/* Computes register preference scores to avoid save + restore of registers
+   Returns 1 if succeeded, 0 otherwise */
+static int cfg_compute_reg_pref_save_restore(Parser* p, PasmStatement* stat) {
+    /* Save + restore range identification
+       by simulating a stack and pushing and popping PasmStatement */
+
+    if (asmins_is_push(pasmstat_ins(stat))) {
+        if (!vec_push_back(&p->cfg_pasm_stack, stat)) return 0;
+    }
+    /* May have pop without push in a block */
+    else if (asmins_is_pop(pasmstat_ins(stat)) &&
+            !vec_empty(&p->cfg_pasm_stack)) {
+        PasmStatement* pushed_stat = vec_back(&p->cfg_pasm_stack);
+
+        /* Check that the statements use the same arguments,
+           Only save + restore of physical registers are handled
+           for now */
+        ASSERT(pasmstat_op_count(pushed_stat) == 1, "Only 1 operand supported");
+        ASSERT(pasmstat_op_count(stat) == 1, "Only 1 operand supported");
+        if (pasmstat_is_loc(pushed_stat, 0) == pasmstat_is_loc(stat, 0)) {
+            if (pasmstat_op_loc(pushed_stat, 0) != pasmstat_op_loc(stat, 0)) {
+                return 1;
+            }
+        }
+        else {
+            return 1;
+        }
+
+        /* Range found */
+
+        cfg_live_buf_clear(p);
+        /* Union the symbols which are live in the range from the statement
+           after push to pop
+           pop is included as we store the liveness BEFORE a statement, thus
+           including pop accounts for definitions from the statement before
+           pop */
+        for (PasmStatement* s = pushed_stat + 1; s != stat + 1; ++s) {
+            for (int i = 0; i < pasmstat_live_count(s); ++i) {
+                cfg_live_buf_add(p, pasmstat_live(s, i));
+            }
+        }
+
+        /* Apply decrement in register preference score to live variables */
+        Location loc = pasmstat_op_loc(pushed_stat, 0);
+        for (int i = 0; i < vec_size(&p->cfg_live_buf); ++i) {
+            SymbolId id = vec_at(&p->cfg_live_buf, i);
+
+            /* TODO figure out storage and decrement the scores */
+            LOGF("I decrement score for %s for reg %s\n",
+                    symbol_name(symtab_get(p, id)), loc_str(loc));
+        }
+        LOG("done\n");
+
+        (void)vec_pop_back(&p->cfg_pasm_stack);
+    }
+    return 1;
+}
+
+/* Computes the register preferences for blocks in the control flow graph
+   Requires statements in Blocks */
+static void cfg_compute_reg_pref(Parser* p) {
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+
+        /* Trace save + restore range per block only to avoid complexities
+           of crossing blocks */
+        vec_clear(&p->cfg_pasm_stack);
+
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
+            if (!cfg_compute_reg_pref_save_restore(p, stat)) goto error;
+        }
+    }
+    return;
+
+error:
+    parser_set_error(p, ec_outofmemory);
 }
 
 /* Traverses the blocks in the control flow graph and emits assembly
@@ -2133,6 +2218,7 @@ static void parse(Parser* p) {
     ig_create_nodes(p);
     ig_compute_edge(p);
     ig_compute_spill_cost(p);
+    cfg_compute_reg_pref(p);
     ig_compute_color(p);
 
     /* Code generation */

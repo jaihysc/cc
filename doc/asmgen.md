@@ -49,7 +49,7 @@ The control flow graph is built in 2 phases. The first phase creates the blocks 
 
 The goal of register preferences is to improve assembly quality by choosing optimal registers such that the register benefits the current variable with better generated assembly, while also avoiding disadvantaging others by worsening their generated assembly. For example `idiv` prefers others not use `eax` and `edx` as it is needed for the instruction, otherwise it needs to save and restore those registers which leads to extra operations.
 
-To quantify preferences, there are two sources of register preference scores, variables and statements. Each preference score has a score for each register, positive scores means the register is preferred, and a negative score means the register is avoided. On the `idiv` example, the statement has a negative register preference score on eax and edx.
+To quantify preferences, each variable holds preference scores for each register, positive scores means the register is preferred, and a negative score means the register is avoided. On the `idiv` example, the statement has a negative register preference score on eax and edx.
 
 Certain instructions prefer using the same register as another instruction, for example `z = a - b - c` translates to IL:
 
@@ -61,14 +61,6 @@ sub z,t1,c   (2) z = t1 - c
 The first sub prefers t1 be in the same register as a, as it can emit the single X86 instruction `sub ra,rb` where ra and rb corresponds to the registers for a and b respectively. Otherwise, it has to emit additional an instruction such as `mov rt1,ra`, where rt1 corresponds to the register for t1.
 
 To model the preference for some variable $v$, it has the attribute $v_p$. When calculating the net register preference score for $v$, an adjustable addition is made to the score for the register which $v_p$ resides in.
-
-### Net register preference score
-
-The net register preference score $S$ for a register $r$ of variable $v$ which prefers to have the same register as $v_p$, and there exists other variables $v_o$ and statements $s_o$ is as follows. Let $\operatorname{p(a,b)}$ be the register preference score of some variable $a$ for some register $b$:
-
-$$ S = \operatorname{p}(v,r) - \sum_i \operatorname{p}(v_{oi},r) + \sum_i \operatorname{p}(s_{oi},r) + v_p$$
-
-If $v_p$ is not applicable ($r$ is not the same as the register chosen for $v_p$), it is 0. $v$ will prefer taking registers others do not want, and avoid taking registers others do want.
 
 ### Pseudo-assembly
 
@@ -108,11 +100,11 @@ ret
 
 ## Instruction Selector
 
-The instruction selector uses macro expansion of the program graph to select the optimal pseudo-assembly. Each pattern contains information on cost, register preferences, and pseudo-assembly replacement. Cost guides the search for the optimal pattern, register preferences are added to the variables' respective register preference scores, pseudo-assembly replacement maps the IL instruction(s) to pseudo-assembly and creates additional temporaries where necessary. Different patterns exist to cover different cases of how the operands are stored, i.e., in register, in memory, is immediate. See below for an example.
+The instruction selector uses macro expansion of the program graph to select the optimal pseudo-assembly. Each pattern contains information on cost and pseudo-assembly replacement. Cost guides the search for the optimal pattern, pseudo-assembly replacement maps the IL instruction(s) to pseudo-assembly and creates additional temporaries where necessary. Different patterns exist to cover different cases of how the operands are stored, i.e., in register, in memory, is immediate. See below for an example.
 
 To prepare for this stage, the assembly generator makes a pass through the intermediate language to load the symbol table and generate a program graph.
 
-More complex optimizations which are not possible with expression trees such as sub-expression elimination are the job of the optimizer.
+More complex optimizations which are not possible with macro expansion such as sub-expression elimination are the job of the optimizer.
 
 Possible ideas to explore in the future:
 - Ershov numbers
@@ -155,9 +147,17 @@ Planned: Attempts to reduce the number of live ranges by merging two live ranges
 
 The performance cost of having a variable in memory is calculated for each interference graph node by iterating through each block. For each use of a variable, the operation cost is 1 and the total cost for the use (counted towards the spill cost) is $c\times 10^d$ where $c$ is the operation cost and $d$ the loop nesting depth [1].
 
-### 5-6. Simplify and select
+### 5. Register preference
 
-Nodes in the interference graph are iterated in descending spill cost (highest spill cost first) for register assignment (coloring) or spilling. For a node N, if more than one register is available, it will choose the register with the highest net register preference score. If node N cannot be assigned a register, node N is spilled as it has the lowest spill cost (as this is the latest node, the earlier nodes have higher spill cost because of the order in iterating the interference graph). No additional actions are required after all the nodes are iterated, as it is not possible for spilled variables to be reassigned a register since: 1) Variables assigned a register never give the register away and 2) Unassigned neighbor variables when the spilled occurred would either be assigned or spilled, offering no openings in registers.
+Each block in the control flow graph is walked to calculate register preference scores. Currently, preference scores are calculated to eliminate register save + restores and copying.
+
+Register save + restores are identified by the ranges formed by instructions which have the behaviour of pushing and popping from the stack, the live variables in between the push and pop have their preference decremented to disfavour the register pushed and popped.
+
+Copies are identified by instruction(s) which have the behaviour of copying.
+
+### 6-7. Simplify and select
+
+Nodes in the interference graph are iterated in descending spill cost (highest spill cost first) for register assignment (coloring) or spilling. For a node N, if more than one register is available, it will choose the register with the first highest register preference score. If node N cannot be assigned a register, node N is spilled as it has the lowest spill cost (as this is the latest node, the earlier nodes have higher spill cost because of the order in iterating the interference graph). No additional actions are required after all the nodes are iterated, as it is not possible for spilled variables to be reassigned a register since: 1) Variables assigned a register never give the register away and 2) Unassigned neighbor variables when the spilled occurred would either be assigned or spilled, offering no openings in registers.
 
 The algorithm above minimizes unnecessary spilling, prioritizes the allocation of registers to those with the highest spill cost, and prioritizes the assignment of registers to those which can make best use of them.
 

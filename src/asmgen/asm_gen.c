@@ -1119,16 +1119,26 @@ static void ig_compute_color(Parser* p) {
             }
         }
 
-        /* Find first available register to use */
+        /* Find register with highest preference score to use */
         int found_reg = 0;
+        int highest_pref_score;
+        int highest_reg_index;
         for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
             if (used_loc[j] == 0) {
-                symbol_set_location(node_sym, j);
-                found_reg = 1;
-                break;
+                int pref_score = ignode_reg_pref(node, j);
+                if (!found_reg) {
+                    highest_pref_score = pref_score;
+                    highest_reg_index = j;
+                    found_reg = 1;
+                }
+                else if (pref_score > highest_pref_score) {
+                    highest_pref_score = pref_score;
+                    highest_reg_index = j;
+                }
             }
         }
         if (found_reg) {
+            symbol_set_location(node_sym, highest_reg_index);
             continue;
         }
 

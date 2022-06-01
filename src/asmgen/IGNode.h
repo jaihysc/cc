@@ -10,12 +10,18 @@ typedef struct {
     /* Performance impact if this variable is not in register,
        lower = less impact */
     uint64_t spill_cost;
+    /* Holds a register preference score for each register */
+    int reg_pref[X86_REGISTER_COUNT];
 } IGNode;
 
+/* registers: Number of registers on the target machine */
 static void ignode_construct(IGNode* node) {
     ASSERT(node != NULL, "IGNode is null");
     vec_construct(&node->neighbor);
     node->spill_cost = 0;
+    for (int i = 0; i < X86_REGISTER_COUNT; ++i) {
+        node->reg_pref[i] = 0;
+    }
 }
 
 static void ignode_destruct(IGNode* node) {
@@ -63,6 +69,29 @@ static uint64_t ignode_cost(IGNode* node) {
 static void ignode_add_cost(IGNode* node, uint64_t cost) {
     ASSERT(node != NULL, "Node is null");
     node->spill_cost += cost;
+}
+
+/* Returns the number of register preferences for interference graph
+   node */
+static int ignode_reg_pref_count(const IGNode* node) {
+    return X86_REGISTER_COUNT;
+}
+
+/* Returns register preference score at index for interference graph node */
+static int ignode_reg_pref(const IGNode* node, int i) {
+    ASSERT(node != NULL, "IGNode is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < ignode_reg_pref_count(node), "Index out of range");
+    return node->reg_pref[i];
+}
+
+/* Increments register preference score at index by given score for
+   interference graph node */
+static void ignode_inc_reg_pref(IGNode* node, int i, int score) {
+    ASSERT(node != NULL, "IGNode is null");
+    ASSERT(i >= 0, "Invalid register");
+    ASSERT(i < ignode_reg_pref_count(node), "Index out of range");
+    node->reg_pref[i] += score;
 }
 
 #endif

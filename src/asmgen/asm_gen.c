@@ -30,6 +30,8 @@ int g_debug_print_symtab = 0;
 /* ============================================================ */
 /* Parser data structure + functions */
 
+static IGNode* ig_node(Parser* p, int i);
+
 typedef struct {
     AsmIns ins;
     /* See INSSEL_MACRO_REPLACE for usage of type */
@@ -857,12 +859,9 @@ static int cfg_compute_reg_pref_save_restore(Parser* p, PasmStatement* stat) {
         Location loc = pasmstat_op_loc(pushed_stat, 0);
         for (int i = 0; i < vec_size(&p->cfg_live_buf); ++i) {
             SymbolId id = vec_at(&p->cfg_live_buf, i);
-
-            /* TODO figure out storage and decrement the scores */
-            LOGF("I decrement score for %s for reg %s\n",
-                    symbol_name(symtab_get(p, id)), loc_str(loc));
+            IGNode* node = ig_node(p, id);
+            ignode_inc_reg_pref(node, loc, -1);
         }
-        LOG("done\n");
 
         (void)vec_pop_back(&p->cfg_pasm_stack);
     }
@@ -1293,6 +1292,13 @@ static void debug_print_ig(Parser* p) {
 
         /* Spill cost */
         LOGF("    Spill cost %ld\n", ignode_cost(node));
+
+        /* Register preference score */
+        LOG("    Register preference");
+        for (int j = 0; j < ignode_reg_pref_count(node); ++j) {
+            LOGF(" %d", ignode_reg_pref(node, j));
+        }
+        LOG("\n");
 
         /* Neighbors of node */
         LOGF("    Neighbors [%d]", ignode_neighbor_count(node));

@@ -101,7 +101,6 @@ static int ismr_op_count(const InsSelMacroReplace* ismr) {
 typedef struct {
     /* See INSSEL_MACRO_CASE for usage of constraint string */
     const char* constraint;
-    int reg_pref[X86_REGISTER_COUNT];
     vec_t(InsSelMacroReplace) replace;
 } InsSelMacroCase;
 

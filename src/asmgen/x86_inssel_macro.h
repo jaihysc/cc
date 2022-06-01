@@ -12,7 +12,7 @@
               i.e., mov instead of ilins_mov
      cases__: Define cases for the macro with INSSEL_MACRO_CASE
 
-   INSSEL_MACRO_CASE(constraint__, reg_pref__, replaces__)
+   INSSEL_MACRO_CASE(constraint__, replaces__)
      Cases are sorted in increasing cost, i.e., the lowest cost is written
      first and the highest written last.
 
@@ -23,9 +23,6 @@
                    i = Immediate
                    Example: si for arg 1 to be register/memory and arg2 to
                    be immediate
-     ref_pref__: Define register preferences for this case using
-                 REGISTER_PREFERENCE, REGISTER_PREFERENCE only needs to be used
-                 once
      replaces__: Define pseudo-assembly which this macro replaces to using
                  INSSEL_MACRO_REPLACE
 
@@ -54,19 +51,11 @@
      the first symbol in the IL instruction.
 
      op1__: Operand 1
-     op2__: Operand 2
-
-   REGISTER_PREFERENCE(
-       p0__, p1__, p2__, p3__, p4__, p5__, p6__, p7__,
-       p8__, p9__, p10__, p11__, p12__, p13__, p14__, p15__)
-     Each parameter takes an integer representing the register preference score
-
-*/
+     op2__: Operand 2 */
 
 #define INSSEL_MACROS                                             \
     INSSEL_MACRO(add,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -77,7 +66,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -88,7 +76,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -99,7 +86,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -112,7 +98,6 @@
     )                                                             \
     INSSEL_MACRO(ce,                                              \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -122,7 +107,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -132,7 +116,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -148,7 +131,6 @@
     )                                                             \
     INSSEL_MACRO(cl,                                              \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -158,7 +140,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -168,7 +149,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -184,7 +164,6 @@
     )                                                             \
     INSSEL_MACRO(cle,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -194,7 +173,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -204,7 +182,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -220,7 +197,6 @@
     )                                                             \
     INSSEL_MACRO(cne,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -230,7 +206,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -240,7 +215,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -256,7 +230,6 @@
     )                                                             \
     INSSEL_MACRO(div,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(push,                           \
                 REGISTER_PHYSICAL, loc_a                          \
             )                                                     \
@@ -286,7 +259,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(push,                           \
                 REGISTER_PHYSICAL, loc_a                          \
             )                                                     \
@@ -320,7 +292,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(push,                           \
                 REGISTER_PHYSICAL, loc_a                          \
             )                                                     \
@@ -350,7 +321,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(push,                           \
                 REGISTER_PHYSICAL, loc_a                          \
             )                                                     \
@@ -386,7 +356,6 @@
     )                                                             \
     INSSEL_MACRO(jmp,                                             \
         INSSEL_MACRO_CASE(s,                                      \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(jmp,                            \
                 REGISTER_VIRTUAL, 0                               \
             )                                                     \
@@ -394,7 +363,6 @@
     )                                                             \
     INSSEL_MACRO(jnz,                                             \
         INSSEL_MACRO_CASE(ss,                                     \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -404,7 +372,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(si,                                     \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -420,7 +387,6 @@
     )                                                             \
     INSSEL_MACRO(jz,                                              \
         INSSEL_MACRO_CASE(ss,                                     \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(cmp,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -430,7 +396,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(si,                                     \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -446,7 +411,6 @@
     )                                                             \
     INSSEL_MACRO(mod,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(push,                           \
                 REGISTER_PHYSICAL, loc_a                          \
             )                                                     \
@@ -476,7 +440,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(push,                           \
                 REGISTER_PHYSICAL, loc_a                          \
             )                                                     \
@@ -510,7 +473,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(push,                           \
                 REGISTER_PHYSICAL, loc_a                          \
             )                                                     \
@@ -540,7 +502,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE1(push,                           \
                 REGISTER_PHYSICAL, loc_a                          \
             )                                                     \
@@ -576,14 +537,12 @@
     )                                                             \
     INSSEL_MACRO(mov,                                             \
         INSSEL_MACRO_CASE(ss,                                     \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(si,                                     \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -592,7 +551,6 @@
     )                                                             \
     INSSEL_MACRO(mul,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -603,7 +561,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -614,7 +571,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -625,7 +581,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 2                               \
@@ -638,7 +593,6 @@
     )                                                             \
     INSSEL_MACRO(not,                                             \
         INSSEL_MACRO_CASE(ss,                                     \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(test,                           \
                 REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -648,7 +602,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(si,                                     \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -664,14 +617,12 @@
     )                                                             \
     INSSEL_MACRO(ret,                                             \
         INSSEL_MACRO_CASE(s,                                      \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_PHYSICAL, loc_a,                         \
                 REGISTER_VIRTUAL, 0                               \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(i,                                      \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_PHYSICAL, loc_a,                         \
                 REGISTER_VIRTUAL, 0                               \
@@ -680,7 +631,6 @@
     )                                                             \
     INSSEL_MACRO(sub,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -691,7 +641,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0,                              \
                 REGISTER_VIRTUAL, 1                               \
@@ -702,7 +651,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -717,7 +665,6 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
-            REGISTER_PREFERENCE(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -742,36 +689,13 @@
     macro__->ins = il_ ## ilins__;           \
     cases__
 
-/* Sets the register preference for a case with provided scores */
-#define REGISTER_PREFERENCE(                                   \
-        p0__, p1__, p2__, p3__, p4__, p5__, p6__, p7__,        \
-        p8__, p9__, p10__, p11__, p12__, p13__, p14__, p15__)  \
-    case__->reg_pref[0] = p0__;                                \
-    case__->reg_pref[1] = p1__;                                \
-    case__->reg_pref[2] = p2__;                                \
-    case__->reg_pref[3] = p3__;                                \
-    case__->reg_pref[4] = p4__;                                \
-    case__->reg_pref[5] = p5__;                                \
-    case__->reg_pref[6] = p6__;                                \
-    case__->reg_pref[7] = p7__;                                \
-    case__->reg_pref[8] = p8__;                                \
-    case__->reg_pref[9] = p9__;                                \
-    case__->reg_pref[10] = p10__;                              \
-    case__->reg_pref[11] = p11__;                              \
-    case__->reg_pref[12] = p12__;                              \
-    case__->reg_pref[13] = p13__;                              \
-    case__->reg_pref[14] = p14__;                              \
-    case__->reg_pref[15] = p15__;
-
-/* Creates a case for a macro, with provided match requirement.
-   Expands reg_pref__ to add register preference, expands macro
+/* Creates a case for a macro, with provided match requirement. Expands macro
    replaces__ to add replacement pseudo-assembly to the macro */
-#define INSSEL_MACRO_CASE(constraint__, reg_pref__, replaces__) \
-    if (!vec_push_backu(&macro__->cases)) goto error;           \
-    case__ = &vec_back(&macro__->cases);                        \
-    vec_construct(&case__->replace);                            \
-    case__->constraint = #constraint__;                         \
-    reg_pref__                                                  \
+#define INSSEL_MACRO_CASE(constraint__, replaces__)   \
+    if (!vec_push_backu(&macro__->cases)) goto error; \
+    case__ = &vec_back(&macro__->cases);              \
+    vec_construct(&case__->replace);                  \
+    case__->constraint = #constraint__;               \
     replaces__
 
 /* Creates a pseudo-assembly instruction for a case of a macro with provided
@@ -825,7 +749,6 @@ static void inssel_macro_destruct(vec_InsSelMacro* macros) {
 
 #undef INSSEL_MACROS
 #undef INSSEL_MACRO
-#undef REGISTER_PREFERENCE
 #undef INSSEL_MACRO_CASE
 #undef INSSEL_MACRO_REPLACE1
 #undef INSSEL_MACRO_REPLACE2

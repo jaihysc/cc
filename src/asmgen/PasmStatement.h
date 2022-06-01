@@ -14,7 +14,9 @@ struct PasmStatement {
     int op_count;
 
     /* Live symbols on entry to this statement */
-    vec_t(SymbolId) live;
+    vec_t(SymbolId) live_in;
+    /* Live symbols after this statement */
+    vec_t(SymbolId) live_out;
 };
 
 /* Initializes values in pseudo-assembly statement */
@@ -22,11 +24,13 @@ static void pasmstat_construct(PasmStatement* stat, AsmIns ins, int op_count) {
     ASSERT(stat != NULL, "PasmStatement is null");
     stat->ins = ins;
     stat->op_count = op_count;
-    vec_construct(&stat->live);
+    vec_construct(&stat->live_in);
+    vec_construct(&stat->live_out);
 }
 
 static void pasmstat_destruct(PasmStatement* stat) {
-    vec_destruct(&stat->live);
+    vec_destruct(&stat->live_out);
+    vec_destruct(&stat->live_in);
 }
 
 /* Returns AsmIns for pseudo-assembly statement */
@@ -98,30 +102,58 @@ static int pasmstat_op_count(const PasmStatement* stat) {
     return stat->op_count;
 }
 
-/* Returns number of live symbols at entry for pseudo-assembly statement */
-static int pasmstat_live_count(PasmStatement* stat) {
+/* Returns number of live symbols before this pseudo-assembly statement */
+static int pasmstat_live_in_count(PasmStatement* stat) {
     ASSERT(stat != NULL, "PasmStatement is null");
-    return vec_size(&stat->live);
+    return vec_size(&stat->live_in);
 }
 
-/* Returns SymbolId of live symbol at entry for pseudo-assembly statement
+/* Returns SymbolId of live symbol before this pseudo-assembly statement
    at index */
-static SymbolId pasmstat_live(PasmStatement* stat, int i) {
+static SymbolId pasmstat_live_in(PasmStatement* stat, int i) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
-    ASSERT(i < pasmstat_live_count(stat), "Index out of range");
-    return vec_at(&stat->live, i);
+    ASSERT(i < pasmstat_live_in_count(stat), "Index out of range");
+    return vec_at(&stat->live_in, i);
 }
 
-/* Sets the symbols which are live on entry to this pseudo-assembly statement
+/* Sets the symbols which are live before this pseudo-assembly statement
    by copying count from provided pointer
    Returns 1 if successful, 0 if not */
-static int pasmstat_set_live(
+static int pasmstat_set_live_in(
         PasmStatement* stat, const SymbolId* syms, int count) {
     ASSERT(stat != NULL, "PasmStatement is null");
     for (int i = 0; i < count; ++i) {
         ASSERT(syms != NULL, "Provided syms is null");
-        if (!vec_push_back(&stat->live, syms[i])) return 0;
+        if (!vec_push_back(&stat->live_in, syms[i])) return 0;
+    }
+    return 1;
+}
+
+/* Returns number of live symbols after this pseudo-assembly statement */
+static int pasmstat_live_out_count(PasmStatement* stat) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    return vec_size(&stat->live_out);
+}
+
+/* Returns SymbolId of live symbol after this pseudo-assembly statement
+   at index */
+static SymbolId pasmstat_live_out(PasmStatement* stat, int i) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < pasmstat_live_out_count(stat), "Index out of range");
+    return vec_at(&stat->live_out, i);
+}
+
+/* Sets the symbols which are live after this pseudo-assembly statement
+   by copying count from provided pointer
+   Returns 1 if successful, 0 if not */
+static int pasmstat_set_live_out(
+        PasmStatement* stat, const SymbolId* syms, int count) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    for (int i = 0; i < count; ++i) {
+        ASSERT(syms != NULL, "Provided syms is null");
+        if (!vec_push_back(&stat->live_out, syms[i])) return 0;
     }
     return 1;
 }

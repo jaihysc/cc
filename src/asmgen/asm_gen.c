@@ -681,10 +681,15 @@ stable:
             if (!cfg_live_buf_add(p, block_out(blk, j))) goto error;
         }
 
-        /* Calculate live symbols at each statement */
+        /* Calculate live symbols before/after each statement */
         for (int j = block_pasmstat_count(blk) - 1; j >= 0; --j) {
             PasmStatement* stat = block_pasmstat(blk, j);
             SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
+
+            if (!pasmstat_set_live_out(
+                        stat,
+                        vec_data(&p->cfg_live_buf),
+                        vec_size(&p->cfg_live_buf))) goto error;
 
             ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
             if (pasmstat_def(stat, syms) == 1) {
@@ -701,8 +706,7 @@ stable:
                 if (!cfg_live_buf_add(p, syms[k])) goto error;
             }
 
-            /* Save the live information for the statement */
-            if (!pasmstat_set_live(
+            if (!pasmstat_set_live_in(
                         stat,
                         vec_data(&p->cfg_live_buf),
                         vec_size(&p->cfg_live_buf))) goto error;
@@ -849,8 +853,8 @@ static int cfg_compute_reg_pref_save_restore(Parser* p, PasmStatement* stat) {
            including pop accounts for definitions from the statement before
            pop */
         for (PasmStatement* s = pushed_stat + 1; s != stat + 1; ++s) {
-            for (int i = 0; i < pasmstat_live_count(s); ++i) {
-                cfg_live_buf_add(p, pasmstat_live(s, i));
+            for (int i = 0; i < pasmstat_live_in_count(s); ++i) {
+                cfg_live_buf_add(p, pasmstat_live_in(s, i));
             }
         }
 
@@ -981,36 +985,30 @@ static void ig_compute_edge(Parser* p) {
            the other is defined */
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* stat = block_pasmstat(blk, j);
-            SymbolId use_id[MAX_ASM_OP]; /* Buffer to hold symbols */
-
-            int use_count = pasmstat_use(stat, use_id);
             SymbolId def_id;
             int def_count = pasmstat_def(stat, &def_id);
-            if (def_count != 0) {
-                ASSERT(!symtab_isconstant(p, def_id),
-                        "Assigned symbol should not be constant");
+            if (def_count == 0) {
+                continue;
+            }
+            ASSERT(!symtab_isconstant(p, def_id),
+                    "Assigned symbol should not be constant");
 
-                /* Make the link */
-                IGNode* node = &vec_at(&p->ig, def_id);
-                for (int k = 0; k < pasmstat_live_count(stat); ++k) {
-                    SymbolId other_id = pasmstat_live(stat, k);
+            /* Make the link */
+            IGNode* node = &vec_at(&p->ig, def_id);
+            for (int k = 0; k < pasmstat_live_out_count(stat); ++k) {
+                SymbolId other_id = pasmstat_live_out(stat, k);
 
-                    /* Do not link to used symbols (they are now dead) */
-                    for (int l = 0; l < use_count; ++l) {
-                        if (other_id == use_id[l]) {
-                            goto skip_symbol;
-                        }
-                    }
-
-                    IGNode* other_node = &vec_at(&p->ig, other_id);
-
-                    /* Link 2 way, this symbol to live symbol,
-                       live symbol to this symbol */
-                    if (!ignode_link(node, other_node)) goto error;
-                    if (!ignode_link(other_node, node)) goto error;
-skip_symbol:
-                    ;
+                /* Do not link to self */
+                if (def_id == other_id) {
+                    continue;
                 }
+
+                IGNode* other_node = &vec_at(&p->ig, other_id);
+
+                /* Link 2 way, this symbol to live symbol,
+                   live symbol to this symbol */
+                if (!ignode_link(node, other_node)) goto error;
+                if (!ignode_link(other_node, node)) goto error;
             }
         }
     }
@@ -1245,23 +1243,8 @@ static void debug_print_cfg(Parser* p) {
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* stat = block_pasmstat(blk, j);
 
-            /* Live information */
-            LOGF("    %d Live:", j);
-            for (int k = 0; k < pasmstat_live_count(stat); ++k) {
-                SymbolId id = pasmstat_live(stat, k);
-                Symbol* sym = symtab_get(p, id);
-                LOGF(" %s", symbol_name(sym));
-            }
-            LOG("\n");
-
             /* Pseudo-assembly */
-            /* Align with the "Live" */
-            int spaces = ichar(j);
-            for (int k = 0; k < spaces; ++k) {
-                LOG(" ");
-            }
-
-            LOGF("     %s", asmins_str(pasmstat_ins(stat)));
+            LOGF("    %d %s", j, asmins_str(pasmstat_ins(stat)));
             for (int k = 0; k < pasmstat_op_count(stat); ++k) {
                 if (k == 0) {
                     LOG(" ");
@@ -1278,6 +1261,32 @@ static void debug_print_cfg(Parser* p) {
                     Symbol* sym = symtab_get(p, id);
                     LOGF("%%%s", symbol_name(sym));
                 }
+            }
+            LOG("\n");
+
+            /* Live information */
+            /* Align with the "Live" */
+            int spaces = ichar(j);
+            for (int k = 0; k < spaces; ++k) {
+                LOG(" ");
+            }
+
+            LOG("     Live in:");
+            for (int k = 0; k < pasmstat_live_in_count(stat); ++k) {
+                SymbolId id = pasmstat_live_in(stat, k);
+                Symbol* sym = symtab_get(p, id);
+                LOGF(" %s", symbol_name(sym));
+            }
+            LOG("\n");
+
+            for (int k = 0; k < spaces; ++k) {
+                LOG(" ");
+            }
+            LOG("     Live out:");
+            for (int k = 0; k < pasmstat_live_out_count(stat); ++k) {
+                SymbolId id = pasmstat_live_out(stat, k);
+                Symbol* sym = symtab_get(p, id);
+                LOGF(" %s", symbol_name(sym));
             }
             LOG("\n");
         }

@@ -53,7 +53,7 @@ static int symbol_on_stack(Symbol* sym) {
 }
 
 /* Returns 1 if symbol is a constant */
-static int symbol_is_constant(Symbol* sym) {
+static int symbol_is_constant(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->loc == loc_constant;
 }
@@ -62,6 +62,18 @@ static int symbol_is_constant(Symbol* sym) {
 static void symbol_make_constant(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     sym->loc = loc_constant;
+}
+
+/* Returns 1 if symbol is a label */
+static int symbol_is_label(const Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return type_equal(sym->type, type_label);
+}
+
+/* Returns 1 if symbol is a variable which requires storage */
+static int symbol_is_var(const Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return !symbol_is_label(sym) && !symbol_is_constant(sym);
 }
 
 /* Returns bytes for symbol */

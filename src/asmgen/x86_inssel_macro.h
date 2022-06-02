@@ -21,6 +21,7 @@
                    e.g., Apply only to a constant 1 (for x86 inc)
                    s = Register/Memory
                    i = Immediate
+                   l = Label
                    Example: si for arg 1 to be register/memory and arg2 to
                    be immediate
      replaces__: Define pseudo-assembly which this macro replaces to using
@@ -355,23 +356,23 @@
         )                                                         \
     )                                                             \
     INSSEL_MACRO(jmp,                                             \
-        INSSEL_MACRO_CASE(s,                                      \
+        INSSEL_MACRO_CASE(l,                                      \
             INSSEL_MACRO_REPLACE1(jmp,                            \
                 REGISTER_VIRTUAL, 0                               \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(jnz,                                             \
-        INSSEL_MACRO_CASE(ss,                                     \
+        INSSEL_MACRO_CASE(ls,                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 0,                              \
+                REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 1                               \
             )                                                     \
             INSSEL_MACRO_REPLACE1(jnz,                            \
                 REGISTER_VIRTUAL, 0                               \
             )                                                     \
         )                                                         \
-        INSSEL_MACRO_CASE(si,                                     \
+        INSSEL_MACRO_CASE(li,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \
@@ -386,16 +387,16 @@
         )                                                         \
     )                                                             \
     INSSEL_MACRO(jz,                                              \
-        INSSEL_MACRO_CASE(ss,                                     \
+        INSSEL_MACRO_CASE(ls,                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 0,                              \
+                REGISTER_VIRTUAL, 1,                              \
                 REGISTER_VIRTUAL, 1                               \
             )                                                     \
             INSSEL_MACRO_REPLACE1(jz,                             \
                 REGISTER_VIRTUAL, 0                               \
             )                                                     \
         )                                                         \
-        INSSEL_MACRO_CASE(si,                                     \
+        INSSEL_MACRO_CASE(li,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,                                  \
                 REGISTER_VIRTUAL, 1                               \

@@ -304,8 +304,18 @@ static void symtab_clear(Parser* p) {
 }
 
 /* Returns 1 if symbol is a constant, 0 otherwise */
-static int symtab_isconstant(Parser* p, SymbolId sym_id) {
-    return name_isconstant(symbol_name(symtab_get(p, sym_id)));
+static int symtab_is_constant(Parser* p, SymbolId sym_id) {
+    return symbol_is_constant(symtab_get(p, sym_id));
+}
+
+/* Returns 1 if symbol is a label, 0 otherwise */
+static int symtab_is_label(Parser* p, SymbolId sym_id) {
+    return symbol_is_label(symtab_get(p, sym_id));
+}
+
+/* Returns 1 if symbol is a variable (requiring storage), 0 otherwise */
+static int symtab_is_var(Parser* p, SymbolId sym_id) {
+    return symbol_is_var(symtab_get(p, sym_id));
 }
 
 /* Returns 1 if name is within symbol table, 0 otherwise */
@@ -497,8 +507,8 @@ static void cfg_compute_use_def(Parser* p) {
                Remove occurrences of 'def'd symbol from 'use' for block */
             int def_count = pasmstat_def(stat, syms);
             for (int k = 0; k < def_count; ++k) {
-                ASSERT(!symtab_isconstant(p, syms[k]),
-                        "Assigned symbol should not be constant");
+                ASSERT(symtab_is_var(p, syms[k]),
+                        "Assigned symbol should be variable");
                 if (!block_add_def(blk, syms[k])) {
                     parser_set_error(p, ec_outofmemory);
                     return;
@@ -510,7 +520,7 @@ static void cfg_compute_use_def(Parser* p) {
             ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
             int use_count = pasmstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
-                if (symtab_isconstant(p, syms[k])) {
+                if (!symtab_is_var(p, syms[k])) {
                     continue;
                 }
                 if (!block_add_use(blk, syms[k])) {
@@ -696,14 +706,14 @@ stable:
 
             ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
             if (pasmstat_def(stat, syms) == 1) {
-                ASSERT(!symtab_isconstant(p, syms[0]),
-                        "Assigned symbol should not be constant");
+                ASSERT(symtab_is_var(p, syms[0]),
+                        "Assigned symbol should be variable");
                 cfg_live_buf_remove(p, syms[0]);
             }
 
             int use_count = pasmstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
-                if (symtab_isconstant(p, syms[k])) {
+                if (!symtab_is_var(p, syms[k])) {
                     continue;
                 }
                 if (!cfg_live_buf_add(p, syms[k])) goto error;
@@ -951,7 +961,8 @@ static void ig_create_nodes(Parser* p) {
 
     if (!vec_reserve(&p->ig, vec_size(&p->symbol))) goto error;
     for (int i = 0; i < vec_size(&p->symbol); ++i) {
-        if (symbol_is_constant(symtab_get(p, i))) {
+        Symbol* sym = symtab_get(p, i);
+        if (!symbol_is_var(sym)) {
             continue;
         }
 
@@ -983,8 +994,8 @@ static void ig_compute_edge(Parser* p) {
             if (def_count == 0) {
                 continue;
             }
-            ASSERT(!symtab_isconstant(p, def_id),
-                    "Assigned symbol should not be constant");
+            ASSERT(symtab_is_var(p, def_id),
+                    "Assigned symbol should be variable");
 
             /* Make the link */
             IGNode* node = ig_node(p, def_id);
@@ -1035,8 +1046,8 @@ static int ig_compute_coalesce(Parser* p, PasmStatement* stat) {
     if (src_id == dest_id) {
         return 1;
     }
-    /* Cannot coalesce into constant, (they have no location) */
-    if (symbol_is_constant(symtab_get(p, src_id))) {
+    /* Cannot coalesce non variables, (they have no location) */
+    if (!symbol_is_var(symtab_get(p, src_id))) {
         return 1;
     }
     /* source and destination nodes do not overlap in lifetime
@@ -1118,7 +1129,7 @@ static void ig_compute_spill_cost(Parser* p) {
 
             int use_count = pasmstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
-                if (symtab_isconstant(p, syms[k])) {
+                if (!symtab_is_var(p, syms[k])) {
                     continue;
                 }
                 unsigned operation_cost = 1;
@@ -1638,12 +1649,21 @@ static InsSelMacroCase* inssel_find(Parser* p, const ILStatement* stat) {
             for (int k = 0; k < ilstat_argc(stat); ++k) {
                 ASSERT(constraint[i_constraint] != '\0',
                         "Constraint string ended too early");
-                int isconstant = constraint[i_constraint] == 'i';
+                const char c = constraint[i_constraint];
                 ++i_constraint;
 
                 SymbolId arg_id = ilstat_arg(stat, k);
-                if (isconstant != symtab_isconstant(p, arg_id)) {
-                    goto no_match;
+                if (c == 'i') {
+                    if (!symtab_is_constant(p, arg_id)) goto no_match;
+                }
+                else if (c == 'l') {
+                    if (!symtab_is_label(p, arg_id)) goto no_match;
+                }
+                else if (c == 's') {
+                    if (!symtab_is_var(p, arg_id)) goto no_match;
+                }
+                else {
+                    ASSERTF(0, "Invalid constraint character %c", c);
                 }
             }
             /* Match made */
@@ -2187,7 +2207,7 @@ static void cg_ref_symbol(Parser* p, SymbolId sym_id) {
         const char* size_dir = asm_size_directive(symbol_bytes(sym));
         parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
     }
-    else if (symbol_is_constant(sym)) {
+    else if (symbol_is_constant(sym) || symbol_is_label(sym)) {
         parser_output_asm(p, "%s", symbol_name(sym));
     }
     else {

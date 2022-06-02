@@ -1,6 +1,6 @@
 # Assembly generator
 
-The assembly generator converts the intermediate language (IL) into X86 assembly, the various stages are listed below:
+The assembly generator converts the intermediate language (IL) into x86 assembly, the various stages are listed below:
 
 ```
                                           -------------
@@ -55,7 +55,7 @@ To quantify preferences, each variable holds preference scores for each register
 
 Pseudo-assembly (pasm) is a low level IR, target specific language which closely resembles assembly. Its difference from assembly is unlimited registers and no memory addressing, each variable/memory location is written `%name` and referred to as virtual registers. Physical registers can be referred to without their size, with the size being calculated later during translation into assembly. For example on x86: a, b, c, d, 9, 10, 11 ... instead of eax, ax, r9d, ... .
 
-On X86, do not confuse the % for AT&T syntax, pseudo-assembly on X86 is in Intel syntax and the % here represents a virtual register for the variable or a memory location. For example, targeting X86, the following pseudo-assembly may be generated from the intermediate language:
+On x86, do not confuse the % for AT&T syntax, pseudo-assembly on x86 is in Intel syntax and the % here represents a virtual register for the variable or a memory location. For example, targeting x86, the following pseudo-assembly may be generated from the intermediate language:
 
 ```
 Intermediate language
@@ -148,7 +148,7 @@ The algorithm above minimizes unnecessary spilling, prioritizes the allocation o
 
 ## Code Generator
 
-The code generator converts the pseudo-assembly to assembly by replacing the variables with actual registers determined by the register allocator. Where necessary, the code generator inserts spill code for any spilled variables in instructions. For spill reloads on X86, it will always push the b register because b must be live (as all registers are taken, causing the spill). The reason for choosing the b register is an arbitrary choice. See below for an example.
+The code generator converts the pseudo-assembly to assembly by replacing the variables with actual registers determined by the register allocator. Where necessary, the code generator inserts spill code for any spilled variables in instructions. For spill reloads on x86, it will always push the b register because b must be live (as all registers are taken, causing the spill). The reason for choosing the b register is an arbitrary choice. See below for an example.
 
 The code generator also performs some basic optimizations while generating the final assembly as it is more convenient to do so here. They are the removal of unnecessary instructions when it was revealed during register allocation that the variables are actually in the same locations, or that a register is not live to avoid saving and restoring a register. See below for an example.
 

@@ -1,4 +1,4 @@
-/* Assembly generator, X86 specifics */
+/* Assembly generator, x86 specifics */
 #ifndef ASMGEN_X86_H
 #define ASMGEN_X86_H
 

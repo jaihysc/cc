@@ -11,7 +11,7 @@
 #include "fwddecl.h"
 #include "constant.h"
 #include "ILIns.h"
-#include "X86.h"
+#include "x86.h"
 #include "ErrorCode.h"
 #include "Symbol.h"
 #include "ILStatement.h"

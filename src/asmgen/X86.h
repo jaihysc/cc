@@ -246,4 +246,20 @@ static int asmins_is_pop(AsmIns asmins) {
     return asmins == asmins_pop;
 }
 
+/* Returns 1 if asmins has the effect of copying from a source to a
+   destination, 0 if not */
+static int asmins_is_copy(AsmIns asmins) {
+    return asmins == asmins_mov;
+}
+
+/* Returns the index of the source operand for a copy instruction */
+static int asmins_copy_src_index(void) {
+    return 1;
+}
+
+/* Returns the index of the destination operand for a copy instruction */
+static int asmins_copy_dest_index(void) {
+    return 0;
+}
+
 #endif

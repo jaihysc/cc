@@ -51,17 +51,6 @@ The goal of register preferences is to improve assembly quality by choosing opti
 
 To quantify preferences, each variable holds preference scores for each register, positive scores means the register is preferred, and a negative score means the register is avoided. On the `idiv` example, the statement has a negative register preference score on eax and edx.
 
-Certain instructions prefer using the same register as another instruction, for example `z = a - b - c` translates to IL:
-
-```
-sub t1,a,b   (1) t1 = a - b
-sub z,t1,c   (2) z = t1 - c
-```
-
-The first sub prefers t1 be in the same register as a, as it can emit the single X86 instruction `sub ra,rb` where ra and rb corresponds to the registers for a and b respectively. Otherwise, it has to emit additional an instruction such as `mov rt1,ra`, where rt1 corresponds to the register for t1.
-
-To model the preference for some variable $v$, it has the attribute $v_p$. When calculating the net register preference score for $v$, an adjustable addition is made to the score for the register which $v_p$ resides in.
-
 ### Pseudo-assembly
 
 Pseudo-assembly (pasm) is a low level IR, target specific language which closely resembles assembly. Its difference from assembly is unlimited registers and no memory addressing, each variable/memory location is written `%name` and referred to as virtual registers. Physical registers can be referred to without their size, with the size being calculated later during translation into assembly. For example on x86: a, b, c, d, 9, 10, 11 ... instead of eax, ax, r9d, ... .
@@ -141,19 +130,15 @@ Using liveness information, an interference graph is built for all the variables
 
 ### 3. Coalesce
 
-Planned: Attempts to reduce the number of live ranges by merging two live ranges if one is a copy of the other and they do not interfere.
+Attempts to eliminate copy instructions by performing aggressive coalescing.
 
-### 4. Spill cost
+### 4. Register preference
+
+Each block in the control flow graph is walked to calculate register preference scores. Currently, preference scores are calculated to eliminate register save + restores. Register save + restores are identified by the ranges formed by instructions which have the behavior of pushing and popping from the stack, the live variables in between the push and pop have their preference decremented to disfavor the register pushed and popped.
+
+### 5. Spill cost
 
 The performance cost of having a variable in memory is calculated for each interference graph node by iterating through each block. For each use of a variable, the operation cost is 1 and the total cost for the use (counted towards the spill cost) is $c\times 10^d$ where $c$ is the operation cost and $d$ the loop nesting depth [1].
-
-### 5. Register preference
-
-Each block in the control flow graph is walked to calculate register preference scores. Currently, preference scores are calculated to eliminate register save + restores and copying.
-
-Register save + restores are identified by the ranges formed by instructions which have the behaviour of pushing and popping from the stack, the live variables in between the push and pop have their preference decremented to disfavour the register pushed and popped.
-
-Copies are identified by instruction(s) which have the behaviour of copying.
 
 ### 6-7. Simplify and select
 

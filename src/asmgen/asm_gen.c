@@ -871,6 +871,97 @@ static int cfg_compute_reg_pref_save_restore(Parser* p, PasmStatement* stat) {
     return 1;
 }
 
+/* Computes candidates for coalescing to eliminate copies
+   Candidates are copy instructions where the source and destination nodes
+   are not connected by an edge (non overlapping lifetime)
+   Destination is coalesced into source
+   Returns 1 if successful, 0 if error */
+static int cfg_compute_coalesce(Parser* p, PasmStatement* stat) {
+    if (!asmins_is_copy(pasmstat_ins(stat))) {
+        return 1;
+    }
+
+    /* Only symbols are supported for now */
+    int i_src = asmins_copy_src_index();
+    int i_dest = asmins_copy_dest_index();
+    if (!pasmstat_is_sym(stat, i_src) || !pasmstat_is_sym(stat, i_dest)) {
+        return 1;
+    }
+    /* Do not coalesce move to self
+       (Leads to infinite loop trying to make node links) */
+    SymbolId src_id = pasmstat_op_sym(stat, i_src);
+    SymbolId dest_id = pasmstat_op_sym(stat, i_dest);
+    if (src_id == dest_id) {
+        return 1;
+    }
+    /* Cannot coalesce into constant, (they have no location) */
+    if (symbol_is_constant(symtab_get(p, src_id))) {
+        return 1;
+    }
+    /* source and destination nodes do not overlap in lifetime
+       (no IGNode edge) */
+    IGNode* src_node = ig_node(p, src_id);
+    IGNode* dest_node = ig_node(p, dest_id);
+    if (ignode_has_link(src_node, dest_node)) {
+        return 1;
+    }
+    /* Determine the location to put coalesced node's symbols */
+    ASSERT(ignode_symid_count(src_node) != 0, "Source node has no symbols");
+    ASSERT(ignode_symid_count(dest_node) != 0, "Source node has no symbols");
+    Location src_loc =
+        symbol_location(symtab_get(p, ignode_symid(src_node, 0)));
+    Location dest_loc =
+        symbol_location(symtab_get(p, ignode_symid(dest_node, 0)));
+    Location loc; /* Assigned to all the symbols of the source node */
+    if (src_loc != loc_none && dest_loc != loc_none) {
+        /* Cannot coalesce if both are precolored different locations */
+        if (src_loc != dest_loc) {
+            return 1;
+        }
+        /* Both are the same location */
+        loc = src_loc;
+    }
+    else if (src_loc != loc_none) {
+        loc = src_loc;
+    }
+    else {
+        /* dest_loc could be a location or no location */
+        loc = dest_loc;
+    }
+
+    /* Coalesce destination node into source node */
+
+    /* Union source node's neighbors with destination node's neighbors */
+    for (int i = 0; i < ignode_neighbor_count(dest_node); ++i) {
+        IGNode* neighbor = ignode_neighbor(dest_node, i);
+        if (!ignode_link(src_node, neighbor)) return 0;
+        if (!ignode_link(neighbor, src_node)) return 0;
+        ignode_unlink(neighbor, dest_node);
+    }
+    /* Source node now represents all the symbol(s) of the destination
+       node */
+    for (int i = 0; i < ignode_symid_count(dest_node); ++i) {
+        SymbolId dest_symid = ignode_symid(dest_node, i);
+        if (!ignode_add_symid(src_node, dest_symid)) return 0;
+    }
+    ignode_symid_clear(dest_node);
+
+    /* Set the locations, any of the possibilities:
+       - Destination node location set on source symbols
+       - Source node location set on newly acquired symbols
+       - No location is set (loc_none) */
+    for (int i = 0; i < ignode_symid_count(src_node); ++i) {
+        SymbolId src_symid = ignode_symid(src_node, i);
+        symbol_set_location(symtab_get(p, src_symid), loc);
+    }
+
+    if (g_debug_print_info) {
+        LOGF("Coalesce %s -> %s\n",
+                symbol_name(symtab_get(p, dest_id)),
+                symbol_name(symtab_get(p, src_id)));
+    }
+    return 1;
+}
 /* Computes the register preferences for blocks in the control flow graph
    Requires statements in Blocks */
 static void cfg_compute_reg_pref(Parser* p) {
@@ -884,6 +975,7 @@ static void cfg_compute_reg_pref(Parser* p) {
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* stat = block_pasmstat(blk, j);
             if (!cfg_compute_reg_pref_save_restore(p, stat)) goto error;
+            if (!cfg_compute_coalesce(p, stat)) goto error;
         }
     }
     return;
@@ -932,11 +1024,6 @@ static void cfg_output_asm(Parser* p) {
     }
 }
 
-/* Calculates the SymbolId for the given IGNode */
-static SymbolId ig_ignode_symbolid(Parser* p, IGNode* node) {
-    return (SymbolId)(node - &vec_at(&p->ig, 0));
-}
-
 /* Clears nodes in interference graph */
 static void ig_clear(Parser* p) {
     for (int i = 0; i < vec_size(&p->ig); ++i) {
@@ -945,14 +1032,22 @@ static void ig_clear(Parser* p) {
     vec_clear(&p->ig);
 }
 
-/* Returns interference graph node at index */
-static IGNode* ig_node(Parser* p, int i) {
-    ASSERT(i >= 0, "Index out of range");
-    ASSERT(i < vec_size(&p->ig), "Index out of range");
-    return &vec_at(&p->ig, i);
+/* Returns interference graph node at SymbolId */
+static IGNode* ig_node(Parser* p, SymbolId id) {
+    ASSERT(id >= 0, "Invalid SymbolId");
+    for (int i = 0; i < vec_size(&p->ig); ++i) {
+        IGNode* node = &vec_at(&p->ig, i);
+        for (int j = 0; j < ignode_symid_count(node); ++j) {
+            if (ignode_symid(node, j) == id) {
+                return node;
+            }
+        }
+    }
+    ASSERT(0, "Could not find IGNode for SymbolId");
+    return NULL;
 }
 
-/* Creates unlinked interference graph nodes for all the symbols
+/* Creates unlinked interference graph nodes for non constant symbols
    in the symbol table
    The index of the symbol in the symbol table corresponds to the
    index of the node in the interference graph
@@ -963,9 +1058,14 @@ static void ig_create_nodes(Parser* p) {
 
     if (!vec_reserve(&p->ig, vec_size(&p->symbol))) goto error;
     for (int i = 0; i < vec_size(&p->symbol); ++i) {
+        if (symbol_is_constant(symtab_get(p, i))) {
+            continue;
+        }
+
         if (!vec_push_backu(&p->ig)) goto error;
         IGNode* node = &vec_back(&p->ig);
         ignode_construct(node);
+        if (!ignode_add_symid(node, i)) goto error;
     }
 
     return;
@@ -994,7 +1094,7 @@ static void ig_compute_edge(Parser* p) {
                     "Assigned symbol should not be constant");
 
             /* Make the link */
-            IGNode* node = &vec_at(&p->ig, def_id);
+            IGNode* node = ig_node(p, def_id);
             for (int k = 0; k < pasmstat_live_out_count(stat); ++k) {
                 SymbolId other_id = pasmstat_live_out(stat, k);
 
@@ -1003,7 +1103,7 @@ static void ig_compute_edge(Parser* p) {
                     continue;
                 }
 
-                IGNode* other_node = &vec_at(&p->ig, other_id);
+                IGNode* other_node = ig_node(p, other_id);
 
                 /* Link 2 way, this symbol to live symbol,
                    live symbol to this symbol */
@@ -1087,13 +1187,19 @@ static void ig_compute_color(Parser* p) {
        for highest spill cost first */
     for (int i = vec_size(&p->ig) - 1; i >= 0; --i) {
         IGNode* node = nodes[i];
-        SymbolId node_id = ig_ignode_symbolid(p, node);
-        Symbol* node_sym = symtab_get(p, node_id);
 
-        /* Preassigned location */
-        if (symbol_location(node_sym) != loc_none ||
-            symbol_is_constant(node_sym)) {
+        /* Node was coalesced */
+        if (ignode_symid_count(node) == 0) {
             continue;
+        }
+        /* Skip if preassigned location (precolored)
+           All the symbols have the same location,
+           only need to look at the first */
+        {
+            Symbol* node_sym = symtab_get(p, ignode_symid(node, 0));
+            if (symbol_location(node_sym) != loc_none) {
+                continue;
+            }
         }
 
         /* Attempt to assign a register to the node */
@@ -1107,9 +1213,12 @@ static void ig_compute_color(Parser* p) {
         /* Count registers used by neighbors */
         for (int j = 0; j < ignode_neighbor_count(node); ++j) {
             IGNode* neighbor = ignode_neighbor(node, j);
-            SymbolId neighbor_id = ig_ignode_symbolid(p, neighbor);
+            /* All the symbols have the same location,
+               only need to look at the first */
+            ASSERT(ignode_symid_count(neighbor) != 0,
+                    "Neighbor node has no symbols");
+            SymbolId neighbor_id = ignode_symid(neighbor, 0);
             Symbol* neighbor_sym = symtab_get(p, neighbor_id);
-
             Location loc = symbol_location(neighbor_sym);
             if (loc != loc_none && loc != loc_stack) {
                 ++used_loc[loc];
@@ -1119,30 +1228,32 @@ static void ig_compute_color(Parser* p) {
         /* Find register with highest preference score to use */
         int found_reg = 0;
         int highest_pref_score;
-        int highest_reg_index;
+        Location location;
         for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
             if (used_loc[j] == 0) {
                 int pref_score = ignode_reg_pref(node, j);
                 if (!found_reg) {
                     highest_pref_score = pref_score;
-                    highest_reg_index = j;
+                    location = j;
                     found_reg = 1;
                 }
                 else if (pref_score > highest_pref_score) {
                     highest_pref_score = pref_score;
-                    highest_reg_index = j;
+                    location = j;
                 }
             }
         }
-        if (found_reg) {
-            symbol_set_location(node_sym, highest_reg_index);
-            continue;
-        }
-
         /* Always spill self as this has the lowest spill cost, neighbors were
            assigned earlier, thus they have a higher spill cost */
+        if (!found_reg) {
+            location = loc_stack;
+        }
 
-        symbol_set_location(node_sym, loc_stack);
+        /* Store the location assignment for the symbols */
+        for (int j = 0; j < ignode_symid_count(node); ++j) {
+            Symbol* node_sym = symtab_get(p, ignode_symid(node, j));
+            symbol_set_location(node_sym, location);
+        }
     }
 
     /* Spilled variables are guaranteed to remain spilled, as nodes
@@ -1305,8 +1416,17 @@ static void debug_print_cfg(Parser* p) {
 static void debug_print_ig(Parser* p) {
     LOGF("Interference graph [%d]\n", vec_size(&p->ig));
     for (int i = 0; i < vec_size(&p->ig); ++i) {
-        LOGF("  Node %d %s\n", i, symbol_name(symtab_get(p, i)));
-        IGNode* node = ig_node(p, i);
+        IGNode* node = &vec_at(&p->ig, i);
+        /* Omit nodes which were coalesced */
+        if (ignode_symid_count(node) == 0) {
+            continue;
+        }
+
+        LOGF("  Node %d", i);
+        for (int j = 0; j < ignode_symid_count(node); ++j) {
+            LOGF(" %s", symbol_name(symtab_get(p, ignode_symid(node, j))));
+        }
+        LOG("\n");
 
         /* Spill cost */
         LOGF("    Spill cost %ld\n", ignode_cost(node));

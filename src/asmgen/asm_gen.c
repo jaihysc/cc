@@ -1778,6 +1778,8 @@ static void cfg_compute_pasm(Parser* p) {
                             SymbolId arg_id = ilstat_arg(ilstat, index);
                             Symbol* arg_sym = symtab_get(p, arg_id);
 
+                            ASSERT(symbol_bytes(arg_sym) > 0,
+                                    "Attempted to create temporary of 0 bytes");
                             id = symtab_add_temporary(p, symbol_type(arg_sym));
                             created_id[0] = id;
                             created[0] = 1;
@@ -1799,8 +1801,8 @@ static void cfg_compute_pasm(Parser* p) {
                         for (int m = 0; m < ilstat_argc(ilstat); ++m) {
                             SymbolId id = ilstat_arg(ilstat, m);
                             Symbol* sym = symtab_get(p, id);
-                            if (symbol_is_var(sym)) {
-                                bytes = symbol_bytes(sym);
+                            bytes = symbol_bytes(sym);
+                            if (bytes != 0) {
                                 break;
                             }
                         }

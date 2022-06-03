@@ -158,6 +158,117 @@ static Register reg_get(Location loc, int bytes) {
     }
 }
 
+/* Converts Register into a Location */
+static Location reg_loc(Register reg) {
+    switch (reg) {
+        case reg_al:
+        case reg_ah:
+        case reg_ax:
+        case reg_eax:
+        case reg_rax:
+            return loc_a;
+
+        case reg_bl:
+        case reg_bh:
+        case reg_bx:
+        case reg_ebx:
+        case reg_rbx:
+            return loc_b;
+
+        case reg_cl:
+        case reg_ch:
+        case reg_cx:
+        case reg_ecx:
+        case reg_rcx:
+            return loc_c;
+
+        case reg_dl:
+        case reg_dh:
+        case reg_dx:
+        case reg_edx:
+        case reg_rdx:
+            return loc_d;
+
+        case reg_sil:
+        case reg_si:
+        case reg_esi:
+        case reg_rsi:
+            return loc_si;
+
+        case reg_dil:
+        case reg_di:
+        case reg_edi:
+        case reg_rdi:
+            return loc_di;
+
+        case reg_bpl:
+        case reg_bp:
+        case reg_ebp:
+        case reg_rbp:
+            return loc_bp;
+
+        case reg_spl:
+        case reg_sp:
+        case reg_esp:
+        case reg_rsp:
+            return loc_sp;
+
+        case reg_r8b:
+        case reg_r8w:
+        case reg_r8d:
+        case reg_r8:
+            return loc_8;
+
+        case reg_r9b:
+        case reg_r9w:
+        case reg_r9d:
+        case reg_r9:
+            return loc_9;
+
+        case reg_r10b:
+        case reg_r10w:
+        case reg_r10d:
+        case reg_r10:
+            return loc_10;
+
+        case reg_r11b:
+        case reg_r11w:
+        case reg_r11d:
+        case reg_r11:
+            return loc_11;
+
+        case reg_r12b:
+        case reg_r12w:
+        case reg_r12d:
+        case reg_r12:
+            return loc_12;
+
+        case reg_r13b:
+        case reg_r13w:
+        case reg_r13d:
+        case reg_r13:
+            return loc_13;
+
+        case reg_r14b:
+        case reg_r14w:
+        case reg_r14d:
+        case reg_r14:
+            return loc_14;
+
+        case reg_r15b:
+        case reg_r15w:
+        case reg_r15d:
+        case reg_r15:
+            return loc_15;
+
+        case reg_none:
+            return loc_none;
+
+        default:
+            ASSERT(0, "Invalid register");
+    }
+}
+
 /* Converts given asm_register into its corresponding cstr*/
 static const char* reg_str(Register reg) {
     ASSERT(reg >= 0, "Invalid register");
@@ -211,9 +322,11 @@ static const char* asm_size_directive(int bytes) {
     ASMINS(jmp)   \
     ASMINS(jnz)   \
     ASMINS(jz)    \
+    ASMINS(leave) \
     ASMINS(mov)   \
     ASMINS(pop)   \
     ASMINS(push)  \
+    ASMINS(ret)   \
     ASMINS(sete)  \
     ASMINS(setl)  \
     ASMINS(setle) \

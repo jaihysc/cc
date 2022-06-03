@@ -4,11 +4,11 @@
 
 struct PasmStatement {
     AsmIns ins;
-    /* 0 = Location
+    /* 0 = Register
        1 = SymbolId */
     int op_type[MAX_ASM_OP];
     union {
-        Location loc;
+        Register reg;
         SymbolId id;
     } op[MAX_ASM_OP];
     int op_count;
@@ -39,8 +39,8 @@ static AsmIns pasmstat_ins(const PasmStatement* stat) {
     return stat->ins;
 }
 
-/* Returns 1 if operand at index i is a location, 0 if not */
-static int pasmstat_is_loc(const PasmStatement* stat, int i) {
+/* Returns 1 if operand at index i is a Register, 0 if not */
+static int pasmstat_is_reg(const PasmStatement* stat, int i) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
@@ -55,23 +55,23 @@ static int pasmstat_is_sym(const PasmStatement* stat, int i) {
     return stat->op_type[i] == 1;
 }
 
-/* Interprets operand at index i as Location and returns the Location
+/* Interprets operand at index i as Register and returns the Register
    for pseudo-assembly statement */
-static Location pasmstat_op_loc(const PasmStatement* stat, int i) {
+static Register pasmstat_op_reg(const PasmStatement* stat, int i) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
-    ASSERT(pasmstat_is_loc(stat, i), "Incorrect op type");
-    return stat->op[i].loc;
+    ASSERT(pasmstat_is_reg(stat, i), "Incorrect op type");
+    return stat->op[i].reg;
 }
 
-/* Treats operand at index i as a Location, sets Location at index i for
+/* Treats operand at index i as a Register, sets Register at index i for
    pseudo-assembly statement */
-static void pasmstat_set_op_loc(PasmStatement* stat, int i, Location loc) {
+static void pasmstat_set_op_reg(PasmStatement* stat, int i, Register reg) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
-    stat->op[i].loc = loc;
+    stat->op[i].reg = reg;
     stat->op_type[i] = 0;
 }
 
@@ -203,7 +203,9 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
         case asmins_jmp:
         case asmins_jnz:
         case asmins_jz:
+        case asmins_leave:
         case asmins_pop:
+        case asmins_ret:
         case asmins_sete:
         case asmins_setl:
         case asmins_setle:
@@ -248,7 +250,9 @@ static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
         case asmins_jmp:
         case asmins_jnz:
         case asmins_jz:
+        case asmins_leave:
         case asmins_push:
+        case asmins_ret:
         case asmins_test:
             return 0;
 

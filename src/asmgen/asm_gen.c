@@ -38,6 +38,7 @@ typedef struct {
     int op_type[MAX_ASM_OP];
     union {
         Location loc;
+        Register reg;
         /* Index of the argument in IL instruction */
         int index;
     } op[MAX_ASM_OP];
@@ -66,12 +67,20 @@ static int ismr_op_virtual(const InsSelMacroReplace* ismr, int i) {
     return ismr->op_type[i] == 1;
 }
 
+/* Returns 1 if operand at index i is a physical register location, 0 if not */
+static int ismr_op_location(const InsSelMacroReplace* ismr, int i) {
+    ASSERT(ismr != NULL, "Macro replace is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < ismr->op_count, "Index out of range");
+    return ismr->op_type[i] == 2;
+}
+
 /* Returns 1 if operand at index i is a physical register, 0 if not */
 static int ismr_op_physical(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < ismr->op_count, "Index out of range");
-    return ismr->op_type[i] == 2;
+    return ismr->op_type[i] == 3;
 }
 
 /* Interprets operand at index i as a virtual register (Symbol) and returns the
@@ -84,12 +93,19 @@ static int ismr_op_index(const InsSelMacroReplace* ismr, int i) {
     return ismr->op[i].index;
 }
 
-/* Interprets operand at index i as a physical register (Location) and returns
+/* Interprets operand at index i as a physical register location and returns
    it */
 static Location ismr_op_loc(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op_physical(ismr, i), "Incorrect op1 type");
+    ASSERT(ismr_op_location(ismr, i), "Incorrect op1 type");
     return ismr->op[i].loc;
+}
+
+/* Interprets operand at index i as a physical register and returns it */
+static Register ismr_op_reg(const InsSelMacroReplace* ismr, int i) {
+    ASSERT(ismr != NULL, "Macro replace is null");
+    ASSERT(ismr_op_physical(ismr, i), "Incorrect op1 type");
+    return ismr->op[i].reg;
 }
 
 /* Returns number of operands this replacement specifies */
@@ -848,8 +864,8 @@ static int cfg_compute_reg_pref(Parser* p, PasmStatement* stat) {
            for now */
         ASSERT(pasmstat_op_count(pushed_stat) == 1, "Only 1 operand supported");
         ASSERT(pasmstat_op_count(stat) == 1, "Only 1 operand supported");
-        if (pasmstat_is_loc(pushed_stat, 0) == pasmstat_is_loc(stat, 0)) {
-            if (pasmstat_op_loc(pushed_stat, 0) != pasmstat_op_loc(stat, 0)) {
+        if (pasmstat_is_reg(pushed_stat, 0) == pasmstat_is_reg(stat, 0)) {
+            if (pasmstat_op_reg(pushed_stat, 0) != pasmstat_op_reg(stat, 0)) {
                 return 1;
             }
         }
@@ -872,17 +888,19 @@ static int cfg_compute_reg_pref(Parser* p, PasmStatement* stat) {
         }
 
         /* Apply decrement in register preference score to live variables */
-        Location loc = pasmstat_op_loc(pushed_stat, 0);
+        Register reg = pasmstat_op_reg(pushed_stat, 0);
         for (int i = 0; i < vec_size(&p->cfg_live_buf); ++i) {
             SymbolId id = vec_at(&p->cfg_live_buf, i);
             IGNode* node = ig_node(p, id);
-            ignode_inc_reg_pref(node, loc, -1);
+            ignode_inc_reg_pref(node, reg_loc(reg), -1);
         }
 
         (void)vec_pop_back(&p->cfg_pasm_stack);
     }
     return 1;
 }
+
+static void cg_ref_symbol(Parser* p, SymbolId sym_id);
 
 /* Traverses the blocks in the control flow graph and emits assembly
    Requires register allocation decision */
@@ -912,14 +930,39 @@ static void cfg_output_asm(Parser* p) {
             parser_output_asm(p, "%s:\n", symbol_name(symtab_get(p, lab_id)));
         }
 
-        /* ILStatements for block */
-        for (int j = 0; j < block_ilstat_count(blk); ++j) {
-            ILStatement* stat = block_ilstat(blk, j);
-            InsCgHandler cg_handler = il_get_cgi(ilstat_ins(stat));
-            ASSERT(cg_handler != NULL, "Failed to find handler for codegen");
+        /* Convert PasmStatement to assembly */
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            /* Instruction */
+            for (int k = 0; k < ASM_INS_INDENT; ++k) {
+                parser_output_asm(p, " ");
+            }
+            PasmStatement* stat = block_pasmstat(blk, j);
+            const char* ins = asmins_str(pasmstat_ins(stat));
+            int ins_len = strlength(ins);
+            parser_output_asm(p, "%s", ins);
 
-            cg_handler(p, stat);
-            if (parser_has_error(p)) return;
+            /* Operands */
+
+            /* Need at least 1 space to separate instruction from operand */
+            parser_output_asm(p, " ");
+            for (int k = 1; k < ASM_OP_INDENT - ASM_INS_INDENT - ins_len; ++k) {
+                parser_output_asm(p, " ");
+            }
+            for (int k = 0; k < pasmstat_op_count(stat); ++k) {
+                if (k != 0) {
+                    parser_output_asm(p, ", ");
+                }
+                if (pasmstat_is_reg(stat, k)) {
+                    Register reg = pasmstat_op_reg(stat, k);
+                    parser_output_asm(p, "%s", reg_str(reg));
+                }
+                else {
+                    ASSERT(pasmstat_is_sym(stat, k),
+                            "Expected PasmStatement operand as symbol");
+                    cg_ref_symbol(p, pasmstat_op_sym(stat, k));
+                }
+            }
+            parser_output_asm(p, "\n");
         }
     }
 }
@@ -1388,9 +1431,9 @@ static void debug_print_cfg(Parser* p) {
                 else {
                     LOG(",");
                 }
-                if (pasmstat_is_loc(stat, k)) {
-                    Location loc = pasmstat_op_loc(stat, k);
-                    LOGF("%s", loc_str(loc));
+                if (pasmstat_is_reg(stat, k)) {
+                    Register reg = pasmstat_op_reg(stat, k);
+                    LOGF("%s", reg_str(reg));
                 }
                 else if (pasmstat_is_sym(stat, k)) {
                     SymbolId id = pasmstat_op_sym(stat, k);
@@ -1500,7 +1543,6 @@ static void cg_insrs(
 static void cg_movss(Parser* p, SymbolId source, SymbolId dest);
 static void cg_movsr(Parser* p, SymbolId source, Location dest);
 static void cg_movrs(Parser* p, Location source, SymbolId dest);
-static void cg_ref_symbol(Parser* p, SymbolId sym_id);
 static void cg_extract_param(const char* str, char* type, char* name);
 static void cg_validate_equal_size2(Parser* p,
         SymbolId lval_id, SymbolId rval_id);
@@ -1735,10 +1777,29 @@ static void cfg_compute_pasm(Parser* p) {
                         SymbolId id = ilstat_arg(ilstat, index);
                         pasmstat_set_op_sym(&pasmstat, l, id);
                     }
+                    else if (ismr_op_location(ismr, l)) {
+                        /* Find the first symbol of the IL and use its size
+                           to convert location to a register */
+                        int bytes = 0;
+                        for (int m = 0; m < ilstat_argc(ilstat); ++m) {
+                            SymbolId id = ilstat_arg(ilstat, m);
+                            Symbol* sym = symtab_get(p, id);
+                            if (symbol_is_var(sym)) {
+                                bytes = symbol_bytes(sym);
+                                break;
+                            }
+                        }
+                        ASSERT(bytes != 0,
+                                "Failed to calculate size for register");
+                        pasmstat_set_op_reg(
+                                &pasmstat,
+                                l,
+                                reg_get(ismr_op_loc(ismr, l), bytes));
+                    }
                     else {
                         ASSERT(ismr_op_physical(ismr, l),
                                 "Incorrect InsSelMacroReplace operand type");
-                        pasmstat_set_op_loc(&pasmstat, l, ismr_op_loc(ismr, l));
+                        pasmstat_set_op_reg(&pasmstat, l, ismr_op_reg(ismr, l));
                     }
                 }
 

@@ -17,6 +17,8 @@ struct PasmStatement {
     vec_t(SymbolId) live_in;
     /* Live symbols after this statement */
     vec_t(SymbolId) live_out;
+    /* Overrides byte size of operand, negative number for no override */
+    int size_override[MAX_ASM_OP];
 };
 
 /* Initializes values in pseudo-assembly statement */
@@ -94,6 +96,22 @@ static void pasmstat_set_op_sym(PasmStatement* stat, int i, SymbolId id) {
     ASSERT(id >= 0, "Invalid SymbolId");
     stat->op[i].id = id;
     stat->op_type[i] = 1;
+}
+
+/* Returns size override for operand index i for pseudo-assembly statement */
+static int pasmstat_size_override(PasmStatement* stat, int i) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    return stat->size_override[i];
+}
+
+/* Sets size override for operand index i for pseudo-assembly statement */
+static void pasmstat_set_size_override(PasmStatement* stat, int i, int size) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    stat->size_override[i] = size;
 }
 
 /* Returns the number of operands in pseudo-assembly statement */

@@ -43,6 +43,8 @@ typedef struct {
         int index;
     } op[MAX_ASM_OP];
     int op_count;
+    /* See INSSEL_MACRO_REPLACE for usage of size override */
+    int size_override[MAX_ASM_OP];
 } InsSelMacroReplace;
 
 /* Returns AsmIns */
@@ -106,6 +108,12 @@ static Register ismr_op_reg(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
     ASSERT(ismr_op_physical(ismr, i), "Incorrect op1 type");
     return ismr->op[i].reg;
+}
+
+/* Returns size override for operand index i */
+static int ismr_size_override(const InsSelMacroReplace* ismr, int i) {
+    ASSERT(ismr != NULL, "Macro replace is null");
+    return ismr->size_override[i];
 }
 
 /* Returns number of operands this replacement specifies */
@@ -900,7 +908,9 @@ static int cfg_compute_reg_pref(Parser* p, PasmStatement* stat) {
     return 1;
 }
 
+/* Keep old old codegen functions working until they are deleted */
 static void cg_ref_symbol(Parser* p, SymbolId sym_id);
+static void cg_ref_symbol2(Parser* p, SymbolId sym_id, int override);
 
 /* Traverses the blocks in the control flow graph and emits assembly
    Requires register allocation decision */
@@ -959,7 +969,8 @@ static void cfg_output_asm(Parser* p) {
                 else {
                     ASSERT(pasmstat_is_sym(stat, k),
                             "Expected PasmStatement operand as symbol");
-                    cg_ref_symbol(p, pasmstat_op_sym(stat, k));
+                    int override = pasmstat_size_override(stat, k);
+                    cg_ref_symbol2(p, pasmstat_op_sym(stat, k), override);
                 }
             }
             parser_output_asm(p, "\n");
@@ -1753,6 +1764,10 @@ static void cfg_compute_pasm(Parser* p) {
                 pasmstat_construct(&pasmstat,
                         ismr_ins(ismr), ismr_op_count(ismr));
                 for (int l = 0; l < ismr_op_count(ismr); ++l) {
+                    /* Transfer the size override over */
+                    pasmstat_set_size_override(&pasmstat, l,
+                            ismr_size_override(ismr, l));
+
                     if (ismr_op_new(ismr, l)) {
                         /* Use the newly created symbol if it exists
                            otherwise create it */
@@ -2254,9 +2269,15 @@ static void cg_movrs(Parser* p, Location source, SymbolId dest) {
 }
 
 /* Generates assembly code to reference symbol
-   Example: "dword [rbp+10]" */
-static void cg_ref_symbol(Parser* p, SymbolId sym_id) {
+   Example: "dword [rbp+10]"
+   If override >= 0, the override is interpreted as the the byte size of
+   the symbol */
+static void cg_ref_symbol2(Parser* p, SymbolId sym_id, int override) {
     Symbol* sym = symtab_get(p, sym_id);
+    int bytes = symbol_bytes(sym);
+    if (override >= 0) {
+        bytes = override;
+    }
 
     if (symbol_on_stack(sym)) {
         char sign = '+';
@@ -2265,7 +2286,7 @@ static void cg_ref_symbol(Parser* p, SymbolId sym_id) {
             sign = '-';
             abs_offset = -abs_offset;
         }
-        const char* size_dir = asm_size_directive(symbol_bytes(sym));
+        const char* size_dir = asm_size_directive(bytes);
         parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
     }
     else if (symbol_is_constant(sym) || symbol_is_label(sym)) {
@@ -2273,8 +2294,12 @@ static void cg_ref_symbol(Parser* p, SymbolId sym_id) {
     }
     else {
         /* Symbol in register */
-        parser_output_asm(p, "%s", reg_str(symbol_register(sym)));
+        parser_output_asm(p, "%s", reg_get_str(symbol_location(sym), bytes));
     }
+}
+
+static void cg_ref_symbol(Parser* p, SymbolId sym_id) {
+    cg_ref_symbol2(p, sym_id, -1);
 }
 
 /* Extracts the type and the name from str into name and type

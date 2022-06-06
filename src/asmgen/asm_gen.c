@@ -908,6 +908,157 @@ static int cfg_compute_reg_pref(Parser* p, PasmStatement* stat) {
     return 1;
 }
 
+/* Replaces symbol in pseudo-assembly statement with register */
+static void cfg_compute_spill_code_replace(
+        PasmStatement* stat, SymbolId symid, Register reg) {
+    for (int i = 0; i < pasmstat_op_count(stat); ++i) {
+        if (!pasmstat_is_sym(stat, i)) {
+            continue;
+        }
+        if (pasmstat_op_sym(stat, i) == symid) {
+            pasmstat_set_op_reg(stat, i, reg);
+            return;
+        }
+    }
+    ASSERT(0,
+            "Failed to replace operand with reloaded register");
+}
+
+/* Computes spill code between pseudo-assembly statements in blocks
+   Requires statements in blocks
+   Requires register assignments */
+static void cfg_compute_spill_code(Parser* p) {
+    /* Construct the PasmStatements which will be used for spill code */
+    PasmStatement pasm_push;
+    pasmstat_construct(&pasm_push, asmins_push, 1);
+    pasmstat_set_op_reg(&pasm_push, 0, reg_rbx);
+
+    PasmStatement pasm_load;
+    pasmstat_construct(&pasm_load, asmins_mov, 2);
+    /* src,dest operand set when generating for statement */
+
+    PasmStatement pasm_save;
+    pasmstat_construct(&pasm_save, asmins_mov, 2);
+    /* src,dest operand set when generating for statement */
+
+    PasmStatement pasm_pop;
+    pasmstat_construct(&pasm_pop, asmins_pop, 1);
+    pasmstat_set_op_reg(&pasm_pop, 0, reg_rbx);
+
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            /* During the iteration: j will be adjusted so it is always the
+               index of the current statement, so the generated code is
+               correctly inserted before and after the statement */
+
+            /* Will be set to the index of the last generated so statement,
+               so on reloop it increments to the next statement */
+            int j_last_stat = j;
+            Location loc_to_use = loc_a;
+
+            PasmStatement* stat = block_pasmstat(blk, j);
+            SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
+
+            /* Insert spill code for 'def'ed symbols */
+            ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold use");
+            int def_count = pasmstat_def(stat, syms);
+            for (int k = 0; k < def_count; ++k) {
+                /* stat has to be reloaded since the vec holding it may have
+                   resized */
+                stat = block_pasmstat(blk, j);
+
+                Symbol* sym = symtab_get(p, syms[k]);
+                /* Not spilled */
+                if (!symbol_on_stack(sym)) {
+                    continue;
+                }
+
+                /* Replace original statement operand with reloaded register */
+                int bytes = symbol_bytes(sym);
+                Register temp_reg = reg_get(loc_to_use, bytes);
+                cfg_compute_spill_code_replace(stat, syms[k], temp_reg);
+
+                /* Setup the operands for register reload */
+                pasmstat_set_op_reg(&pasm_load, 0, temp_reg);
+                pasmstat_set_op_sym(&pasm_load, 1, syms[k]);
+                pasmstat_set_op_sym(&pasm_save, 0, syms[k]);
+                pasmstat_set_op_reg(&pasm_save, 1, temp_reg);
+                /* x64 must push the full 8 byte register */
+                pasmstat_set_op_reg(&pasm_push, 0, reg_get(loc_to_use, 8));
+                pasmstat_set_op_reg(&pasm_pop, 0, reg_get(loc_to_use, 8));
+
+                if (loc_to_use == loc_15) {
+                    ASSERT(0, "Out of registers to use for spill code");
+                }
+                ++loc_to_use;
+
+                /* Is in this order because it is being inserted at index,
+                   moving existing contents back */
+                if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto error;
+                if (!block_insert_pasmstat(blk, pasm_save, j + 1)) goto error;
+                if (!block_insert_pasmstat(blk, pasm_load, j)) goto error;
+                if (!block_insert_pasmstat(blk, pasm_push, j)) goto error;
+
+                /* push mov (some statement) mov pop
+                   ^        ^ Move j here        ^ Last stat here
+                   ^ Previously here */
+                j += 2;
+                j_last_stat += 4;
+            }
+
+            /* Insert spill code for 'use'd symbols */
+
+            /* stat has to be reloaded since the vec holding it may have
+               resized */
+            stat = block_pasmstat(blk, j);
+            int use_count = pasmstat_use(stat, syms);
+            for (int k = 0; k < use_count; ++k) {
+                /* stat has to be reloaded since the vec holding it may have
+                   resized */
+                stat = block_pasmstat(blk, j);
+
+                Symbol* sym = symtab_get(p, syms[k]);
+                /* Not spilled */
+                if (!symbol_on_stack(sym)) {
+                    continue;
+                }
+
+                /* Replace original statement operand with reloaded register */
+                int bytes = symbol_bytes(sym);
+                Register temp_reg = reg_get(loc_to_use, bytes);
+                cfg_compute_spill_code_replace(stat, syms[k], temp_reg);
+
+                /* Setup the operands for register reload */
+                pasmstat_set_op_reg(&pasm_load, 0, temp_reg);
+                pasmstat_set_op_sym(&pasm_load, 1, syms[k]);
+                /* x64 must push the full 8 byte register */
+                pasmstat_set_op_reg(&pasm_push, 0, reg_get(loc_to_use, 8));
+                pasmstat_set_op_reg(&pasm_pop, 0, reg_get(loc_to_use, 8));
+
+                if (loc_to_use == loc_15) {
+                    ASSERT(0, "Out of registers to use for spill code");
+                }
+                ++loc_to_use;
+
+                if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto error;
+                if (!block_insert_pasmstat(blk, pasm_load, j)) goto error;
+                if (!block_insert_pasmstat(blk, pasm_push, j)) goto error;
+
+                /* push mov (some statement) pop
+                   ^        ^ Move j here    ^ Last stat here
+                   ^ Previously here */
+                j += 2;
+                j_last_stat += 3;
+            }
+            j = j_last_stat;
+        }
+    }
+    return;
+error:
+    parser_set_error(p, ec_outofmemory);
+}
+
 /* Keep old old codegen functions working until they are deleted */
 static void cg_ref_symbol(Parser* p, SymbolId sym_id);
 static void cg_ref_symbol2(Parser* p, SymbolId sym_id, int override);
@@ -962,14 +1113,22 @@ static void cfg_output_asm(Parser* p) {
                 if (k != 0) {
                     parser_output_asm(p, ", ");
                 }
+                int override = pasmstat_size_override(stat, k);
                 if (pasmstat_is_reg(stat, k)) {
                     Register reg = pasmstat_op_reg(stat, k);
-                    parser_output_asm(p, "%s", reg_str(reg));
+
+                    const char* str;
+                    if (override >= 0) {
+                        str = reg_get_str(reg_loc(reg), override);
+                    }
+                    else {
+                        str = reg_str(reg);
+                    }
+                    parser_output_asm(p, "%s", str);
                 }
                 else {
                     ASSERT(pasmstat_is_sym(stat, k),
                             "Expected PasmStatement operand as symbol");
-                    int override = pasmstat_size_override(stat, k);
                     cg_ref_symbol2(p, pasmstat_op_sym(stat, k), override);
                 }
             }
@@ -1827,6 +1986,7 @@ static void cfg_compute_pasm(Parser* p) {
 }
 
 
+
 static INSTRUCTION_CG(add) {
     if (ilstat_argc(stat) != 3) {
         parser_set_error(p, ec_badargs);
@@ -2482,6 +2642,7 @@ static void parse(Parser* p) {
     compute_register(p);
 
     /* Code generation */
+    cfg_compute_spill_code(p);
     cfg_output_asm(p);
 }
 

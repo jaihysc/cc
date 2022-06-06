@@ -148,7 +148,7 @@ The algorithm above minimizes unnecessary spilling, prioritizes the allocation o
 
 ## Code Generator
 
-The code generator converts the pseudo-assembly to assembly by replacing the variables with actual registers determined by the register allocator. Where necessary, the code generator inserts spill code for any spilled variables in instructions. For spill reloads on x86, it will always push the b register because b must be live (as all registers are taken, causing the spill). The reason for choosing the b register is an arbitrary choice. See below for an example.
+The code generator converts the pseudo-assembly to assembly by replacing the variables with actual registers determined by the register allocator. Where necessary, the code generator inserts spill code for any spilled variables in instructions. For spill reloads on x86, it will always push a register because it must be live (as all registers are taken, causing the spill).
 
 The code generator also performs some basic optimizations while generating the final assembly as it is more convenient to do so here. They are the removal of unnecessary instructions when it was revealed during register allocation that the variables are actually in the same locations, or that a register is not live to avoid saving and restoring a register. See below for an example.
 

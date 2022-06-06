@@ -28,6 +28,9 @@ static void pasmstat_construct(PasmStatement* stat, AsmIns ins, int op_count) {
     stat->op_count = op_count;
     vec_construct(&stat->live_in);
     vec_construct(&stat->live_out);
+    for (int i = 0; i < MAX_ASM_OP; ++i) {
+        stat->size_override[i] = -1;
+    }
 }
 
 static void pasmstat_destruct(PasmStatement* stat) {

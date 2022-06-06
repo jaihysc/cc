@@ -123,6 +123,14 @@ static int block_add_pasmstat(Block* blk, PasmStatement stat) {
     return vec_push_back(&blk->pasm_stats, stat);
 }
 
+/* Adds pseudo-assembly statement to block at index, shifting
+   statements after the index to make room
+   Returns 1 if successful, 0 if not */
+static int block_insert_pasmstat(Block* blk, PasmStatement stat, int i) {
+    ASSERT(blk != NULL, "Block is null");
+    return vec_insert(&blk->pasm_stats, stat, i);
+}
+
 /* Adds provided SymbolId to liveness 'def'ed symbols for this block
    if it does not exist. Does nothing if does exist, returns 1
    Returns 1 if successful, 0 if not */

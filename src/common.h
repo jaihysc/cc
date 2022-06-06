@@ -287,6 +287,12 @@ static inline void quicksort(
 #define vec_splice(v__, start__, count__) \
     vec_splice_(vec_unpack_(v__), (start__), (count__))
 
+/* Inserts val at index shifting the elements after the index to make room
+   1 if successful, 0 if error and vector remains unchanged */
+#define vec_insert(v__, val__, idx__)       \
+    (vec_insert_(vec_unpack_(v__), idx__) ? \
+    ((v__)->data[idx__] = (val__), (v__)->length++, 1) : 0)
+
 #define vec_unpack_(v__)      \
     (char**)&(v__)->data,     \
             &(v__)->length,   \
@@ -314,6 +320,25 @@ static inline int vec_reserve_(
         if (ptr == NULL) return 0;
         *data = ptr;
         *capacity = n;
+    }
+    return 1;
+}
+
+static inline int vec_insert_(
+        char** data, int* length, int* capacity, int memsz, int idx) {
+    if (!vec_expand_(data, length, capacity, memsz)) {
+        return 0;
+    }
+    /* |     |     |     | idx |     |     | length |
+                        ^ end             ^ src    ^ ptr */
+    char* ptr = *data + (*length + 1) * memsz - 1;
+    char* src = *data + *length * memsz - 1;
+    char* end = *data + idx * memsz - 1;
+
+    while (src != end) {
+        *ptr = *src;
+        --src;
+        --ptr;
     }
     return 1;
 }

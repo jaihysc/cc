@@ -232,7 +232,7 @@ static int parser_construct(Parser* p) {
     vec_construct(&p->symbol);
     p->symtab_temp_num = 0;
     p->func_name[0] = '\0';
-    if (!inssel_macro_construct(&p->inssel_macro)) goto error;
+    if (!inssel_macro_construct(&p->inssel_macro)) goto newerr;
     vec_construct(&p->cfg);
     vec_construct(&p->cfg_live_buf);
     p->latest_blk = NULL;
@@ -262,7 +262,7 @@ static int parser_construct(Parser* p) {
        it is set when reading from file */
     return 1;
 
-error:
+newerr:
     parser_set_error(p, ec_outofmemory);
     return 0;
 }
@@ -488,8 +488,9 @@ static Block* cfg_find_labelled(Parser* p, SymbolId lab_id) {
     return NULL;
 }
 
-/* Links jumps from blocks to other blocks */
-static void cfg_link_jump_dest(Parser* p) {
+/* Links jumps from blocks to other blocks
+   Returns 1 if successful, 0 if error */
+static int cfg_link_jump_dest(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
         if (block_ilstat_count(blk) == 0) {
@@ -504,23 +505,28 @@ static void cfg_link_jump_dest(Parser* p) {
                 Symbol* lab = symtab_get(p, lab_id);
                 ERRMSGF("Could not find jump label %s\n", symbol_name(lab));
                 parser_set_error(p, ec_invalidlabel);
-                return;
+                return 0;
             }
             block_link(blk, target_blk);
         }
     }
+    return 1;
 }
 
-/* Appends statement into the latest block */
-static void cfg_append_latest(Parser* p, ILStatement stat) {
+/* Appends statement into the latest block
+   Returns 1 if successful, 0 if error */
+static int cfg_append_latest(Parser* p, ILStatement stat) {
     ASSERT(p->latest_blk, "No block exists");
     if (!block_add_ilstat(p->latest_blk, stat)) {
         parser_set_error(p, ec_outofmemory);
+        return 0;
     }
+    return 1;
 }
 
-/* Computes liveness use/def information for each block */
-static void cfg_compute_use_def(Parser* p) {
+/* Computes liveness use/def information for each block
+   Returns 1 if successful, 0 if error */
+static int cfg_compute_use_def(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = block_pasmstat_count(blk) - 1; j >= 0; --j) {
@@ -533,10 +539,7 @@ static void cfg_compute_use_def(Parser* p) {
             for (int k = 0; k < def_count; ++k) {
                 ASSERT(symtab_is_var(p, syms[k]),
                         "Assigned symbol should be variable");
-                if (!block_add_def(blk, syms[k])) {
-                    parser_set_error(p, ec_outofmemory);
-                    return;
-                }
+                if (!block_add_def(blk, syms[k])) goto newerr;
                 block_remove_use(blk, syms[k]);
             }
 
@@ -547,13 +550,15 @@ static void cfg_compute_use_def(Parser* p) {
                 if (!symtab_is_var(p, syms[k])) {
                     continue;
                 }
-                if (!block_add_use(blk, syms[k])) {
-                    parser_set_error(p, ec_outofmemory);
-                    return;
-                }
+                if (!block_add_use(blk, syms[k])) goto newerr;
             }
         }
     }
+    return 1;
+
+newerr:
+    parser_set_error(p, ec_outofmemory);
+    return 0;
 }
 
 /* Performs recursive traversal to compute liveness for blocks in the cfg
@@ -565,16 +570,15 @@ static void cfg_compute_use_def(Parser* p) {
    base: The first block in the array which holds all the blocks, it is
    provided to compute an index to determine whether a block has been
    traversed or not
-   blk: The current block */
-static void cfg_compute_liveness_traverse(
+   blk: The current block
+   Returns 1 if successful, 0 if error */
+static int cfg_compute_liveness_traverse(
         Parser* p, char* status, Block* base, Block* blk) {
     int index = (int)(blk - base);
     ASSERT(status[index] == 0, "Block should be untraversed");
     status[index] = 1; /* Block traversed */
 
     for (int i = 0; i < MAX_BLOCK_LINK; ++i) {
-        if (parser_has_error(p)) return;
-
         Block* next = block_next(blk, i);
         if (!next) {
             continue;
@@ -582,7 +586,9 @@ static void cfg_compute_liveness_traverse(
 
         /* Only traverse next if not traversed */
         if (status[next - base] == 0) {
-            cfg_compute_liveness_traverse(p, status, base, next);
+            if (!cfg_compute_liveness_traverse(p, status, base, next)) {
+                goto error;
+            }
         }
         /* Compute IN[B] and OUT[B]
 
@@ -606,21 +612,23 @@ static void cfg_compute_liveness_traverse(
         int old_out_count = block_out_count(blk);
         for (int j = 0; j < block_in_count(next); ++j) {
             SymbolId new_in = block_in(next, j);
-            if (!block_add_out(blk, new_in)) goto error;
+            if (!block_add_out(blk, new_in)) goto newerr;
 
             /* Check if is in def(B), if not add to IN[B] */
             if (!block_in_def(blk, new_in)) {
-                if (!block_add_in(blk, new_in)) goto error;
+                if (!block_add_in(blk, new_in)) goto newerr;
             }
         }
         if (block_out_count(blk) != old_out_count) {
             status[index] = 2;
         }
     }
-    return;
+    return 1;
 
-error:
+newerr:
     parser_set_error(p, ec_outofmemory);
+error:
+    return 0;
 }
 
 /* Adds symbol to buffer of live symbols
@@ -653,17 +661,18 @@ static void cfg_live_buf_clear(Parser* p) {
 
 /* Computes liveness (live-variable analysis) of blocks in the cfg
    Results saved are Block use/def and in/out
-   Requires pseudo-assembly statements in blocks */
-static void cfg_compute_liveness(Parser* p) {
+   Requires pseudo-assembly statements in blocks
+   Returns 1 if successful, 0 if error */
+static int cfg_compute_liveness(Parser* p) {
     /* Avoid segfault trying to traverse nothing for IN[B]/OUT[B] */
     if (vec_size(&p->cfg) == 0) {
-        return;
+        return 1;
     }
-
-    cfg_compute_use_def(p);
 
     int block_count = vec_size(&p->cfg);
     char status[block_count]; /* Used by cfg_compute_liveness_traverse */
+
+    if (!cfg_compute_use_def(p)) goto error;
 
     /* IN[B] = use(B) union (OUT[B] - def(B))
        Thus add use(B) to IN[B] for all blocks
@@ -673,7 +682,7 @@ static void cfg_compute_liveness(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = 0; j < block_use_count(blk); ++j) {
-            if (!block_add_in(blk, block_use(blk, j))) goto error;
+            if (!block_add_in(blk, block_use(blk, j))) goto newerr;
         }
     }
 
@@ -691,7 +700,7 @@ static void cfg_compute_liveness(Parser* p) {
         }
 
         Block* base = vec_data(&p->cfg);
-        cfg_compute_liveness_traverse(p, status, base, base);
+        if (!cfg_compute_liveness_traverse(p, status, base, base)) goto error;
 
         /* Check if results are stable (no modifications) */
         for (int j = 0; j < block_count; ++j) {
@@ -715,7 +724,7 @@ stable:
         /* Start with OUT[B] live */
         cfg_live_buf_clear(p);
         for (int j = 0; j < block_out_count(blk); ++j) {
-            if (!cfg_live_buf_add(p, block_out(blk, j))) goto error;
+            if (!cfg_live_buf_add(p, block_out(blk, j))) goto newerr;
         }
 
         /* Calculate live symbols before/after each statement */
@@ -726,7 +735,7 @@ stable:
             if (!pasmstat_set_live_out(
                         stat,
                         vec_data(&p->cfg_live_buf),
-                        vec_size(&p->cfg_live_buf))) goto error;
+                        vec_size(&p->cfg_live_buf))) goto newerr;
 
             ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
             if (pasmstat_def(stat, syms) == 1) {
@@ -740,19 +749,21 @@ stable:
                 if (!symtab_is_var(p, syms[k])) {
                     continue;
                 }
-                if (!cfg_live_buf_add(p, syms[k])) goto error;
+                if (!cfg_live_buf_add(p, syms[k])) goto newerr;
             }
 
             if (!pasmstat_set_live_in(
                         stat,
                         vec_data(&p->cfg_live_buf),
-                        vec_size(&p->cfg_live_buf))) goto error;
+                        vec_size(&p->cfg_live_buf))) goto newerr;
         }
     }
-    return;
+    return 1;
 
-error:
+newerr:
     parser_set_error(p, ec_outofmemory);
+error:
+    return 0;
 }
 
 /* Performs recursive traversal to compute loop nesting depth for blocks
@@ -926,8 +937,9 @@ static void cfg_compute_spill_code_replace(
 
 /* Computes spill code between pseudo-assembly statements in blocks
    Requires statements in blocks
-   Requires register assignments */
-static void cfg_compute_spill_code(Parser* p) {
+   Requires register assignments
+   Returns 1 if successful, 0 if error */
+static int cfg_compute_spill_code(Parser* p) {
     /* Construct the PasmStatements which will be used for spill code */
     PasmStatement pasm_push;
     pasmstat_construct(&pasm_push, asmins_push, 1);
@@ -995,10 +1007,10 @@ static void cfg_compute_spill_code(Parser* p) {
 
                 /* Is in this order because it is being inserted at index,
                    moving existing contents back */
-                if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto error;
-                if (!block_insert_pasmstat(blk, pasm_save, j + 1)) goto error;
-                if (!block_insert_pasmstat(blk, pasm_load, j)) goto error;
-                if (!block_insert_pasmstat(blk, pasm_push, j)) goto error;
+                if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto newerr;
+                if (!block_insert_pasmstat(blk, pasm_save, j + 1)) goto newerr;
+                if (!block_insert_pasmstat(blk, pasm_load, j)) goto newerr;
+                if (!block_insert_pasmstat(blk, pasm_push, j)) goto newerr;
 
                 /* push mov (some statement) mov pop
                    ^        ^ Move j here        ^ Last stat here
@@ -1041,9 +1053,9 @@ static void cfg_compute_spill_code(Parser* p) {
                 }
                 ++loc_to_use;
 
-                if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto error;
-                if (!block_insert_pasmstat(blk, pasm_load, j)) goto error;
-                if (!block_insert_pasmstat(blk, pasm_push, j)) goto error;
+                if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto newerr;
+                if (!block_insert_pasmstat(blk, pasm_load, j)) goto newerr;
+                if (!block_insert_pasmstat(blk, pasm_push, j)) goto newerr;
 
                 /* push mov (some statement) pop
                    ^        ^ Move j here    ^ Last stat here
@@ -1054,9 +1066,10 @@ static void cfg_compute_spill_code(Parser* p) {
             j = j_last_stat;
         }
     }
-    return;
-error:
+    return 1;
+newerr:
     parser_set_error(p, ec_outofmemory);
+    return 0;
 }
 
 /* Keep old old codegen functions working until they are deleted */
@@ -1168,33 +1181,36 @@ static IGNode* ig_node(Parser* p, SymbolId id) {
    The index of the symbol in the symbol table corresponds to the
    index of the node in the interference graph
    Requires that the symbol table contents be finalized
-   (will not be changed in the future) */
-static void ig_create_nodes(Parser* p) {
+   (will not be changed in the future)
+   Returns 1 if successful, 0 if error */
+static int ig_create_nodes(Parser* p) {
     ASSERT(vec_size(&p->ig) == 0, "Interference graph nodes already exist");
 
-    if (!vec_reserve(&p->ig, vec_size(&p->symbol))) goto error;
+    if (!vec_reserve(&p->ig, vec_size(&p->symbol))) goto newerr;
     for (int i = 0; i < vec_size(&p->symbol); ++i) {
         Symbol* sym = symtab_get(p, i);
         if (!symbol_is_var(sym)) {
             continue;
         }
 
-        if (!vec_push_backu(&p->ig)) goto error;
+        if (!vec_push_backu(&p->ig)) goto newerr;
         IGNode* node = &vec_back(&p->ig);
         ignode_construct(node);
-        if (!ignode_add_symid(node, i)) goto error;
+        if (!ignode_add_symid(node, i)) goto newerr;
     }
 
-    return;
+    return 1;
 
-error:
+newerr:
     parser_set_error(p, ec_outofmemory);
+    return 0;
 }
 
 /* Constructs edges for the interference graph using the control flow graph
    Requires interference graph nodes to have been created
-   Requires liveness information for blocks to be computed */
-static void ig_compute_edge(Parser* p) {
+   Requires liveness information for blocks to be computed
+   Returns 1 if successful, 0 if error */
+static int ig_compute_edge(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
 
@@ -1224,16 +1240,17 @@ static void ig_compute_edge(Parser* p) {
 
                 /* Link 2 way, this symbol to live symbol,
                    live symbol to this symbol */
-                if (!ignode_link(node, other_node)) goto error;
-                if (!ignode_link(other_node, node)) goto error;
+                if (!ignode_link(node, other_node)) goto newerr;
+                if (!ignode_link(other_node, node)) goto newerr;
             }
         }
     }
 
-    return;
+    return 1;
 
-error:
+newerr:
     parser_set_error(p, ec_outofmemory);
+    return 0;
 }
 
 /* Computes candidates for coalescing to eliminate copies
@@ -1473,12 +1490,13 @@ static void ig_compute_color(Parser* p) {
 }
 
 /* Computes the register to assign to symbols
-   Requires pseudo-asembly statements in blocks */
-static void compute_register(Parser* p) {
-    cfg_compute_liveness(p);
+   Requires pseudo-asembly statements in blocks
+   Returns 1 if successful, 0 if error */
+static int compute_register(Parser* p) {
+    if (!cfg_compute_liveness(p)) goto error;
     cfg_compute_loop_depth(p);
-    ig_create_nodes(p);
-    ig_compute_edge(p);
+    if (!ig_create_nodes(p)) goto error;
+    if (!ig_compute_edge(p)) goto error;
 
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
@@ -1495,10 +1513,10 @@ static void compute_register(Parser* p) {
     }
     ig_compute_spill_cost(p);
     ig_compute_color(p);
-    return;
+    return 1;
 
 error:
-    parser_set_error(p, ec_outofmemory);
+    return 0;
 }
 
 /* Sets up parser data structures to begin parsing a new function */
@@ -1892,8 +1910,9 @@ no_match:
 }
 
 /* Computes pseudo-assembly for statements in blocks
-   Requires statements in blocks */
-static void cfg_compute_pasm(Parser* p) {
+   Requires statements in blocks
+   Returns 1 if successful, 0 if error */
+static int cfg_compute_pasm(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = 0; j < block_ilstat_count(blk); ++j) {
@@ -1979,10 +1998,14 @@ static void cfg_compute_pasm(Parser* p) {
                     }
                 }
 
-                block_add_pasmstat(blk, pasmstat);
+                if (!block_add_pasmstat(blk, pasmstat)) goto newerr;
             }
         }
     }
+    return 1;
+newerr:
+    parser_set_error(p, ec_outofmemory);
+    return 0;
 }
 
 
@@ -2602,7 +2625,9 @@ static int read_instruction(Parser* p) {
     }
 }
 
-static void parse(Parser* p) {
+/* Parses the IL and generates assembly
+   Returns 1 if successful, 0 if error */
+static int parse(Parser* p) {
     while (read_instruction(p)) {
         InsProcHandler proc_handler = il_get_proc(p->ins);
         InsCgHandler cg_handler = il_get_cg(p->ins);
@@ -2610,7 +2635,7 @@ static void parse(Parser* p) {
         if (proc_handler == NULL && cg_handler == NULL) {
             ERRMSGF("Unrecognized instruction %s\n", p->ins);
             parser_set_error(p, ec_invalidins);
-            return;
+            goto error;
         }
 
         if (ins_incfg(ins_from_str(p->ins))) {
@@ -2622,28 +2647,30 @@ static void parse(Parser* p) {
                 stat.arg[i] = sym_id;
             }
 
-            cfg_append_latest(p, stat);
+            if (!cfg_append_latest(p, stat)) goto error;
         }
         /* Instruction gets added first
            then new block is made (e.g., jmp at last block, then new block) */
         if (proc_handler != NULL) {
             proc_handler(p, p->arg_table, p->arg_count);
         }
-        if (parser_has_error(p)) return;
     }
 
     /* Process the last (most recent) function */
-    cfg_link_jump_dest(p);
+    if (!cfg_link_jump_dest(p)) goto error;
 
     /* Instruction selection */
-    cfg_compute_pasm(p);
+    if (!cfg_compute_pasm(p)) goto error;
 
     /* Register allocation */
-    compute_register(p);
+    if (!compute_register(p)) goto error;
 
     /* Code generation */
-    cfg_compute_spill_code(p);
+    if (!cfg_compute_spill_code(p)) goto error;
     cfg_output_asm(p);
+    return 1;
+error:
+    return 0;
 }
 
 /* The index of the option's string in the string array
@@ -2746,7 +2773,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    parse(&p);
+    if (!parse(&p)) goto exit;
 
 exit:
     /* Indicate to the user cause for exiting if errored during parsing */

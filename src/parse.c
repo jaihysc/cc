@@ -1347,10 +1347,12 @@ static SymbolId cg_extract_symbol(Parser* p,
         ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
 /* Code generation helpers */
 static void cg_function_signature(Parser* p, ParseNode* node);
-static SymbolId cg_make_temporary(Parser* p, Type type);
+static SymbolId cg_make_temporary(Parser* p, Type type); /* TODO change to use SymbolId */
+static SymbolId cg_make_temporary2(Parser* p, SymbolId op1, SymbolId op2);
 static SymbolId cg_make_label(Parser* p);
 static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
 static void cg_increment(Parser* p, SymbolId id, int n);
+static Type cg_common_type(Parser* p, SymbolId op1, SymbolId op2);
 
 /* identifier */
 static int parse_identifier(Parser* p, ParseNode* parent) {
@@ -2818,8 +2820,9 @@ static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
     while (node != NULL) {
         SymbolId operand_2 =
             cg_multiplicative_expression(p, parse_node_child(node, 0));
-        SymbolId operand_temp =
-            cg_make_temporary(p, symtab_get_type(p, operand_1));
+        /* Only additive expressions while testing the code generation for
+           promotions for now */
+        SymbolId operand_temp = cg_make_temporary2(p, operand_1, operand_2);
 
         /* Operator can only be of 2 possible types */
         char* operator_token =
@@ -3274,13 +3277,13 @@ static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node) {
         ts_u16, ts_u16,
         ts_i32, ts_i32, ts_i32,
         ts_u32, ts_u32,
-        ts_i32, ts_i32, ts_i32, ts_i32,
-        ts_u32, ts_u32,
+        ts_i32_, ts_i32_, ts_i32_, ts_i32_,
+        ts_u32_, ts_u32_,
         ts_i64, ts_i64, ts_i64, ts_i64,
         ts_u64, ts_u64,
         ts_f32,
         ts_f64,
-        ts_f64,
+        ts_f64_,
     };
 
     /* 22 (max size of arrangements) + 1 for null terminator */
@@ -3399,6 +3402,15 @@ static SymbolId cg_make_temporary(Parser* p, Type type) {
     return sym_id;
 }
 
+/* Creates a temporary with a common type of the two operands
+   Used when the temporary is the result of the two operands */
+static SymbolId cg_make_temporary2(Parser* p, SymbolId op1, SymbolId op2) {
+    SymbolId sym_id = symtab_add_temporary(p, cg_common_type(p, op1, op2));
+
+    parser_output_il(p, "def $t $s\n", sym_id, sym_id);
+    return sym_id;
+}
+
 static SymbolId cg_make_label(Parser* p) {
     SymbolId label_id = symtab_add_label(p);
 
@@ -3414,6 +3426,41 @@ static void cg_assign(Parser* p, SymbolId dest, SymbolId source) {
 /* Generates code to increment provided symbol by n*/
 static void cg_increment(Parser* p, SymbolId id, int n) {
     parser_output_il(p, "add $s,$s,$d\n", id, id, n);
+}
+
+/* Generates code if necessary to convert operand 1 and operand 2 to a common type */
+static Type cg_common_type(Parser* p, SymbolId op1, SymbolId op2) {
+    Type op1_type = symtab_get_type(p, op1);
+    Type op2_type = symtab_get_type(p, op2);
+    TypeSpecifiers op1_typespec_o = type_typespec(&op1_type);
+    TypeSpecifiers op2_typespec_o = type_typespec(&op2_type);
+
+    /* Type promotions */
+    TypeSpecifiers op1_typespec = type_promotion(op1_typespec_o);
+    TypeSpecifiers op2_typespec = type_promotion(op2_typespec_o);
+
+    /* For testing while the IL generation is being written */
+    LOGF("Promotion op1: %s -> %s\n",
+            type_specifiers_str(op1_typespec_o),
+            type_specifiers_str(op1_typespec));
+
+    LOGF("Promotion op2: %s -> %s\n",
+            type_specifiers_str(op2_typespec_o),
+            type_specifiers_str(op2_typespec));
+
+    /* Common type */
+    TypeSpecifiers typespec = type_common(op1_typespec, op2_typespec);
+
+    LOGF("Common type: %s %s -> %s\n",
+            type_specifiers_str(op1_typespec),
+            type_specifiers_str(op2_typespec),
+            type_specifiers_str(typespec));
+
+    ASSERT(type_pointer(&op1_type) == 0,
+            "Common type for pointers unimplemented");
+    Type type = op1_type;
+    type_set_typespec(&type, typespec);
+    return type;
 }
 
 /* ============================================================ */

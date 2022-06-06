@@ -360,18 +360,24 @@ static inline void vec_splice_(
 /* ============================================================ */
 /* Common data types */
 
+/* long needs to map to its own type to correctly calculate implicit
+   conversions, hence the i32_ and u32_
+   Same for long double and f64_ */
 #define TYPE_SPECIFIERS  \
     TYPE_SPECIFIER(void) \
     TYPE_SPECIFIER(i8)   \
     TYPE_SPECIFIER(i16)  \
     TYPE_SPECIFIER(i32)  \
+    TYPE_SPECIFIER(i32_) \
     TYPE_SPECIFIER(i64)  \
     TYPE_SPECIFIER(u8)   \
     TYPE_SPECIFIER(u16)  \
     TYPE_SPECIFIER(u32)  \
+    TYPE_SPECIFIER(u32_) \
     TYPE_SPECIFIER(u64)  \
     TYPE_SPECIFIER(f32)  \
-    TYPE_SPECIFIER(f64)
+    TYPE_SPECIFIER(f64)  \
+    TYPE_SPECIFIER(f64_)
 #define TYPE_SPECIFIER(name__) ts_ ## name__,
 /* ts_none for indicating error */
 typedef enum {ts_none = -1, TYPE_SPECIFIERS ts_count} TypeSpecifiers;
@@ -394,6 +400,30 @@ typedef struct {
 Type type_bool = {.typespec = ts_i32, .pointers = 0};
 /* Type for labels */
 Type type_label = {.typespec = ts_void, .pointers = 0};
+
+/* Returns type specifiers for Type */
+static inline TypeSpecifiers type_typespec(const Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    return type->typespec;
+}
+
+/* Sets type specifiers for Type */
+static inline void type_set_typespec(Type* type, TypeSpecifiers typespec) {
+    ASSERT(type != NULL, "Type is null");
+    type->typespec = typespec;
+}
+
+/* Returns number of pointers for Type */
+static inline int type_pointer(const Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    return type->pointers;
+}
+
+/* Sets number of pointers for Type */
+static inline void type_set_pointer(Type* type, int pointer) {
+    ASSERT(type != NULL, "Type is null");
+    type->pointers = pointer;
+}
 
 /* Converts a string into a type */
 static inline Type type_from_str(const char* str) {
@@ -444,6 +474,8 @@ static inline int type_bytes(Type type) {
             return 2;
         case ts_i32:
             return 4;
+        case ts_i32_:
+            return 4;
         case ts_i64:
             return 8;
         case ts_u8:
@@ -452,11 +484,15 @@ static inline int type_bytes(Type type) {
             return 2;
         case ts_u32:
             return 4;
+        case ts_u32_:
+            return 4;
         case ts_u64:
             return 8;
         case ts_f32:
             return 4;
         case ts_f64:
+            return 8;
+        case ts_f64_:
             return 8;
         case ts_none:
         case ts_count:
@@ -475,6 +511,219 @@ static inline int type_equal(Type lhs, Type rhs) {
         return 0;
     }
     return 1;
+}
+
+/* Returns the integer conversion rank for a given integer type */
+static inline int type_rank(TypeSpecifiers typespec) {
+    switch (typespec) {
+        case ts_i8:
+        case ts_u8:
+            return 1;
+        case ts_i16:
+        case ts_u16:
+            return 2;
+        case ts_i32:
+        case ts_u32:
+            return 3;
+        case ts_i32_:
+        case ts_u32_:
+            return 4;
+        case ts_i64:
+        case ts_u64:
+            return 5;
+        default:
+            ASSERT(0, "Bad type specifier");
+            return 0;
+    }
+}
+
+/* Returns 1 if the provided type is signed, 0 if not */
+static inline int type_signed(TypeSpecifiers typespec) {
+    switch (typespec) {
+        case ts_void:
+        case ts_f32:
+        case ts_f64:
+        case ts_f64_:
+        case ts_u8:
+        case ts_u16:
+        case ts_u32:
+        case ts_u32_:
+        case ts_u64:
+            return 0;
+        case ts_i8:
+        case ts_i16:
+        case ts_i32:
+        case ts_i32_:
+        case ts_i64:
+            return 1;
+        default:
+            ASSERT(0, "Bad type specifier");
+            return 0;
+    }
+}
+
+/* Returns 1 if the provided type is unsigned, 0 if not */
+static inline int type_unsigned(TypeSpecifiers typespec) {
+    switch (typespec) {
+        case ts_void:
+        case ts_f32:
+        case ts_f64:
+        case ts_f64_:
+        case ts_i8:
+        case ts_i16:
+        case ts_i32:
+        case ts_i32_:
+        case ts_i64:
+            return 0;
+        case ts_u8:
+        case ts_u16:
+        case ts_u32:
+        case ts_u32_:
+        case ts_u64:
+            return 1;
+        default:
+            ASSERT(0, "Bad type specifier");
+            return 0;
+    }
+}
+
+/* Returns 1 if the given signed type can represent to given unsigned type */
+static inline int type_signed_represent_unsigned(
+        TypeSpecifiers sign, TypeSpecifiers unsign) {
+    switch (sign) {
+        case ts_i8:
+            return 0;
+        case ts_i16:
+            switch (unsign) {
+                case ts_u8:
+                    return 1;
+                case ts_u16:
+                case ts_u32:
+                case ts_u32_:
+                case ts_u64:
+                    return 0;
+                default:
+                    ASSERT(0, "Bad type specifier");
+                    return 0;
+            }
+        case ts_i32:
+        case ts_i32_:
+            switch (unsign) {
+                case ts_u8:
+                case ts_u16:
+                    return 1;
+                case ts_u32:
+                case ts_u32_:
+                case ts_u64:
+                    return 0;
+                default:
+                    ASSERT(0, "Bad type specifier");
+                    return 0;
+            }
+        case ts_i64:
+            switch (unsign) {
+                case ts_u8:
+                case ts_u16:
+                case ts_u32:
+                case ts_u32_:
+                    return 1;
+                case ts_u64:
+                    return 0;
+                default:
+                    ASSERT(0, "Bad type specifier");
+                    return 0;
+            }
+        default:
+            ASSERT(0, "Bad type specifier");
+            return 0;
+    }
+}
+
+/* Returns the unsigned type for the given signed type */
+static inline TypeSpecifiers type_unsign_signed(TypeSpecifiers typespec) {
+    switch (typespec) {
+        case ts_i8:
+            return ts_u8;
+        case ts_i16:
+            return ts_u16;
+        case ts_i32:
+            return ts_u32;
+        case ts_i32_:
+            return ts_u32_;
+        case ts_i64:
+            return ts_u64;
+        default:
+            ASSERT(0, "Bad type specifier");
+            return 0;
+    }
+}
+
+/* Applies the C 6.3.1.8 Usual arithmetic conversions to obtain a common real
+   type for the operands and result */
+static inline TypeSpecifiers type_common(
+        TypeSpecifiers lhs, TypeSpecifiers rhs) {
+    if (lhs == ts_f64_ || rhs == ts_f64_) {
+        return ts_f64;
+    }
+    if (lhs == ts_f64 || rhs == ts_f64) {
+        return ts_f64;
+    }
+    if (lhs == ts_f32 || rhs == ts_f32) {
+        return ts_f32;
+    }
+    if (lhs == rhs) {
+        return lhs;
+    }
+    if (type_signed(lhs)) {
+        if (type_signed(rhs)) {
+            goto case1;
+        }
+        else {
+            ASSERT(type_unsigned(rhs), "Expected rhs unsigned");
+            if (type_rank(rhs) >= type_rank(lhs)) {
+                return rhs;
+            }
+            if (type_signed_represent_unsigned(lhs, rhs)) {
+                return lhs;
+            }
+            return type_unsign_signed(lhs);
+        }
+    }
+    else if (type_unsigned(lhs)) {
+        if (type_signed(rhs)) {
+            if (type_rank(lhs) >= type_rank(rhs)) {
+                return lhs;
+            }
+            if (type_signed_represent_unsigned(rhs, lhs)) {
+                return rhs;
+            }
+            return type_unsign_signed(rhs);
+        }
+        else {
+            ASSERT(type_unsigned(rhs), "Expected rhs unsigned");
+            goto case1;
+        }
+    }
+
+case1: /* Both have signed or unsigned types */
+    if (type_rank(lhs) < type_rank(rhs)) {
+        return rhs;
+    }
+    return lhs;
+}
+
+/* Applies the C 6.3.1.1 integer promotions on the provided type specifier
+   if applicable and returns the new type, or the old type if no promotion  */
+static inline TypeSpecifiers type_promotion(TypeSpecifiers typespec) {
+    switch (typespec) {
+        case ts_i8:
+        case ts_i16:
+        case ts_u8:
+        case ts_u16:
+            return ts_i32;
+        default:
+            return typespec;
+    }
 }
 
 #endif

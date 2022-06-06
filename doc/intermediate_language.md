@@ -24,6 +24,7 @@ The parser will generate additional symbols with prefix `__`, the following char
 | i8     | 8 bit integer                                                                                                                                      |
 | i16    | 16 bit integer                                                                                                                                     |
 | i32    | 32 bit integer                                                                                                                                     |
+| i32_   | 32 bit integer                                                                                                                                     |
 | i64    | 64 bit integer                                                                                                                                     |
 | u8     | 8 bit unsigned integer                                                                                                                             |
 | u16    | 16 bit unsigned integer                                                                                                                            |
@@ -31,6 +32,7 @@ The parser will generate additional symbols with prefix `__`, the following char
 | u64    | 64 bit unsigned integer                                                                                                                            |
 | f32    | 32 bit floating-point                                                                                                                              |
 | f64    | 64 bit floating-point                                                                                                                              |
+| f64_   | 64 bit floating-point                                                                                                                              |
 
 ## Instructions
 

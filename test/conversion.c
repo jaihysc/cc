@@ -5,15 +5,19 @@ int main(int argc, char** argv) {
     unsigned short d = 4;
     int e = 5;
     unsigned f = 6;
-    long long g = 7;
-    unsigned long long h = 8;
+    long g = 7;
+    unsigned long h = 8;
+    long long i = 9;
+    unsigned long long j = 10;
 
-    return a + b + c + d + e + f + g + h;
+    return a + b + c + d + e + f + g + h + i + j;
     /*     ~~~~~ <- int
                ~~~~~ <- int
                    ~~~~~ <- int
                        ~~~~~ <- int
                            ~~~~~ <- unsigned
-                               ~~~~~ <- long long
-                                   ~~~~~ <- unsigned long long */
+                               ~~~~~ <- long
+                                   ~~~~~ <- unsigned long
+                                       ~~~~~ <- long long
+                                           ~~~~~ <- unsigned long long*/
 }

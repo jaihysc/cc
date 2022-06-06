@@ -3286,11 +3286,18 @@ static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node) {
     /* 22 (max size of arrangements) + 1 for null terminator */
     int i_buf = 0;
     char buf[23];
+    /* Walk through the declaration specifier children to
+       form the type specifier string */
     while (node != NULL) {
         ParseNode* subnode = parse_node_child(node, 0);
         if (parse_node_type(subnode) == st_type_specifier) {
             const char* token =
                 parse_node_token(p, parse_node_child(subnode, 0));
+
+            /* Space to separate tokens, no space for before first token */
+            if (i_buf != 0) {
+                buf[i_buf++] = ' ';
+            }
 
             /* Copy token into buffer */
             int i = 0;
@@ -3304,16 +3311,16 @@ static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node) {
                 ++i;
                 ++i_buf;
             }
-            buf[i_buf] = '\0';
-
-            /* Search for arrangement matching buffer */
-            for (int j = 0; j < count; ++j) {
-                if (strequ(arrangement[j], buf)) {
-                    return typespec[j];
-                }
-            }
         }
         node = parse_node_child(node, 1);
+    }
+
+    buf[i_buf] = '\0';
+    /* Match type specifier string to a corresponding type */
+    for (int j = 0; j < count; ++j) {
+        if (strequ(arrangement[j], buf)) {
+            return typespec[j];
+        }
     }
 
     return ts_none;

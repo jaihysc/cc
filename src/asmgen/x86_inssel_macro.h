@@ -619,9 +619,55 @@
                 REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
             )                                                     \
         )                                                         \
+        /* Implement narrowing by simply accessing the lower */   \
+        /* part of the register */                                \
+        INSSEL_MACRO_CASE(s1s2,                                   \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0, 1,                           \
+                REGISTER_VIRTUAL, 1, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(s1s4,                                   \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0, 1,                           \
+                REGISTER_VIRTUAL, 1, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(s1s8,                                   \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0, 1,                           \
+                REGISTER_VIRTUAL, 1, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(s2s4,                                   \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0, 2,                           \
+                REGISTER_VIRTUAL, 1, 2                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(s2s8,                                   \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0, 2,                           \
+                REGISTER_VIRTUAL, 1, 2                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(s4s8,                                   \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0, 4,                           \
+                REGISTER_VIRTUAL, 1, 4                            \
+            )                                                     \
+        )                                                         \
         /* No need to actually sign extend if the types */        \
         /* are actually the same size */                          \
         INSSEL_MACRO_CASE(ss,                                     \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
+            )                                                     \
+        )                                                         \
+        /* Widening / narrowing of constants can be done */       \
+        /* by the assembler */                                    \
+        INSSEL_MACRO_CASE(si,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
                 REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \

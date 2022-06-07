@@ -1353,6 +1353,8 @@ static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
 static void cg_increment(Parser* p, SymbolId id, int n);
 static SymbolId cg_expression_op2(
         Parser*, ParseNode*, SymbolId (*)(Parser*, ParseNode*));
+static void cg_com_type_rtol(Parser*, SymbolId, SymbolId*);
+
 
 /* identifier */
 static int parse_identifier(Parser* p, ParseNode* parent) {
@@ -3038,6 +3040,7 @@ static SymbolId cg_assignment_expression(Parser* p, ParseNode* node) {
         SymbolId opr_id =
             cg_assignment_expression(p, parse_node_child(node, 2));
 
+        cg_com_type_rtol(p, opl_id, &opr_id);
         const char* token = parse_node_token(p, parse_node_child(node, 1));
         if (strequ(token, "=")) {
             parser_output_il(p, "mov $s,$s\n", opl_id, opr_id);
@@ -3099,6 +3102,7 @@ static void cg_declaration(Parser* p, ParseNode* node) {
     /* R value assigned to l value */
     ParseNode* initializer = parse_node_child(initdecl, 1);
     SymbolId rval_id = cg_initializer(p, initializer);
+    cg_com_type_rtol(p, lval_id, &rval_id);
     cg_assign(p, lval_id, rval_id);
 
     DEBUG_CG_FUNC_END();
@@ -3443,6 +3447,19 @@ static SymbolId cg_expression_op2(
     ASSERT(operator == NULL, "Trailing operator without b-expression");
 
     return op1;
+}
+
+/* If left and right are different types, right operand is converted
+   to type of left operand and the value of the provided right operand
+   is changed to a temporary which has the same type as the left operand */
+static void cg_com_type_rtol(Parser* p, SymbolId opl_id, SymbolId* opr_id) {
+    Type opl_type = symtab_get_type(p, opl_id);
+    Type opr_type = symtab_get_type(p, *opr_id);
+    if (!type_equal(opl_type, opr_type)) {
+        SymbolId temp_id = cg_make_temporary(p, opl_type);
+        parser_output_il(p, "mse $s,$s\n", temp_id, *opr_id);
+        *opr_id = temp_id;
+    }
 }
 
 /* ============================================================ */

@@ -228,6 +228,8 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
         case asmins_leave:
         case asmins_pop:
         case asmins_ret:
+        case asmins_setb:
+        case asmins_setbe:
         case asmins_sete:
         case asmins_setl:
         case asmins_setle:
@@ -256,6 +258,8 @@ static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
         case asmins_xor:
         /* Def 1 */
         case asmins_pop:
+        case asmins_setb:
+        case asmins_setbe:
         case asmins_sete:
         case asmins_setl:
         case asmins_setle:

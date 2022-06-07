@@ -1974,9 +1974,22 @@ static InsSelMacroCase* inssel_find(Parser* p, const ILStatement* stat) {
                     const char c = constraint[i_constraint];
                     ++i_constraint;
 
+                    /* Constrain signedness */
+                    char cn = constraint[i_constraint];
+                    int must_sign = 0;
+                    int must_unsign = 0;
+                    if (cn == 'u') {
+                        ++i_constraint;
+                        must_unsign = 1;
+                    }
+                    else if (cn == 'U') {
+                        ++i_constraint;
+                        must_sign = 1;
+                    }
+
                     /* Constrain byte size */
                     SymbolId arg_id = ilstat_arg(stat, k);
-                    const char cn = constraint[i_constraint];
+                    cn = constraint[i_constraint];
                     if ('0' <= cn && cn <= '9') {
                         ++i_constraint;
                         int bytes = cn - '0';
@@ -1986,13 +1999,23 @@ static InsSelMacroCase* inssel_find(Parser* p, const ILStatement* stat) {
 
                     /* Constrain symbol type */
                     if (c == 'i') {
-                        if (!symtab_is_constant(p, arg_id)) goto no_match;
+                        Symbol* sym = symtab_get(p, arg_id);
+                        Type type = symbol_type(sym);
+                        TypeSpecifiers ts = type_typespec(&type);
+                        if (!symbol_is_constant(sym)) goto no_match;
+                        if (must_sign && !type_signed(ts)) goto no_match;
+                        if (must_unsign && !type_unsigned(ts)) goto no_match;
                     }
                     else if (c == 'l') {
                         if (!symtab_is_label(p, arg_id)) goto no_match;
                     }
                     else if (c == 's') {
-                        if (!symtab_is_var(p, arg_id)) goto no_match;
+                        Symbol* sym = symtab_get(p, arg_id);
+                        Type type = symbol_type(sym);
+                        TypeSpecifiers ts = type_typespec(&type);
+                        if (!symbol_is_var(sym)) goto no_match;
+                        if (must_sign && !type_signed(ts)) goto no_match;
+                        if (must_unsign && !type_unsigned(ts)) goto no_match;
                     }
                     else {
                         ASSERTF(0, "Invalid constraint character %c", c);

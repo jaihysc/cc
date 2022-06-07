@@ -1354,6 +1354,7 @@ static void cg_increment(Parser* p, SymbolId id, int n);
 static SymbolId cg_expression_op2(
         Parser*, ParseNode*, SymbolId (*)(Parser*, ParseNode*));
 static void cg_com_type_rtol(Parser*, SymbolId, SymbolId*);
+static Type cg_com_type_lr(Parser*, SymbolId*, SymbolId*);
 
 
 /* identifier */
@@ -1722,11 +1723,11 @@ static int parse_equality_expression(Parser* p, ParseNode* parent) {
     if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "==")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "==");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "ce");
         if (!parse_equality_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "!=")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "!=");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "cne");
         if (!parse_equality_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     PARSE_MATCHED();
@@ -2839,12 +2840,11 @@ static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
     ParseNode* operator = parse_node_child(node, 1);
     node = parse_node_child(node, 2);
     while (node != NULL) {
-        /* TODO in the future these logical operations must
-           all return type int */
         SymbolId operand_2 =
             cg_shift_expression(p, parse_node_child(node, 0));
-        SymbolId operand_temp =
-            cg_make_temporary(p, symtab_get_type(p, operand_1));
+
+        Type com_type = cg_com_type_lr(p, &operand_1, &operand_2);
+        SymbolId operand_temp = cg_make_temporary(p, com_type);
 
         const char* operator_token = parse_node_token(p, operator);
         if (strequ(operator_token, "<")) {
@@ -2879,35 +2879,10 @@ static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_equality_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(equality_expression);
 
-    SymbolId operand_1 = cg_relational_expression(p, parse_node_child(node, 0));
-    ParseNode* operator = parse_node_child(node, 1);
-    node = parse_node_child(node, 2);
-    while (node != NULL) {
-        SymbolId operand_2 =
-            cg_relational_expression(p, parse_node_child(node, 0));
-        SymbolId operand_temp =
-            cg_make_temporary(p, symtab_get_type(p, operand_1));
-
-        const char* operator_token = parse_node_token(p, operator);
-        if (strequ(operator_token, "==")) {
-            parser_output_il(p, "ce $s,$s,$s\n",
-                    operand_temp, operand_1, operand_2);
-        }
-        else {
-            ASSERT(strequ(operator_token, "!="), "Invalid token");
-            parser_output_il(p, "cne $s,$s,$s\n",
-                    operand_temp, operand_1, operand_2);
-        }
-
-        operand_1 = operand_temp;
-        operator = parse_node_child(node, 1);
-        node = parse_node_child(node, 2);
-    }
-    ASSERT(operator == NULL,
-            "Trailing operator without relational-expression");
+    SymbolId id = cg_expression_op2(p, node, cg_relational_expression);
 
     DEBUG_CG_FUNC_END();
-    return operand_1;
+    return id;
 }
 
 static SymbolId cg_and_expression(Parser* p, ParseNode* node) {
@@ -3421,20 +3396,7 @@ static SymbolId cg_expression_op2(
     while (node != NULL) {
         SymbolId op2 = cg_b_expr(p, parse_node_child(node, 0));
 
-        Type com_type = type_common(
-                type_promotion(symtab_get_type(p, op1)),
-                type_promotion(symtab_get_type(p, op2)));
-        if (!type_equal(symtab_get_type(p, op1), com_type)) {
-            SymbolId promoted_id = cg_make_temporary(p, com_type);
-            parser_output_il(p, "mse $s,$s\n", promoted_id, op1);
-            op1 = promoted_id;
-        }
-        if (!type_equal(symtab_get_type(p, op2), com_type)) {
-            SymbolId promoted_id = cg_make_temporary(p, com_type);
-            parser_output_il(p, "mse $s,$s\n", promoted_id, op2);
-            op2 = promoted_id;
-        }
-
+        Type com_type = cg_com_type_lr(p, &op1, &op2);
         SymbolId op_temp = cg_make_temporary(p, com_type);
         const char* il_ins =
             parser_get_token(p, parse_node_token_id(operator));
@@ -3460,6 +3422,27 @@ static void cg_com_type_rtol(Parser* p, SymbolId opl_id, SymbolId* opr_id) {
         parser_output_il(p, "mse $s,$s\n", temp_id, *opr_id);
         *opr_id = temp_id;
     }
+}
+
+/* A common type is calculated with op1 and op2, if necessary both
+   are converted to the common type and the provided op1 op2 changed
+   to the id of the temporaries holding op1 and op2 as common type
+   The common type is returned */
+static Type cg_com_type_lr(Parser* p, SymbolId* op1_id, SymbolId* op2_id) {
+    Type com_type = type_common(
+            type_promotion(symtab_get_type(p, *op1_id)),
+            type_promotion(symtab_get_type(p, *op2_id)));
+    if (!type_equal(symtab_get_type(p, *op1_id), com_type)) {
+        SymbolId promoted_id = cg_make_temporary(p, com_type);
+        parser_output_il(p, "mse $s,$s\n", promoted_id, *op1_id);
+        *op1_id = promoted_id;
+    }
+    if (!type_equal(symtab_get_type(p, *op2_id), com_type)) {
+        SymbolId promoted_id = cg_make_temporary(p, com_type);
+        parser_output_il(p, "mse $s,$s\n", promoted_id, *op2_id);
+        *op2_id = promoted_id;
+    }
+    return com_type;
 }
 
 /* ============================================================ */

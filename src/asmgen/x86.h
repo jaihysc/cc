@@ -328,6 +328,8 @@ static const char* asm_size_directive(int bytes) {
     ASMINS(pop)   \
     ASMINS(push)  \
     ASMINS(ret)   \
+    ASMINS(setb)  \
+    ASMINS(setbe) \
     ASMINS(sete)  \
     ASMINS(setl)  \
     ASMINS(setle) \

@@ -18,17 +18,29 @@
 
      constraint__: A string which constrains when this case can be applied,
                    using a string allows for more complex constraints.
-                   e.g., Apply only to a constant 1 (for x86 inc)
+
+                   [] denodes a group, each group has 1 letter, each letter
+                   separated by |. The first group [s|i|l] is required.
+
+                   [s|i|l][u|U][0|1|2|3|4|5|6|7|8|9] ...
+
                    s = Register/Memory
                    i = Immediate
                    l = Label
-                   A number may follow the letter to constrain the byte size
-                   Multiple constraints are separated by spaces, only one
-                   of the constraints needs to match for the case to be valid
+                   u = Unsigned
+                   U = Signed
 
-                   Example: s1i2 s3s4
-                   To match this constraint: arg1 can be a 1 byte symbol
-                   and arg2 be a 2 byte immediate - or arg1 can be a 3
+                   - A number may follow to constrain the byte size
+                   - Multiple constraints are separated by spaces, only one of
+                     the constraints needs to match for the case to be valid
+
+                   Example: su1i2 s3s4
+                            ~~~        arg1
+                               ~~      arg2
+                                  ~~   arg3
+                                    ~~ arg4
+                   To match this constraint: arg1 must be a 1 byte unsigned
+                   symbol and arg2 be a 2 byte immediate - or arg1 can be a 3
                    byte symbol and arg2 be a 4 byte symbol
      replaces__: Define pseudo-assembly which this macro replaces to using
                  INSSEL_MACRO_REPLACE
@@ -157,7 +169,7 @@
         )                                                         \
     )                                                             \
     INSSEL_MACRO(cl,                                              \
-        INSSEL_MACRO_CASE(sss,                                    \
+        INSSEL_MACRO_CASE(ssUsU,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
@@ -170,7 +182,7 @@
                 REGISTER_VIRTUAL, 0, 1                            \
             )                                                     \
         )                                                         \
-        INSSEL_MACRO_CASE(ssi,                                    \
+        INSSEL_MACRO_CASE(ssUiU,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
@@ -183,7 +195,7 @@
                 REGISTER_VIRTUAL, 0, 1                            \
             )                                                     \
         )                                                         \
-        INSSEL_MACRO_CASE(sis,                                    \
+        INSSEL_MACRO_CASE(siUsU,                                  \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0, SIZE_DEFAULT,                    \
                 REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
@@ -197,12 +209,55 @@
                 REGISTER_VIRTUAL, 2, SIZE_DEFAULT                 \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setl,                           \
+                REGISTER_VIRTUAL, 0, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(ssusu,                                  \
+            INSSEL_MACRO_REPLACE2(xor,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(cmp,                            \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 2, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE1(setb,                           \
+                REGISTER_VIRTUAL, 0, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(ssuiu,                                  \
+            INSSEL_MACRO_REPLACE2(xor,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(cmp,                            \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 2, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE1(setb,                           \
+                REGISTER_VIRTUAL, 0, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(siusu,                                  \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_NEW, 0, SIZE_DEFAULT,                    \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(xor,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(cmp,                            \
+                REGISTER_NEW, 0, SIZE_DEFAULT,                    \
+                REGISTER_VIRTUAL, 2, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE1(setb,                           \
                 REGISTER_VIRTUAL, 0, 1                            \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(cle,                                             \
-        INSSEL_MACRO_CASE(sss,                                    \
+        INSSEL_MACRO_CASE(ssUsU,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
@@ -215,7 +270,7 @@
                 REGISTER_VIRTUAL, 0, 1                            \
             )                                                     \
         )                                                         \
-        INSSEL_MACRO_CASE(ssi,                                    \
+        INSSEL_MACRO_CASE(ssUiU,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
@@ -228,7 +283,7 @@
                 REGISTER_VIRTUAL, 0, 1                            \
             )                                                     \
         )                                                         \
-        INSSEL_MACRO_CASE(sis,                                    \
+        INSSEL_MACRO_CASE(siUsU,                                  \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0, SIZE_DEFAULT,                    \
                 REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
@@ -242,6 +297,49 @@
                 REGISTER_VIRTUAL, 2, SIZE_DEFAULT                 \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setle,                          \
+                REGISTER_VIRTUAL, 0, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(ssusu,                                  \
+            INSSEL_MACRO_REPLACE2(xor,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(cmp,                            \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 2, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE1(setbe,                          \
+                REGISTER_VIRTUAL, 0, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(ssuiu,                                  \
+            INSSEL_MACRO_REPLACE2(xor,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(cmp,                            \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 2, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE1(setbe,                          \
+                REGISTER_VIRTUAL, 0, 1                            \
+            )                                                     \
+        )                                                         \
+        INSSEL_MACRO_CASE(siusu,                                  \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_NEW, 0, SIZE_DEFAULT,                    \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(xor,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(cmp,                            \
+                REGISTER_NEW, 0, SIZE_DEFAULT,                    \
+                REGISTER_VIRTUAL, 2, SIZE_DEFAULT                 \
+            )                                                     \
+            INSSEL_MACRO_REPLACE1(setbe,                          \
                 REGISTER_VIRTUAL, 0, 1                            \
             )                                                     \
         )                                                         \

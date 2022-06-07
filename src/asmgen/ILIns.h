@@ -24,6 +24,7 @@
     INSTRUCTION(lab)  \
     INSTRUCTION(mod)  \
     INSTRUCTION(mov)  \
+    INSTRUCTION(mse)  \
     INSTRUCTION(mul)  \
     INSTRUCTION(not)  \
     INSTRUCTION(ret)  \

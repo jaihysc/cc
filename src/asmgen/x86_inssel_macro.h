@@ -22,8 +22,14 @@
                    s = Register/Memory
                    i = Immediate
                    l = Label
-                   Example: si for arg 1 to be register/memory and arg2 to
-                   be immediate
+                   A number may follow the letter to constrain the byte size
+                   Multiple constraints are separated by spaces, only one
+                   of the constraints needs to match for the case to be valid
+
+                   Example: s1i2 s3s4
+                   To match this constraint: arg1 can be a 1 byte symbol
+                   and arg2 be a 2 byte immediate - or arg1 can be a 3
+                   byte symbol and arg2 be a 4 byte symbol
      replaces__: Define pseudo-assembly which this macro replaces to using
                  INSSEL_MACRO_REPLACE
 
@@ -600,6 +606,22 @@
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(si,                                     \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
+            )                                                     \
+        )                                                         \
+    )                                                             \
+    INSSEL_MACRO(mse,                                             \
+        INSSEL_MACRO_CASE(s2s1 s4s1 s8s1 s4s2 s8s2 s8s4,          \
+            INSSEL_MACRO_REPLACE2(movsx,                          \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
+            )                                                     \
+        )                                                         \
+        /* No need to actually sign extend if the types */        \
+        /* are actually the same size */                          \
+        INSSEL_MACRO_CASE(ss,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
                 REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \

@@ -1868,6 +1868,13 @@ static INSTRUCTION_PROC(mov) {
     }
 }
 
+static INSTRUCTION_PROC(mse) {
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+}
+
 static INSTRUCTION_PROC(mul) {
     if (arg_count != 3) {
         parser_set_error(p, ec_badargs);
@@ -1918,32 +1925,64 @@ static InsSelMacroCase* inssel_find(Parser* p, const ILStatement* stat) {
         for (int j = 0; j < ism_case_count(ism); ++j) {
             InsSelMacroCase* ismc = ism_case(ism, j);
 
-            /* Parse the constraint string */
+            /* Attempt to match a constraint in the constraint string,
+               the reader is reminded that it matches A constraint of
+               all the constraints separated by spaces */
             const char* constraint = ismc_constraint(ismc);
             int i_constraint = 0; /* Current location in constraint str */
-            for (int k = 0; k < ilstat_argc(stat); ++k) {
-                ASSERT(constraint[i_constraint] != '\0',
-                        "Constraint string ended too early");
-                const char c = constraint[i_constraint];
-                ++i_constraint;
+            while (1) {
+                for (int k = 0; k < ilstat_argc(stat); ++k) {
+                    ASSERT(constraint[i_constraint] != '\0',
+                            "Constraint string ended too early");
+                    const char c = constraint[i_constraint];
+                    ++i_constraint;
 
-                SymbolId arg_id = ilstat_arg(stat, k);
-                if (c == 'i') {
-                    if (!symtab_is_constant(p, arg_id)) goto no_match;
+                    /* Constrain byte size */
+                    SymbolId arg_id = ilstat_arg(stat, k);
+                    const char cn = constraint[i_constraint];
+                    if ('0' <= cn && cn <= '9') {
+                        ++i_constraint;
+                        int bytes = cn - '0';
+                        const Symbol* sym = symtab_get(p, arg_id);
+                        if (symbol_bytes(sym) != bytes) goto no_match;
+                    }
+
+                    /* Constrain symbol type */
+                    if (c == 'i') {
+                        if (!symtab_is_constant(p, arg_id)) goto no_match;
+                    }
+                    else if (c == 'l') {
+                        if (!symtab_is_label(p, arg_id)) goto no_match;
+                    }
+                    else if (c == 's') {
+                        if (!symtab_is_var(p, arg_id)) goto no_match;
+                    }
+                    else {
+                        ASSERTF(0, "Invalid constraint character %c", c);
+                    }
                 }
-                else if (c == 'l') {
-                    if (!symtab_is_label(p, arg_id)) goto no_match;
-                }
-                else if (c == 's') {
-                    if (!symtab_is_var(p, arg_id)) goto no_match;
-                }
-                else {
-                    ASSERTF(0, "Invalid constraint character %c", c);
+                /* Match made */
+                return ismc;
+no_match:
+                ;
+                /* Attempt to match the next constraint in the string if it exists
+                   otherwise this case is disqualified, e.g.,
+                   s1s2 s3s4
+                    ^   ^ Move to here
+                    Was here */
+                char c = constraint[i_constraint];
+                while (1) {
+                    ++i_constraint;
+                    if (c == '\0') {
+                        goto disqualify_case;
+                    }
+                    if (c == ' ') {
+                        break;
+                    }
+                    c = constraint[i_constraint];
                 }
             }
-            /* Match made */
-            return ismc;
-no_match:
+disqualify_case:
             ;
         }
 

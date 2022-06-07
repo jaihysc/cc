@@ -77,7 +77,7 @@ static int symbol_is_var(const Symbol* sym) {
 }
 
 /* Returns bytes for symbol */
-static int symbol_bytes(Symbol* sym) {
+static int symbol_bytes(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return type_bytes(sym->type);
 }

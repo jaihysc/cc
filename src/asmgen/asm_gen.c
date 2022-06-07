@@ -1148,6 +1148,43 @@ static void cfg_output_asm(Parser* p) {
     }
 }
 
+/* Pseudo-assembly peephole optimizer */
+static void cfg_pasm_po(Parser* p) {
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
+
+            /* Eliminate mov between the same register */
+            if (pasmstat_ins(stat) == asmins_mov) {
+                /* Using location because symbol may be on stack */
+                Location loc[2];
+                for (int k = 0; k < 2; ++k) {
+                    if (pasmstat_is_reg(stat, k)) {
+                        loc[k] = reg_loc(pasmstat_op_reg(stat, k));
+                    }
+                    else {
+                        Symbol* sym = symtab_get(p, pasmstat_op_sym(stat, k));
+                        loc[k] = symbol_location(sym);
+                    }
+                }
+
+                /* Cannot remove if on stack */
+                if (loc[0] < 0 || loc[1] < 0) {
+                    continue;
+                }
+
+                if (loc[0] == loc[1]) {
+                    block_remove_pasmstat(blk, j);
+                    /* Since current statement removed, move index back,
+                       when reloop, it increments to the next statement */
+                    --j;
+                }
+            }
+        }
+    }
+}
+
 /* ============================================================ */
 /* Interference graph */
 
@@ -2272,6 +2309,7 @@ static int parse(Parser* p) {
 
     /* Register allocation */
     if (!compute_register(p)) goto error;
+    cfg_pasm_po(p);
 
     /* Code generation */
     if (!cfg_compute_spill_code(p)) goto error;

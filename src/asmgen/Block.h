@@ -131,6 +131,13 @@ static int block_insert_pasmstat(Block* blk, PasmStatement stat, int i) {
     return vec_insert(&blk->pasm_stats, stat, i);
 }
 
+/* Removes pseudo-assembly statement from block at index,
+   filling index with statements after index */
+static void block_remove_pasmstat(Block* blk, int i) {
+    ASSERT(blk != NULL, "Block is null");
+    vec_splice(&blk->pasm_stats, i, 1);
+}
+
 /* Adds provided SymbolId to liveness 'def'ed symbols for this block
    if it does not exist. Does nothing if does exist, returns 1
    Returns 1 if successful, 0 if not */

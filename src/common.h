@@ -537,6 +537,28 @@ static inline int type_rank(TypeSpecifiers typespec) {
     }
 }
 
+/* Returns 1 if the provided type is an integer type, 0 if not */
+static inline int type_integral(Type type) {
+    if (type_pointer(&type) != 0) {
+        return 0;
+    }
+    switch (type_typespec(&type)) {
+        case ts_i8:
+        case ts_u8:
+        case ts_i16:
+        case ts_u16:
+        case ts_i32:
+        case ts_u32:
+        case ts_i32_:
+        case ts_u32_:
+        case ts_i64:
+        case ts_u64:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 /* Returns 1 if the provided type is signed, 0 if not */
 static inline int type_signed(TypeSpecifiers typespec) {
     switch (typespec) {
@@ -658,9 +680,8 @@ static inline TypeSpecifiers type_unsign_signed(TypeSpecifiers typespec) {
     }
 }
 
-/* Applies the C 6.3.1.8 Usual arithmetic conversions to obtain a common real
-   type for the operands and result */
-static inline TypeSpecifiers type_common(
+/* Helper for type_common to calculate the common TypeSpecifiers */
+static inline TypeSpecifiers type_common_ts(
         TypeSpecifiers lhs, TypeSpecifiers rhs) {
     if (lhs == ts_f64_ || rhs == ts_f64_) {
         return ts_f64;
@@ -712,18 +733,39 @@ case1: /* Both have signed or unsigned types */
     return lhs;
 }
 
-/* Applies the C 6.3.1.1 integer promotions on the provided type specifier
+/* Applies the C 6.3.1.8 Usual arithmetic conversions to obtain a common real
+   type for the operands and result */
+static inline Type type_common(Type type1, Type type2) {
+    ASSERT(type_pointer(&type1) == 0,
+            "Cannot determine common type for pointers");
+    ASSERT(type_pointer(&type2) == 0,
+            "Cannot determine common type for pointers");
+
+    TypeSpecifiers lhs = type_typespec(&type1);
+    TypeSpecifiers rhs = type_typespec(&type2);
+    /* Can choose type1 or type2 to create the common type */
+    type_set_typespec(&type1, type_common_ts(lhs, rhs));
+    return type1;
+}
+
+/* Applies the C 6.3.1.1 integer promotions on the provided type
    if applicable and returns the new type, or the old type if no promotion  */
-static inline TypeSpecifiers type_promotion(TypeSpecifiers typespec) {
-    switch (typespec) {
+static inline Type type_promotion(Type type) {
+    if (!type_integral(type)) {
+        return type;
+    }
+
+    switch (type_typespec(&type)) {
         case ts_i8:
         case ts_i16:
         case ts_u8:
         case ts_u16:
-            return ts_i32;
+            type_set_typespec(&type, ts_i32);
+            break;
         default:
-            return typespec;
+            break;
     }
+    return type;
 }
 
 #endif

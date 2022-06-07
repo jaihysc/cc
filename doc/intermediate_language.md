@@ -66,6 +66,8 @@ Arithmetic and logical instructions
 | Instruction | Args | Summary                                                                                                                                     |
 | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | mov         |    2 | `<arg0>s` = `<arg1>si`                                                                                                                      |
+| mse         |    2 | `<arg0>s` = (T)`<arg1>s` where T is the type of `<arg0>`, `<arg1>` is widened to T (Mov Sign Extend)                                        |
+| mna         |    2 | `<arg0>s` = (T)`<arg1>s` where T is the type of `<arg0>`, `<arg1>` is narrowed to T (Mov NArrow)                                            |
 | add         |    3 | `<arg0>s` = `<arg1>si` + `<arg2>si`                                                                                                         |
 | sub         |    3 | `<arg0>s` = `<arg1>si` - `<arg2>si`                                                                                                         |
 | mul         |    3 | `<arg0>s` = `<arg1>si` * `<arg2>si`                                                                                                         |

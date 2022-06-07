@@ -1347,12 +1347,12 @@ static SymbolId cg_extract_symbol(Parser* p,
         ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
 /* Code generation helpers */
 static void cg_function_signature(Parser* p, ParseNode* node);
-static SymbolId cg_make_temporary(Parser* p, Type type); /* TODO change to use SymbolId */
-static SymbolId cg_make_temporary2(Parser* p, SymbolId op1, SymbolId op2);
+static SymbolId cg_make_temporary(Parser* p, Type type);
 static SymbolId cg_make_label(Parser* p);
 static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
 static void cg_increment(Parser* p, SymbolId id, int n);
-static Type cg_common_type(Parser* p, SymbolId op1, SymbolId op2);
+static SymbolId cg_expression_op2(
+        Parser*, ParseNode*, SymbolId (*)(Parser*, ParseNode*));
 
 /* identifier */
 static int parse_identifier(Parser* p, ParseNode* parent) {
@@ -1611,15 +1611,15 @@ static int parse_multiplicative_expression(Parser* p, ParseNode* parent) {
     if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "*")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "*");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "mul");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "/")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "/");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "div");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     else if (parse_expect(p, "%")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "%");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "mod");
         if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
 
@@ -1643,11 +1643,11 @@ static int parse_additive_expression(Parser* p, ParseNode* parent) {
     if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "+")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "+");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "add");
         if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     if (parse_expect(p, "-")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "-");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "sub");
         if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
 
@@ -2677,7 +2677,11 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(postfix_expression);
 
     SymbolId sym_id = cg_primary_expression(p, parse_node_child(node, 0));
-    SymbolId result_id = sym_id;
+                                 /* ^^^ The symbol which is incremented */
+    SymbolId result_id = sym_id; /* Value read (given to others) */
+
+    /* Integer promotions not needed here as the increment is applied after
+       the value is read, thus the read value can never overflow */
 
     /* Traverse the postfix nodes, no need for recursion
        as they are all the same type */
@@ -2714,6 +2718,25 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
     return result_id;
 }
 
+/* Helper function for cg_unary_expression, performs integer promotions if
+   necessary
+   id is symbol which will be promoted, if promoted: value of id is changed to
+   the promoted symbol */
+static void cg_unary_expression_promote(Parser* p, SymbolId* id) {
+    Type type = symtab_get_type(p, *id);
+    if (type_integral(type)) {
+        Type promoted = type_promotion(type);
+        /* Promoted type != old type means IL must be
+           generated to perform the promotion,
+           if it is the same nothing needs to be done */
+        if (!type_equal(type, promoted)) {
+            SymbolId promoted_id = cg_make_temporary(p, promoted);
+            parser_output_il(p, "mse $s,$s\n", promoted_id, *id);
+            *id = promoted_id;
+        }
+    }
+}
+
 static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(unary_expression);
 
@@ -2728,10 +2751,12 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
         /* Prefix increment, decrement */
         if (strequ(token, "++")) {
             result_id = cg_unary_expression(p, parse_node_child(node, 1));
+            cg_unary_expression_promote(p, &result_id);
             cg_increment(p, result_id, 1);
         }
         else if (strequ(token, "--")) {
             result_id = cg_unary_expression(p, parse_node_child(node, 1));
+            cg_unary_expression_promote(p, &result_id);
             cg_increment(p, result_id, -1);
         }
         else if (strequ(token, "sizeof")) {
@@ -2741,6 +2766,7 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
             /* unary-operator */
             SymbolId operand_1 =
                 cg_cast_expression(p, parse_node_child(node, 1));
+            cg_unary_expression_promote(p, &operand_1);
             result_id = cg_make_temporary(p, symtab_get_type(p, operand_1));
 
             char op = token[0]; /* Unary operator only single token */
@@ -2777,72 +2803,20 @@ static SymbolId cg_cast_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(multiplicative_expression);
 
-    SymbolId operand_1 = cg_cast_expression(p, parse_node_child(node, 0));
-    ParseNode* operator = parse_node_child(node, 1);
-    node = parse_node_child(node, 2);
-    while (node != NULL) {
-        SymbolId operand_2 = cg_cast_expression(p, parse_node_child(node, 0));
-        SymbolId operand_temp =
-            cg_make_temporary(p, symtab_get_type(p, operand_1));
-
-        /* Operator can only be of 3 possible types */
-        char* operator_token =
-            parser_get_token(p, parse_node_token_id(operator));
-        char* instruction = "mul";
-        if (strequ(operator_token, "/")) {
-            instruction = "div";
-        }
-        else if (strequ(operator_token, "%")) {
-            instruction = "mod";
-        }
-        parser_output_il(p, "$i $s,$s,$s\n",
-                instruction, operand_temp, operand_1, operand_2);
-
-        operand_1 = operand_temp;
-        operator = parse_node_child(node, 1);
-        node = parse_node_child(node, 2);
-    }
-    ASSERT(operator == NULL,
-            "Trailing operator without cast-expression");
+    SymbolId id = cg_expression_op2(p, node, cg_cast_expression);
 
     DEBUG_CG_FUNC_END();
-    return operand_1;
+    return id;
 }
 
 /* Traverses down additive_expression and generates code in preorder */
 static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(additive_expression);
 
-    SymbolId operand_1 =
-        cg_multiplicative_expression(p, parse_node_child(node, 0));
-    ParseNode* operator = parse_node_child(node, 1);
-    node = parse_node_child(node, 2);
-    while (node != NULL) {
-        SymbolId operand_2 =
-            cg_multiplicative_expression(p, parse_node_child(node, 0));
-        /* Only additive expressions while testing the code generation for
-           promotions for now */
-        SymbolId operand_temp = cg_make_temporary2(p, operand_1, operand_2);
-
-        /* Operator can only be of 2 possible types */
-        char* operator_token =
-            parser_get_token(p, parse_node_token_id(operator));
-        char* instruction = "add";
-        if (strequ(operator_token, "-")) {
-            instruction = "sub";
-        }
-        parser_output_il(p, "$i $s,$s,$s\n",
-                instruction, operand_temp, operand_1, operand_2);
-
-        operand_1 = operand_temp;
-        operator = parse_node_child(node, 1);
-        node = parse_node_child(node, 2);
-    }
-    ASSERT(operator == NULL,
-            "Trailing operator without multiplicative-expression");
+    SymbolId id = cg_expression_op2(p, node, cg_multiplicative_expression);
 
     DEBUG_CG_FUNC_END();
-    return operand_1;
+    return id;
 }
 
 static SymbolId cg_shift_expression(Parser* p, ParseNode* node) {
@@ -3402,15 +3376,6 @@ static SymbolId cg_make_temporary(Parser* p, Type type) {
     return sym_id;
 }
 
-/* Creates a temporary with a common type of the two operands
-   Used when the temporary is the result of the two operands */
-static SymbolId cg_make_temporary2(Parser* p, SymbolId op1, SymbolId op2) {
-    SymbolId sym_id = symtab_add_temporary(p, cg_common_type(p, op1, op2));
-
-    parser_output_il(p, "def $t $s\n", sym_id, sym_id);
-    return sym_id;
-}
-
 static SymbolId cg_make_label(Parser* p) {
     SymbolId label_id = symtab_add_label(p);
 
@@ -3428,39 +3393,56 @@ static void cg_increment(Parser* p, SymbolId id, int n) {
     parser_output_il(p, "add $s,$s,$d\n", id, id, n);
 }
 
-/* Generates code if necessary to convert operand 1 and operand 2 to a common type */
-static Type cg_common_type(Parser* p, SymbolId op1, SymbolId op2) {
-    Type op1_type = symtab_get_type(p, op1);
-    Type op2_type = symtab_get_type(p, op2);
-    TypeSpecifiers op1_typespec_o = type_typespec(&op1_type);
-    TypeSpecifiers op2_typespec_o = type_typespec(&op2_type);
+/* Generates IL for some production a-expression which is a 2 operand operator
+   of the following format:
+   a-expression
+    - b-expression
+    - Operator token
+    - a-expression
+      - b-expression
+      - Operator token
+      - a-expression
+        - ...
 
-    /* Type promotions */
-    TypeSpecifiers op1_typespec = type_promotion(op1_typespec_o);
-    TypeSpecifiers op2_typespec = type_promotion(op2_typespec_o);
+   The SymbolId for the result of each b-expression is obtained by calling
+   cg_b_expr
+   The IL instruction emitted is the operator's token
+   (2nd child of each a-expression)
+   Returns Symbolid holding the result of the expression */
+static SymbolId cg_expression_op2(
+        Parser* p, ParseNode* node, SymbolId (*cg_b_expr)(Parser*, ParseNode*)) {
+    SymbolId op1 = cg_b_expr(p, parse_node_child(node, 0));
+    ParseNode* operator = parse_node_child(node, 1);
+    node = parse_node_child(node, 2);
+    while (node != NULL) {
+        SymbolId op2 = cg_b_expr(p, parse_node_child(node, 0));
 
-    /* For testing while the IL generation is being written */
-    LOGF("Promotion op1: %s -> %s\n",
-            type_specifiers_str(op1_typespec_o),
-            type_specifiers_str(op1_typespec));
+        Type com_type = type_common(
+                type_promotion(symtab_get_type(p, op1)),
+                type_promotion(symtab_get_type(p, op2)));
+        if (!type_equal(symtab_get_type(p, op1), com_type)) {
+            SymbolId promoted_id = cg_make_temporary(p, com_type);
+            parser_output_il(p, "mse $s,$s\n", promoted_id, op1);
+            op1 = promoted_id;
+        }
+        if (!type_equal(symtab_get_type(p, op2), com_type)) {
+            SymbolId promoted_id = cg_make_temporary(p, com_type);
+            parser_output_il(p, "mse $s,$s\n", promoted_id, op2);
+            op2 = promoted_id;
+        }
 
-    LOGF("Promotion op2: %s -> %s\n",
-            type_specifiers_str(op2_typespec_o),
-            type_specifiers_str(op2_typespec));
+        SymbolId op_temp = cg_make_temporary(p, com_type);
+        const char* il_ins =
+            parser_get_token(p, parse_node_token_id(operator));
+        parser_output_il(p, "$i $s,$s,$s\n", il_ins, op_temp, op1, op2);
 
-    /* Common type */
-    TypeSpecifiers typespec = type_common(op1_typespec, op2_typespec);
+        op1 = op_temp;
+        operator = parse_node_child(node, 1);
+        node = parse_node_child(node, 2);
+    }
+    ASSERT(operator == NULL, "Trailing operator without b-expression");
 
-    LOGF("Common type: %s %s -> %s\n",
-            type_specifiers_str(op1_typespec),
-            type_specifiers_str(op2_typespec),
-            type_specifiers_str(typespec));
-
-    ASSERT(type_pointer(&op1_type) == 0,
-            "Common type for pointers unimplemented");
-    Type type = op1_type;
-    type_set_typespec(&type, typespec);
-    return type;
+    return op1;
 }
 
 /* ============================================================ */

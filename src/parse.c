@@ -105,6 +105,7 @@ static int symbol_scope_num(Symbol* sym) {
     SYMBOL_TYPE(init_declarator)           \
     SYMBOL_TYPE(storage_class_specifier)   \
     SYMBOL_TYPE(type_specifier)            \
+    SYMBOL_TYPE(specifier_qualifier_list)  \
     SYMBOL_TYPE(type_qualifier)            \
     SYMBOL_TYPE(function_specifier)        \
     SYMBOL_TYPE(declarator)                \
@@ -113,6 +114,7 @@ static int symbol_scope_num(Symbol* sym) {
     SYMBOL_TYPE(parameter_type_list)       \
     SYMBOL_TYPE(parameter_list)            \
     SYMBOL_TYPE(parameter_declaration)     \
+    SYMBOL_TYPE(type_name)                 \
     SYMBOL_TYPE(initializer)               \
                                            \
     SYMBOL_TYPE(statement)                 \
@@ -1283,6 +1285,7 @@ static int parse_init_declarator_list(Parser* p, ParseNode* parent);
 static int parse_init_declarator(Parser* p, ParseNode* parent);
 static int parse_storage_class_specifier(Parser* p, ParseNode* parent);
 static int parse_type_specifier(Parser* p, ParseNode* parent);
+static int parse_specifier_qualifier_list(Parser*, ParseNode*);
 static int parse_type_qualifier(Parser* p, ParseNode* parent);
 static int parse_function_specifier(Parser* p, ParseNode* parent);
 static int parse_declarator(Parser* p, ParseNode* parent);
@@ -1292,6 +1295,7 @@ static int parse_pointer(Parser* p, ParseNode* parent);
 static int parse_parameter_type_list(Parser* p, ParseNode* parent);
 static int parse_parameter_list(Parser* p, ParseNode* parent);
 static int parse_parameter_declaration(Parser* p, ParseNode* parent);
+static int parse_type_name(Parser*, ParseNode*);
 static int parse_initializer(Parser* p, ParseNode* parent);
 /* 6.8 Statements and blocks */
 static int parse_statement(Parser* p, ParseNode* parent);
@@ -1342,6 +1346,7 @@ static void cg_jump_statement(Parser* p, ParseNode* node);
 /* Helpers */
 static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node);
 static int cg_extract_pointer(ParseNode* node);
+static Type cg_type_name_extract(Parser*, ParseNode*);
 static TokenId cg_extract_identifier(ParseNode* node);
 static SymbolId cg_extract_symbol(Parser* p,
         ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
@@ -1590,14 +1595,17 @@ exit:
 static int parse_cast_expression(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(cast_expression);
 
-    if (parse_unary_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    /* This comes first as the below consumes ( */
+    if (parse_unary_expression(p, PARSE_CURRENT_NODE)) {
+        PARSE_MATCHED();
+    }
+    else if (parse_expect(p, "(")) {
+        if (!parse_type_name(p, PARSE_CURRENT_NODE)) goto exit;
+        if (!parse_expect(p, ")")) goto exit;
+        if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
-    /* Incomplete */
-
-    goto exit;
-
-matched:
-    PARSE_MATCHED();
+        PARSE_MATCHED();
+    }
 
 exit:
     PARSE_FUNC_END();
@@ -1992,6 +2000,25 @@ exit:
     PARSE_FUNC_END();
 }
 
+static int parse_specifier_qualifier_list(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(specifier_qualifier_list);
+
+    if (parse_type_specifier(p, PARSE_CURRENT_NODE)) {
+        PARSE_MATCHED();
+        parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE);
+
+        /* Incomplete */
+    }
+    else if (parse_type_qualifier(p, PARSE_CURRENT_NODE)) {
+        PARSE_MATCHED();
+        parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE);
+
+        /* Incomplete */
+    }
+
+    PARSE_FUNC_END();
+}
+
 static int parse_type_qualifier(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(type_qualifier);
 
@@ -2126,6 +2153,19 @@ static int parse_parameter_declaration(Parser* p, ParseNode* parent) {
 
     if (!parse_declaration_specifiers(p, PARSE_CURRENT_NODE)) goto exit;
     if (!parse_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+
+    PARSE_MATCHED();
+
+exit:
+    PARSE_FUNC_END();
+}
+
+static int parse_type_name(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(type_name);
+
+    if (!parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE)) goto exit;
+
+    /* Incomplete */
 
     PARSE_MATCHED();
 
@@ -2799,9 +2839,21 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_cast_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(cast_expression);
 
-    SymbolId sym_id = cg_unary_expression(p, parse_node_child(node, 0));
+    SymbolId sym_id;
+    if (parse_node_count_child(node) == 1) {
+        sym_id = cg_unary_expression(p, parse_node_child(node, 0));
+    }
+    else {
+        ASSERT(parse_node_count_child(node) == 2, "Incorrect child count");
+        Type type = cg_type_name_extract(p, parse_node_child(node, 0));
+        sym_id = cg_cast_expression(p, parse_node_child(node, 1));
 
-    /* Incomplete */
+        if (!type_equal(type, symtab_get_type(p, sym_id))) {
+            SymbolId temp_id = cg_make_temporary(p, type);
+            parser_output_il(p, "mse $s,$s\n", temp_id, sym_id);
+            sym_id = temp_id;
+        }
+    }
 
     DEBUG_CG_FUNC_END();
     return sym_id;
@@ -3203,13 +3255,17 @@ static void cg_jump_statement(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_END();
 }
 
-/* Extracts type specifiers
-   Expects declaration-specifiers node */
+/* Extracts type specifiers from parse tree of following format:
+   a-node
+   - t-node
+   - a-node
+     - t-node
+     - a-node
+       - ...
+   Where a-node is some node which is traversed, t-node contains information
+   to extract, e.g., type specifiers. If t-node is not a recognized type, it is
+   ignored. */
 static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node) {
-    ASSERT(parse_node_type(node) == st_declaration_specifiers, "Incorrect node type");
-    ASSERT(parse_node_count_child(node) >= 1,
-            "Expected at least 1 children of node");
-
     /* Index of string in arrangement corresponds to type specifier at index */
     char* arrangement[] = {
         "void",
@@ -3251,6 +3307,9 @@ static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node) {
     /* Walk through the declaration specifier children to
        form the type specifier string */
     while (node != NULL) {
+        ASSERT(parse_node_count_child(node) >= 1,
+                "Expected at least 1 children of a-node");
+
         ParseNode* subnode = parse_node_child(node, 0);
         if (parse_node_type(subnode) == st_type_specifier) {
             const char* token =
@@ -3307,6 +3366,19 @@ static int cg_extract_pointer(ParseNode* node) {
         pointer = parse_node_child(pointer, 1);
     }
     return pointers;
+}
+
+/* Extracts type from type-name node */
+static Type cg_type_name_extract(Parser* p, ParseNode* node) {
+    ASSERT(parse_node_type(node) == st_type_name, "Incorrect node type");
+    ASSERT(parse_node_count_child(node) >= 1,
+            "Expected at least 1 children of node");
+    ParseNode* spec_qual_list = parse_node_child(node, 0);
+    TypeSpecifiers ts = cg_extract_type_specifiers(p, spec_qual_list);
+
+    Type type;
+    type_construct(&type, ts, 0); /* FIXME assuming pointers to be 0 */
+    return type;
 }
 
 /* Retrieves identifier string

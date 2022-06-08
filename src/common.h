@@ -405,6 +405,13 @@ Type type_int = {.typespec = ts_i32, .pointers = 0};
 /* Type for labels */
 Type type_label = {.typespec = ts_void, .pointers = 0};
 
+/* Constructs a type at given location */
+static inline void type_construct(
+        Type* type, TypeSpecifiers ts, int pointers) {
+    type->typespec = ts;
+    type->pointers = pointers;
+}
+
 /* Returns type specifiers for Type */
 static inline TypeSpecifiers type_typespec(const Type* type) {
     ASSERT(type != NULL, "Type is null");

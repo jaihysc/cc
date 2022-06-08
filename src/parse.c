@@ -2810,8 +2810,9 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
 /* Helper function for cg_unary_expression, performs integer promotions if
    necessary
    id is symbol which will be promoted, if promoted: value of id is changed to
-   the promoted symbol */
-static void cg_unary_expression_promote(Parser* p, SymbolId* id) {
+   the promoted symbol
+   Returns the promoted type if promotion occurred, otherwise the current type */
+static Type cg_unary_expression_promote(Parser* p, SymbolId* id) {
     Type type = symtab_get_type(p, *id);
     if (type_integral(type)) {
         Type promoted = type_promotion(type);
@@ -2822,8 +2823,10 @@ static void cg_unary_expression_promote(Parser* p, SymbolId* id) {
             SymbolId promoted_id = cg_make_temporary(p, promoted);
             parser_output_il(p, "mse $s,$s\n", promoted_id, *id);
             *id = promoted_id;
+            return promoted;
         }
     }
+    return type;
 }
 
 static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
@@ -2855,16 +2858,27 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
             /* unary-operator */
             SymbolId operand_1 =
                 cg_cast_expression(p, parse_node_child(node, 1));
-            cg_unary_expression_promote(p, &operand_1);
-            result_id = cg_make_temporary(p, symtab_get_type(p, operand_1));
+            Type result_type = cg_unary_expression_promote(p, &operand_1);
 
             char op = token[0]; /* Unary operator only single token */
             switch (op) {
+                case '&':
+                    type_inc_pointer(&result_type);
+                    result_id = cg_make_temporary(p, result_type);
+                    parser_output_il(p, "mad $s,$s\n", result_id, operand_1);
+                    break;
+                case '*':
+                    type_dec_pointer(&result_type);
+                    result_id = cg_make_temporary(p, result_type);
+                    parser_output_il(p, "mdr $s,$s\n", result_id, operand_1);
+                    break;
                 case '-':
+                    result_id = cg_make_temporary(p, result_type);
                     /* Negative by multiplying by -1 */
                     parser_output_il(p, "mul $s,$s,-1\n", result_id, operand_1);
                     break;
                 case '!':
+                    result_id = cg_make_temporary(p, result_type);
                     parser_output_il(p, "not $s,$s\n", result_id, operand_1);
                     break;
                 default:
@@ -3169,15 +3183,17 @@ static void cg_declaration(Parser* p, ParseNode* node) {
     ParseNode* initdecl = parse_node_child(initdecllist, 0);
     ParseNode* declarator = parse_node_child(initdecl, 0);
 
-    /* L value */
+    /* Declarator */
     SymbolId lval_id = cg_extract_symbol(p, declspec, declarator);
     parser_output_il(p, "def $t $s\n", lval_id, lval_id);
 
-    /* R value assigned to l value */
-    ParseNode* initializer = parse_node_child(initdecl, 1);
-    SymbolId rval_id = cg_initializer(p, initializer);
-    cg_com_type_rtol(p, lval_id, &rval_id);
-    cg_assign(p, lval_id, rval_id);
+    /* Initializer if it exists */
+    if (parse_node_count_child(initdecl) == 2) {
+        ParseNode* initializer = parse_node_child(initdecl, 1);
+        SymbolId rval_id = cg_initializer(p, initializer);
+        cg_com_type_rtol(p, lval_id, &rval_id);
+        cg_assign(p, lval_id, rval_id);
+    }
 
     DEBUG_CG_FUNC_END();
 }
@@ -3401,12 +3417,12 @@ static int cg_extract_pointer(ParseNode* node) {
     }
 
     ParseNode* pointer = parse_node_child(node, 0);
-    int pointers = 1;
+    int count = 0;
     while (pointer != NULL) {
-        ++pointers;
+        ++count;
         pointer = parse_node_child(pointer, 1);
     }
-    return pointers;
+    return count;
 }
 
 /* Extracts type from type-name node */

@@ -78,6 +78,12 @@ Arithmetic and logical instructions
 | ce          |    3 | `<arg0>l` = `<arg1>si` == `<arg2>si`                                                                                                        |
 | cne         |    3 | `<arg0>l` = `<arg1>si` != `<arg2>si`                                                                                                        |
 
+Memory manipulation instructions
+| Instruction | Args | Summary                                                                                                                                     |
+| ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| mad         |    2 | `<arg0>s` = &`<arg1>s` (Mov ADdress)                                                                                                        |
+| mdr         |    2 | `<arg0>s` = *`<arg1>si` (Mov DeReference)                                                                                                   |
+
 - `0,1` Means 0 or 1
 - `+` Means variable number of arguments
 - `2+` Means 2 required arguments plus variable number afterwards

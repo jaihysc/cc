@@ -570,6 +570,10 @@
             )                                                     \
         )                                                         \
     )                                                             \
+    INSSEL_MACRO(mad,                                             \
+    )                                                             \
+    INSSEL_MACRO(mdr,                                             \
+    )                                                             \
     INSSEL_MACRO(mod,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \

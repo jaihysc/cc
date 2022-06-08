@@ -1891,6 +1891,20 @@ static INSTRUCTION_PROC(lab) {
     block_add_label(blk, symtab_find(p, pparg[0]));
 }
 
+static INSTRUCTION_PROC(mad) {
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+}
+
+static INSTRUCTION_PROC(mdr) {
+    if (arg_count != 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+}
+
 static INSTRUCTION_PROC(mod) {
     if (arg_count != 3) {
         parser_set_error(p, ec_badargs);

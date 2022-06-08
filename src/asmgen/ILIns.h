@@ -22,6 +22,8 @@
     INSTRUCTION(jnz)  \
     INSTRUCTION(jz)   \
     INSTRUCTION(lab)  \
+    INSTRUCTION(mad)  \
+    INSTRUCTION(mdr)  \
     INSTRUCTION(mod)  \
     INSTRUCTION(mov)  \
     INSTRUCTION(mse)  \

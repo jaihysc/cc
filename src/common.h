@@ -436,6 +436,23 @@ static inline void type_set_pointer(Type* type, int pointer) {
     type->pointers = pointer;
 }
 
+/* Increments the number of pointers for Type, returns the new number of
+   pointers */
+static inline int type_inc_pointer(Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    ++type->pointers;
+    return type->pointers;
+}
+
+/* Decrements the number of pointers for Type, returns the new number of
+   pointers */
+static inline int type_dec_pointer(Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    ASSERT(type->pointers > 0, "No pointers to decrement");
+    --type->pointers;
+    return type->pointers;
+}
+
 /* Converts a string into a type */
 static inline Type type_from_str(const char* str) {
     Type type;

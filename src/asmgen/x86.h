@@ -325,6 +325,7 @@ static const char* asm_size_directive(int bytes) {
     ASMINS(leave) \
     ASMINS(mov)   \
     ASMINS(movsx) \
+    ASMINS(movzx) \
     ASMINS(pop)   \
     ASMINS(push)  \
     ASMINS(ret)   \

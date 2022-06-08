@@ -711,8 +711,27 @@
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mse,                                             \
-        INSSEL_MACRO_CASE(s2s1 s4s1 s8s1 s4s2 s8s2 s8s4,          \
+        /* Widening */                                            \
+        /* Sign extend signed <- signed */                        \
+        INSSEL_MACRO_CASE(                                        \
+            sU2sU1 sU4sU1 sU8sU1 sU4sU2 sU8sU2 sU8sU4,            \
             INSSEL_MACRO_REPLACE2(movsx,                          \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
+            )                                                     \
+        )                                                         \
+        /* Zero extend signed <- unsigned */                      \
+        /* Zero extend unsigned <- signed/unsigned */             \
+        INSSEL_MACRO_CASE(sU2su1 sU4su1 sU8su1 sU4su2 sU8su2      \
+                          su2s1 su4s1 su8s1 su4s2 su8s2,          \
+            INSSEL_MACRO_REPLACE2(movzx,                          \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
+            )                                                     \
+        )                                                         \
+            /* mov qword <- dword zero extends */                 \
+        INSSEL_MACRO_CASE(sU8su4 su8s4,                           \
+            INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
                 REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
             )                                                     \

@@ -1353,6 +1353,11 @@ static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
 static void cg_increment(Parser* p, SymbolId id, int n);
 static SymbolId cg_expression_op2(
         Parser*, ParseNode*, SymbolId (*)(Parser*, ParseNode*));
+static SymbolId cg_expression_op2t(
+        Parser*,
+        ParseNode*,
+        SymbolId (*)(Parser*, ParseNode*),
+        const Type* result_type);
 static void cg_com_type_rtol(Parser*, SymbolId, SymbolId*);
 static Type cg_com_type_lr(Parser*, SymbolId*, SymbolId*);
 
@@ -2843,8 +2848,8 @@ static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
         SymbolId operand_2 =
             cg_shift_expression(p, parse_node_child(node, 0));
 
-        Type com_type = cg_com_type_lr(p, &operand_1, &operand_2);
-        SymbolId operand_temp = cg_make_temporary(p, com_type);
+        cg_com_type_lr(p, &operand_1, &operand_2);
+        SymbolId operand_temp = cg_make_temporary(p, type_int);
 
         const char* operator_token = parse_node_token(p, operator);
         if (strequ(operator_token, "<")) {
@@ -2879,7 +2884,8 @@ static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_equality_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(equality_expression);
 
-    SymbolId id = cg_expression_op2(p, node, cg_relational_expression);
+    SymbolId id =
+        cg_expression_op2t(p, node, cg_relational_expression, &type_int);
 
     DEBUG_CG_FUNC_END();
     return id;
@@ -2930,7 +2936,7 @@ static SymbolId cg_logical_and_expression(Parser* p, ParseNode* node) {
         /* Compute short-circuit logical and */
         SymbolId label_false_id = cg_make_label(p);
         SymbolId label_end_id = cg_make_label(p);
-        result_id = cg_make_temporary(p, type_bool);
+        result_id = cg_make_temporary(p, type_int);
         do {
             SymbolId sym_id =
                 cg_inclusive_or_expression(p, parse_node_child(node, 0));
@@ -2966,7 +2972,7 @@ static SymbolId cg_logical_or_expression(Parser* p, ParseNode* node) {
         /* Compute short-circuit logical or */
         SymbolId label_true_id = cg_make_label(p);
         SymbolId label_end_id = cg_make_label(p);
-        result_id = cg_make_temporary(p, type_bool);
+        result_id = cg_make_temporary(p, type_int);
         do {
             SymbolId sym_id =
                 cg_logical_and_expression(p, parse_node_child(node, 0));
@@ -3372,6 +3378,15 @@ static void cg_increment(Parser* p, SymbolId id, int n) {
     parser_output_il(p, "add $s,$s,$d\n", id, id, n);
 }
 
+/* Calls cg_expression_op2t without overriding the type of the operation's
+   result */
+static SymbolId cg_expression_op2(
+        Parser* p,
+        ParseNode* node,
+        SymbolId (*cg_b_expr)(Parser*, ParseNode*)) {
+    return cg_expression_op2t(p, node, cg_b_expr, NULL);
+}
+
 /* Generates IL for some production a-expression which is a 2 operand operator
    of the following format:
    a-expression
@@ -3387,17 +3402,30 @@ static void cg_increment(Parser* p, SymbolId id, int n) {
    cg_b_expr
    The IL instruction emitted is the operator's token
    (2nd child of each a-expression)
+
+   result_type: The type of the result of the operator, leave null to use the
+                common type
    Returns Symbolid holding the result of the expression */
-static SymbolId cg_expression_op2(
-        Parser* p, ParseNode* node, SymbolId (*cg_b_expr)(Parser*, ParseNode*)) {
+static SymbolId cg_expression_op2t(
+        Parser* p,
+        ParseNode* node,
+        SymbolId (*cg_b_expr)(Parser*, ParseNode*),
+        const Type* result_type) {
     SymbolId op1 = cg_b_expr(p, parse_node_child(node, 0));
     ParseNode* operator = parse_node_child(node, 1);
     node = parse_node_child(node, 2);
     while (node != NULL) {
         SymbolId op2 = cg_b_expr(p, parse_node_child(node, 0));
-
         Type com_type = cg_com_type_lr(p, &op1, &op2);
-        SymbolId op_temp = cg_make_temporary(p, com_type);
+
+        Type temporary_type;
+        if (result_type == NULL) {
+            temporary_type = com_type;
+        }
+        else {
+            temporary_type = *result_type;
+        }
+        SymbolId op_temp = cg_make_temporary(p, temporary_type);
         const char* il_ins =
             parser_get_token(p, parse_node_token_id(operator));
         parser_output_il(p, "$i $s,$s,$s\n", il_ins, op_temp, op1, op2);

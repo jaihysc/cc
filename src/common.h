@@ -396,8 +396,12 @@ typedef struct {
     int pointers;
 } Type;
 
-/* Type for booleans */
-Type type_bool = {.typespec = ts_i32, .pointers = 0};
+/* Returned by relational, equality, logical and, logical or as required by
+   6.5.8.6
+   6.5.9.3
+   6.5.13.3
+   6.5.14.3 */
+Type type_int = {.typespec = ts_i32, .pointers = 0};
 /* Type for labels */
 Type type_label = {.typespec = ts_void, .pointers = 0};
 

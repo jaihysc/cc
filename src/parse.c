@@ -79,6 +79,7 @@ static int symbol_scope_num(Symbol* sym) {
     SYMBOL_TYPE(integer_constant)          \
     SYMBOL_TYPE(decimal_constant)          \
     SYMBOL_TYPE(octal_constant)            \
+    SYMBOL_TYPE(hexadecimal_constant)      \
                                            \
     SYMBOL_TYPE(primary_expression)        \
     SYMBOL_TYPE(postfix_expression)        \
@@ -1257,6 +1258,7 @@ static int parse_constant(Parser* p, ParseNode* parent);
 static int parse_integer_constant(Parser* p, ParseNode* parent);
 static int parse_decimal_constant(Parser* p, ParseNode* parent);
 static int parse_octal_constant(Parser* p, ParseNode* parent);
+static int parse_hexadecimal_constant(Parser*, ParseNode*);
 /* 6.5 Expressions */
 static int parse_primary_expression(Parser* p, ParseNode* parent);
 static int parse_postfix_expression(Parser* p, ParseNode* parent);
@@ -1406,6 +1408,7 @@ static int parse_integer_constant(Parser* p, ParseNode* parent) {
 
     if (parse_decimal_constant(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_octal_constant(p, PARSE_CURRENT_NODE)) goto matched;
+    if (parse_hexadecimal_constant(p, PARSE_CURRENT_NODE)) goto matched;
 
     /* Incomplete */
 
@@ -1470,6 +1473,44 @@ static int parse_octal_constant(Parser* p, ParseNode* parent) {
     int i = 0;
     while (c != '\0') {
         if (c < '0' || c > '7') {
+            goto exit;
+        }
+        ++i;
+        c = token[i];
+    }
+
+    tree_attach_token(p, PARSE_CURRENT_NODE, token);
+    consume_token(token);
+    PARSE_MATCHED();
+
+exit:
+    PARSE_FUNC_END();
+}
+
+static int parse_hexadecimal_constant(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(hexadecimal_constant);
+
+    char* token = read_token(p);
+    if (parser_has_error(p)) goto exit;
+
+    if (token[0] != '0') goto exit;
+    if (token[1] != 'x' && token[1] != 'X') goto exit;
+
+    /* Need at least 1 digit */
+    char c = token[2];
+    if ((c < '0' || c > '9') &&
+        (c < 'a' || c > 'f') &&
+        (c < 'A' || c > 'F')) {
+        goto exit;
+    }
+
+    /* Remaining characters is hex digit */
+    int i = 3;
+    c = token[i];
+    while (c != '\0') {
+        if ((c < '0' || c > '9') &&
+            (c < 'a' || c > 'f') &&
+            (c < 'A' || c > 'F')) {
             goto exit;
         }
         ++i;

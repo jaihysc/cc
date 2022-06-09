@@ -1426,9 +1426,6 @@ static SymbolId cg_extract_symbol(Parser* p,
 static void cg_function_signature(Parser* p, ParseNode* node);
 static SymbolId cg_make_temporary(Parser* p, Type type);
 static SymbolId cg_make_label(Parser* p);
-/* TODO replace with function for each IL instruction for
-   Lval nlval correctness */
-static void cg_increment(Parser* p, SymbolId id, int n);
 static SymbolId cg_expression_op2(
         Parser*, ParseNode*, SymbolId (*)(Parser*, ParseNode*));
 static SymbolId cg_expression_op2t(
@@ -1438,9 +1435,21 @@ static SymbolId cg_expression_op2t(
         const Type* result_type);
 static void cg_com_type_rtol(Parser*, SymbolId, SymbolId*);
 static Type cg_com_type_lr(Parser*, SymbolId*, SymbolId*);
-/* Code generation for each IL instruction */
+/* Code generation for each IL instruction, converts operands to non Lvalues
+   suffixes are used to specify the different variants */
 static SymbolId cg_nlval(Parser*, SymbolId);
-static void cgil_mov(Parser*, SymbolId, SymbolId);
+static void cgil_cl(Parser*, SymbolId, SymbolId, SymbolId);
+static void cgil_cle(Parser*, SymbolId, SymbolId, SymbolId);
+static void cgil_jmp(Parser*, SymbolId);
+static void cgil_jnz(Parser*, SymbolId, SymbolId);
+static void cgil_jz(Parser*, SymbolId, SymbolId);
+static void cgil_lab(Parser*, SymbolId);
+static void cgil_movss(Parser*, SymbolId, SymbolId);
+static void cgil_movsi(Parser*, SymbolId, int);
+static void cgil_mse(Parser*, SymbolId, SymbolId);
+static void cgil_mul(Parser*, SymbolId, SymbolId, int);
+static void cgil_not(Parser*, SymbolId, SymbolId);
+static void cgil_ret(Parser*, SymbolId);
 
 /* identifier */
 static int parse_identifier(Parser* p, ParseNode* parent) {
@@ -2413,7 +2422,7 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
 
     SymbolId exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
     PARSE_TRIM_TREE();
-    parser_output_il(p, "jz $s,$s\n", lab_false_id, exp_id);
+    cgil_jz(p, lab_false_id, exp_id);
 
     symtab_push_scope(p);
     if (!parse_statement(p, PARSE_CURRENT_NODE)) {
@@ -2427,8 +2436,8 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
 
     if (parse_expect(p, "else")) {
         SymbolId lab_end_id = cg_make_label(p);
-        parser_output_il(p, "jmp $s\n", lab_end_id);
-        parser_output_il(p, "lab $s\n", lab_false_id);
+        cgil_jmp(p, lab_end_id);
+        cgil_lab(p, lab_false_id);
 
         symtab_push_scope(p);
         if (!parse_statement(p, PARSE_CURRENT_NODE)) {
@@ -2440,10 +2449,10 @@ static int parse_selection_statement(Parser* p, ParseNode* parent) {
         PARSE_TRIM_TREE();
         symtab_pop_scope(p);
 
-        parser_output_il(p, "lab $s\n", lab_end_id);
+        cgil_lab(p, lab_end_id);
     }
     else {
-        parser_output_il(p, "lab $s\n", lab_false_id);
+        cgil_lab(p, lab_false_id);
     }
 
     /* Incomplete */
@@ -2492,8 +2501,8 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
 
         SymbolId exp_id =
             cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        parser_output_il(p, "jz $s,$s\n", lab_end_id, exp_id);
-        parser_output_il(p, "lab $s\n", lab_loop_id);
+        cgil_jz(p, lab_end_id, exp_id);
+        cgil_lab(p, lab_loop_id);
 
         symtab_push_scope(p);
         if (!parse_statement(p, PARSE_CURRENT_NODE)) {
@@ -2505,11 +2514,11 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         symtab_pop_cat(p, sc_lab_loopbodyend);
         symtab_pop_cat(p, sc_lab_loopend);
 
-        parser_output_il(p, "lab $s\n", lab_body_end_id);
+        cgil_lab(p, lab_body_end_id);
 
         exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        parser_output_il(p, "jnz $s,$s\n", lab_loop_id, exp_id);
-        parser_output_il(p, "lab $s\n", lab_end_id);
+        cgil_jnz(p, lab_loop_id, exp_id);
+        cgil_lab(p, lab_end_id);
         PARSE_TRIM_TREE();
 
         PARSE_MATCHED();
@@ -2528,7 +2537,7 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
         symtab_push_cat(p, sc_lab_loopend, lab_end_id);
 
-        parser_output_il(p, "lab $s\n", lab_loop_id);
+        cgil_lab(p, lab_loop_id);
 
         symtab_push_scope(p);
         if (!parse_statement(p, PARSE_CURRENT_NODE)) {
@@ -2542,7 +2551,7 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         symtab_pop_cat(p, sc_lab_loopbodyend);
         symtab_pop_cat(p, sc_lab_loopend);
 
-        parser_output_il(p, "lab $s\n", lab_body_end_id);
+        cgil_lab(p, lab_body_end_id);
 
         if (!parse_expect(p, "while")) {
             ERRMSG("Expected 'while'\n");
@@ -2566,10 +2575,10 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         }
         SymbolId exp_id =
             cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        parser_output_il(p, "jnz $s,$s\n", lab_loop_id, exp_id);
+        cgil_jnz(p, lab_loop_id, exp_id);
         PARSE_TRIM_TREE();
 
-        parser_output_il(p, "lab $s\n", lab_end_id);
+        cgil_lab(p, lab_end_id);
 
         PARSE_MATCHED();
     }
@@ -2640,8 +2649,8 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
 
         SymbolId exp2_id =
             cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        parser_output_il(p, "jz $s,$s\n", lab_end_id, exp2_id);
-        parser_output_il(p, "lab $s\n", lab_loop_id);
+        cgil_jz(p, lab_end_id, exp2_id);
+        cgil_lab(p, lab_loop_id);
 
         symtab_push_scope(p);
         if (!parse_statement(p, PARSE_CURRENT_NODE)) {
@@ -2653,15 +2662,15 @@ static int parse_iteration_statement(Parser* p, ParseNode* parent) {
         symtab_pop_cat(p, sc_lab_loopbodyend);
         symtab_pop_cat(p, sc_lab_loopend);
 
-        parser_output_il(p, "lab $s\n", lab_body_end_id);
+        cgil_lab(p, lab_body_end_id);
 
         /* expression-3 (At loop end)
            expression-2 (Controlling expression) */
         cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 1));
         exp2_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
         PARSE_TRIM_TREE();
-        parser_output_il(p, "jnz $s,$s\n", lab_loop_id, exp2_id);
-        parser_output_il(p, "lab $s\n", lab_end_id);
+        cgil_jnz(p, lab_loop_id, exp2_id);
+        cgil_lab(p, lab_end_id);
 
         symtab_pop_scope(p); /* Scope for declaration */
 
@@ -2859,15 +2868,15 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
         /* Postfix increment, decrement */
         if (strequ(token, "++")) {
             SymbolId temp_id = cg_make_temporary(p, symtab_get_type(p, result_id));
-            cgil_mov(p, temp_id, result_id);
+            cgil_movss(p, temp_id, result_id);
             result_id = temp_id;
-            cg_increment(p, sym_id, 1);
+            parser_output_il(p, "add $s,$s,$d\n", sym_id, sym_id, 1);
         }
         else if (strequ(token, "--")) {
             SymbolId temp_id = cg_make_temporary(p, symtab_get_type(p, result_id));
-            cgil_mov(p, temp_id, result_id);
+            cgil_movss(p, temp_id, result_id);
             result_id = temp_id;
-            cg_increment(p, sym_id, -1);
+            parser_output_il(p, "add $s,$s,$d\n", sym_id, sym_id, -1);
         }
 
         /* Incomplete */
@@ -2894,7 +2903,7 @@ static Type cg_unary_expression_promote(Parser* p, SymbolId* id) {
            if it is the same nothing needs to be done */
         if (!type_equal(type, promoted)) {
             SymbolId promoted_id = cg_make_temporary(p, promoted);
-            parser_output_il(p, "mse $s,$s\n", promoted_id, *id);
+            cgil_mse(p, promoted_id, *id);
             *id = promoted_id;
             return promoted;
         }
@@ -2917,12 +2926,12 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
         if (strequ(token, "++")) {
             result_id = cg_unary_expression(p, parse_node_child(node, 1));
             cg_unary_expression_promote(p, &result_id);
-            cg_increment(p, result_id, 1);
+            parser_output_il(p, "add $s,$s,$d\n", result_id, result_id, 1);
         }
         else if (strequ(token, "--")) {
             result_id = cg_unary_expression(p, parse_node_child(node, 1));
             cg_unary_expression_promote(p, &result_id);
-            cg_increment(p, result_id, -1);
+            parser_output_il(p, "add $s,$s,$d\n", result_id, result_id, -1);
         }
         else if (strequ(token, "sizeof")) {
             /* Incomplete */
@@ -2948,11 +2957,11 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
                 case '-':
                     result_id = cg_make_temporary(p, result_type);
                     /* Negative by multiplying by -1 */
-                    parser_output_il(p, "mul $s,$s,-1\n", result_id, operand_1);
+                    cgil_mul(p, result_id, operand_1, -1);
                     break;
                 case '!':
                     result_id = cg_make_temporary(p, result_type);
-                    parser_output_il(p, "not $s,$s\n", result_id, operand_1);
+                    cgil_not(p, result_id, operand_1);
                     break;
                 default:
                     ASSERT(0, "Unimplemented");
@@ -2978,7 +2987,7 @@ static SymbolId cg_cast_expression(Parser* p, ParseNode* node) {
 
         if (!type_equal(type, symtab_get_type(p, sym_id))) {
             SymbolId temp_id = cg_make_temporary(p, type);
-            parser_output_il(p, "mse $s,$s\n", temp_id, sym_id);
+            cgil_mse(p, temp_id, sym_id);
             sym_id = temp_id;
         }
     }
@@ -3034,21 +3043,17 @@ static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
 
         const char* operator_token = parse_node_token(p, operator);
         if (strequ(operator_token, "<")) {
-            parser_output_il(p, "cl $s,$s,$s\n",
-                    operand_temp, operand_1, operand_2);
+            cgil_cl(p, operand_temp, operand_1, operand_2);
         }
         else if (strequ(operator_token, "<=")) {
-            parser_output_il(p, "cle $s,$s,$s\n",
-                    operand_temp, operand_1, operand_2);
+            cgil_cle(p, operand_temp, operand_1, operand_2);
         }
         else if (strequ(operator_token, ">")) {
-            parser_output_il(p, "cl $s,$s,$s\n",
-                    operand_temp, operand_2, operand_1);
+            cgil_cl(p, operand_temp, operand_2, operand_1);
         }
         else {
             ASSERT(strequ(operator_token, ">="), "Invalid token");
-            parser_output_il(p, "cle $s,$s,$s\n",
-                    operand_temp, operand_2, operand_1);
+            cgil_cle(p, operand_temp, operand_2, operand_1);
         }
 
         operand_1 = operand_temp;
@@ -3121,20 +3126,20 @@ static SymbolId cg_logical_and_expression(Parser* p, ParseNode* node) {
         do {
             SymbolId sym_id =
                 cg_inclusive_or_expression(p, parse_node_child(node, 0));
-            parser_output_il(p, "jz $s,$s\n", label_false_id, sym_id);
+            cgil_jz(p, label_false_id, sym_id);
 
             node = parse_node_child(node, 1);
         }
         while (node != NULL);
 
         /* True */
-        parser_output_il(p, "mov $s,1\n", result_id);
-        parser_output_il(p, "jmp $s\n", label_end_id);
+        cgil_movsi(p, result_id, 1);
+        cgil_jmp(p, label_end_id);
         /* False */
-        parser_output_il(p, "lab $s\n", label_false_id);
-        parser_output_il(p, "mov $s,0\n", result_id);
+        cgil_lab(p, label_false_id);
+        cgil_movsi(p, result_id, 0);
 
-        parser_output_il(p, "lab $s\n", label_end_id);
+        cgil_lab(p, label_end_id);
     }
 
     DEBUG_CG_FUNC_END();
@@ -3157,20 +3162,20 @@ static SymbolId cg_logical_or_expression(Parser* p, ParseNode* node) {
         do {
             SymbolId sym_id =
                 cg_logical_and_expression(p, parse_node_child(node, 0));
-            parser_output_il(p, "jnz $s,$s\n", label_true_id, sym_id);
+            cgil_jnz(p, label_true_id, sym_id);
 
             node = parse_node_child(node, 1);
         }
         while (node != NULL);
 
         /* False */
-        parser_output_il(p, "mov $s,0\n", result_id);
-        parser_output_il(p, "jmp $s\n", label_end_id);
+        cgil_movsi(p, result_id, 0);
+        cgil_jmp(p, label_end_id);
         /* True */
-        parser_output_il(p, "lab $s\n", label_true_id);
-        parser_output_il(p, "mov $s,1\n", result_id);
+        cgil_lab(p, label_true_id);
+        cgil_movsi(p, result_id, 1);
 
-        parser_output_il(p, "lab $s\n", label_end_id);
+        cgil_lab(p, label_end_id);
     }
 
 
@@ -3206,7 +3211,7 @@ static SymbolId cg_assignment_expression(Parser* p, ParseNode* node) {
         cg_com_type_rtol(p, opl_id, &opr_id);
         const char* token = parse_node_token(p, parse_node_child(node, 1));
         if (strequ(token, "=")) {
-            cgil_mov(p, opl_id, opr_id);
+            cgil_movss(p, opl_id, opr_id);
         }
         else {
             const char* ins;
@@ -3229,7 +3234,8 @@ static SymbolId cg_assignment_expression(Parser* p, ParseNode* node) {
                 /* Incomplete */
                 ASSERT(0, "Unimplemented");
             }
-            parser_output_il(p, "$i $s,$s,$s\n", ins, opl_id, opl_id, opr_id);
+            parser_output_il(p, "$i $s,$s,$s\n",
+                    ins, opl_id, cg_nlval(p, opl_id), cg_nlval(p, opr_id));
         }
     }
 
@@ -3267,7 +3273,7 @@ static void cg_declaration(Parser* p, ParseNode* node) {
         ParseNode* initializer = parse_node_child(initdecl, 1);
         SymbolId rval_id = cg_initializer(p, initializer);
         cg_com_type_rtol(p, lval_id, &rval_id);
-        cgil_mov(p, lval_id, rval_id);
+        cgil_movss(p, lval_id, rval_id);
     }
 
     DEBUG_CG_FUNC_END();
@@ -3373,15 +3379,15 @@ static void cg_jump_statement(Parser* p, ParseNode* node) {
 
     if (strequ(jmp_token, "continue")) {
         SymbolId body_end_id = symtab_last_cat(p, sc_lab_loopbodyend);
-        parser_output_il(p, "jmp $s\n", body_end_id);
+        cgil_jmp(p, body_end_id);
     }
     else if (strequ(jmp_token, "break")) {
         SymbolId end_id = symtab_last_cat(p, sc_lab_loopend);
-        parser_output_il(p, "jmp $s\n", end_id);
+        cgil_jmp(p, end_id);
     }
     else if (strequ(jmp_token, "return")) {
         SymbolId exp_id = cg_expression(p, parse_node_child(node, 1));
-        parser_output_il(p, "ret $s\n", exp_id);
+        cgil_ret(p, exp_id);
     }
 
     DEBUG_CG_FUNC_END();
@@ -3572,11 +3578,6 @@ static SymbolId cg_make_label(Parser* p) {
     return label_id;
 }
 
-/* Generates code to increment provided symbol by n*/
-static void cg_increment(Parser* p, SymbolId id, int n) {
-    parser_output_il(p, "add $s,$s,$d\n", id, id, n);
-}
-
 /* Calls cg_expression_op2t without overriding the type of the operation's
    result */
 static SymbolId cg_expression_op2(
@@ -3627,7 +3628,8 @@ static SymbolId cg_expression_op2t(
         SymbolId op_temp = cg_make_temporary(p, temporary_type);
         const char* il_ins =
             parser_get_token(p, parse_node_token_id(operator));
-        parser_output_il(p, "$i $s,$s,$s\n", il_ins, op_temp, op1, op2);
+        parser_output_il(p, "$i $s,$s,$s\n",
+                il_ins, op_temp, cg_nlval(p, op1), cg_nlval(p, op2));
 
         op1 = op_temp;
         operator = parse_node_child(node, 1);
@@ -3646,7 +3648,7 @@ static void cg_com_type_rtol(Parser* p, SymbolId opl_id, SymbolId* opr_id) {
     Type opr_type = symtab_get_type(p, *opr_id);
     if (!type_equal(opl_type, opr_type)) {
         SymbolId temp_id = cg_make_temporary(p, opl_type);
-        parser_output_il(p, "mse $s,$s\n", temp_id, *opr_id);
+        cgil_mse(p, temp_id, *opr_id);
         *opr_id = temp_id;
     }
 }
@@ -3661,12 +3663,12 @@ static Type cg_com_type_lr(Parser* p, SymbolId* op1_id, SymbolId* op2_id) {
             type_promotion(symtab_get_type(p, *op2_id)));
     if (!type_equal(symtab_get_type(p, *op1_id), com_type)) {
         SymbolId promoted_id = cg_make_temporary(p, com_type);
-        parser_output_il(p, "mse $s,$s\n", promoted_id, *op1_id);
+        cgil_mse(p, promoted_id, *op1_id);
         *op1_id = promoted_id;
     }
     if (!type_equal(symtab_get_type(p, *op2_id), com_type)) {
         SymbolId promoted_id = cg_make_temporary(p, com_type);
-        parser_output_il(p, "mse $s,$s\n", promoted_id, *op2_id);
+        cgil_mse(p, promoted_id, *op2_id);
         *op2_id = promoted_id;
     }
     return com_type;
@@ -3705,7 +3707,33 @@ static SymbolId cg_nlval(Parser* p, SymbolId symid) {
     }
 }
 
-static void cgil_mov(Parser* p, SymbolId dest, SymbolId src) {
+static void cgil_cl(Parser* p, SymbolId dest, SymbolId op1, SymbolId op2) {
+    parser_output_il(p, "cl $s,$s,$s\n",
+            dest, cg_nlval(p, op1), cg_nlval(p, op2));
+}
+
+static void cgil_cle(Parser* p, SymbolId dest, SymbolId op1, SymbolId op2) {
+    parser_output_il(p, "cle $s,$s,$s\n",
+            dest, cg_nlval(p, op1), cg_nlval(p, op2));
+}
+
+static void cgil_jmp(Parser* p, SymbolId lab) {
+    parser_output_il(p, "jmp $s\n", lab);
+}
+
+static void cgil_jnz(Parser* p, SymbolId lab, SymbolId op1) {
+    parser_output_il(p, "jnz $s,$s\n", lab, cg_nlval(p, op1));
+}
+
+static void cgil_jz(Parser* p, SymbolId lab, SymbolId op1) {
+    parser_output_il(p, "jz $s,$s\n", lab, cg_nlval(p, op1));
+}
+
+static void cgil_lab(Parser* p, SymbolId lab) {
+    parser_output_il(p, "lab $s\n", lab);
+}
+
+static void cgil_movss(Parser* p, SymbolId dest, SymbolId src) {
     Symbol* sym_dest = symtab_get(p, dest);
     switch (symbol_class(sym_dest)) {
         case sl_normal:
@@ -3718,6 +3746,37 @@ static void cgil_mov(Parser* p, SymbolId dest, SymbolId src) {
         default:
             ASSERT(0, "Unimplemented");
     }
+}
+
+static void cgil_movsi(Parser* p, SymbolId dest, int src) {
+    Symbol* sym_dest = symtab_get(p, dest);
+    switch (symbol_class(sym_dest)) {
+        case sl_normal:
+            parser_output_il(p, "mov $s,$d\n", dest, src);
+            break;
+        case sl_access:
+            parser_output_il(p, "mti $s,0,$d\n",
+                    symbol_ptr_sym(sym_dest), src);
+            break;
+        default:
+            ASSERT(0, "Unimplemented");
+    }
+}
+
+static void cgil_mse(Parser* p, SymbolId dest, SymbolId src) {
+    parser_output_il(p, "mse $s,$s\n", dest, cg_nlval(p, src));
+}
+
+static void cgil_mul(Parser* p, SymbolId dest, SymbolId op1, int op2) {
+    parser_output_il(p, "mul $s,$s,$d\n", dest, cg_nlval(p, op1), op2);
+}
+
+static void cgil_not(Parser* p, SymbolId dest, SymbolId op1) {
+    parser_output_il(p, "not $s,$s\n", dest, cg_nlval(p, op1));
+}
+
+static void cgil_ret(Parser* p, SymbolId op1) {
+    parser_output_il(p, "ret $s\n", cg_nlval(p, op1));
 }
 
 /* ============================================================ */

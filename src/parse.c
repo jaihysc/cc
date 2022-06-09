@@ -42,11 +42,54 @@ static int symid_valid(SymbolId sym_id) {
 typedef struct Parser Parser;
 static char* parser_get_token(Parser* p, TokenId id);
 
+typedef enum {
+    sl_normal = 0,
+    sl_access /* Represents access to memory location */
+} SymbolClass;
+
+typedef enum {
+    vc_lval = 0,
+    vc_nlval
+} ValueCategory;
+
 typedef struct {
+    SymbolClass class;
     TokenId tok_id;
     Type type;
+    ValueCategory valcat;
     int scope_num; /* Guaranteed to be unique for each scope */
+
+    /* Only for class sl_access */
+    SymbolId ptr;
 } Symbol;
+
+/* Creates symbol at given memory location */
+static void symbol_construct(
+        Symbol* sym,
+        TokenId tok_id,
+        Type type,
+        ValueCategory valcat,
+        int scope_num) {
+    sym->tok_id = tok_id;
+    sym->type = type;
+    sym->valcat = valcat;
+    sym->scope_num = scope_num;
+}
+
+/* Converts symbol to class representing access to memory location
+   ptr is a symbol which when indexed yields this symbol
+   e.g., int* p; int a = p[2];
+   If this symbol is a, ptr is p */
+static void symbol_sl_access(Symbol* sym, SymbolId ptr) {
+    ASSERT(sym != NULL, "Symbol is null");
+    sym->class = sl_access;
+    sym->ptr = ptr;
+}
+
+/* Returns SymbolClass for symbol */
+static SymbolClass symbol_class(Symbol* sym) {
+    return sym->class;
+}
 
 /* Returns token for symbol */
 static char* symbol_token(Parser* p, Symbol* sym) {
@@ -60,9 +103,23 @@ static Type symbol_type(Symbol* sym) {
     return sym->type;
 }
 
+/* Returns ValueCategory for symbol */
+static ValueCategory symbol_valcat(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->valcat;
+}
+
 /* Returns number guaranteed to be unique for each scope */
 static int symbol_scope_num(Symbol* sym) {
     return sym->scope_num;
+}
+
+/* Returns the symbol for the pointer, which when indexed yields this symbol
+   e.g., int* p; int a = p[2];
+   If this symbol is a, the returned symbol is p */
+static SymbolId symbol_ptr_sym(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->ptr;
 }
 
 /* Sorted by Annex A */
@@ -650,39 +707,49 @@ static SymbolId symtab_find(Parser* p, TokenId tok_id) {
     return symid_invalid;
 }
 
-/* Returns token for SymbolId */
-static const char* symtab_get_token(Parser* p, SymbolId sym_id) {
+/* Returns symbol at provided SymbolId */
+static Symbol* symtab_get(Parser* p, SymbolId sym_id) {
     ASSERT(symid_valid(sym_id), "Invalid symbol id");
     ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
-    return symbol_token(p, p->symtab[sym_id.scope] + sym_id.index);
+    return p->symtab[sym_id.scope] + sym_id.index;
+}
+
+/* Short forms to reduce typing */
+
+/* Returns token for SymbolId */
+static const char* symtab_get_token(Parser* p, SymbolId sym_id) {
+    return symbol_token(p, symtab_get(p, sym_id));
 }
 
 /* Returns type for SymbolId */
 static Type symtab_get_type(Parser* p, SymbolId sym_id) {
-    ASSERT(symid_valid(sym_id), "Invalid symbol id");
-    ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
-    return symbol_type(p->symtab[sym_id.scope] + sym_id.index);
+    return symbol_type(symtab_get(p, sym_id));
+}
+
+/* Returns ValueCategory for SymbolId */
+static ValueCategory symtab_get_valcat(Parser* p, SymbolId sym_id) {
+    return symbol_valcat(symtab_get(p, sym_id));
 }
 
 /* Returns number guaranteed to be unique for each scope for SymbolId*/
 static int symtab_get_scope_num(Parser* p, SymbolId sym_id) {
-    ASSERT(symid_valid(sym_id), "Invalid symbol id");
-    ASSERT(sym_id.index < p->i_symbol[sym_id.scope], "Symbol id out of range");
-    return symbol_scope_num(p->symtab[sym_id.scope] + sym_id.index);
+    return symbol_scope_num(symtab_get(p, sym_id));
 }
 
-/* Adds provided token index and type to the indicated scope
-   within the symbol table,
+/* Creates symbol with provided information in symbol table
+    tok_id: Set negative to create unnamed symbol
    Returns SymbolId of added symbol, or symid_invalid if it already exists */
 static SymbolId symtab_add_scoped(Parser* p,
-        int i_scope, TokenId tok_id, Type type) {
+        int i_scope, TokenId tok_id, Type type, ValueCategory valcat) {
     ASSERT(p->i_scope > 0, "Invalid scope");
 
-    /* Normal symbols can not have duplicates in same scope */
-    if (symid_valid(symtab_find_scoped(p, i_scope, tok_id))) {
-        const char* name = parser_get_token(p, tok_id);
-        ERRMSGF("Symbol already exists %s\n", name);
-        return symid_invalid;
+    if (tok_id >= 0) {
+        /* Normal symbols can not have duplicates in same scope */
+        if (symid_valid(symtab_find_scoped(p, i_scope, tok_id))) {
+            const char* name = parser_get_token(p, tok_id);
+            ERRMSGF("Symbol already exists %s\n", name);
+            return symid_invalid;
+        }
     }
 
     SymbolId id;
@@ -696,44 +763,47 @@ static SymbolId symtab_add_scoped(Parser* p,
     Symbol* sym = p->symtab[i_scope] + id.index;
     ++p->i_symbol[i_scope];
 
-    sym->tok_id = tok_id;
-    sym->type = type;
-
     /* Indicate global scope for parser_output_il */
+    int scope_num;
     if (i_scope == 0) {
-        sym->scope_num = 0;
+        scope_num = 0;
     }
     else {
-        sym->scope_num = p->symtab_scope_num;
+        scope_num = p->symtab_scope_num;
     }
 
+    symbol_construct(sym, tok_id, type, valcat, scope_num);
     return id;
 }
 
-/* Adds provided token index and type into symbol table,
-   Has special handling for constants, always added to scope index 0
+/* Creates symbol with provided information in symbol table
+    tok_id: Set negative to create unnamed symbol
+    Has special handling for constants, always added to scope index 0
    Returns SymbolId of added symbol, or symid_invalid if it already exists */
-static SymbolId symtab_add(Parser* p, TokenId tok_id, Type type) {
-    const char* name = parser_get_token(p, tok_id);
+static SymbolId symtab_add(
+        Parser* p, TokenId tok_id, Type type, ValueCategory valcat) {
+    if (tok_id >= 0) {
+        const char* name = parser_get_token(p, tok_id);
 
-    /* Special handling for constants: Duplicates can exist */
-    if ('0' <= name[0] && name[0] <= '9') {
-        SymbolId const_id = symtab_find_scoped(p, 0, tok_id);
-        if (symid_valid(const_id)) {
-            ASSERT(type_equal(symtab_get_type(p, const_id), type),
-                    "Same constant name with different types");
-            return const_id;
+        /* Special handling for constants: Duplicates can exist */
+        if ('0' <= name[0] && name[0] <= '9') {
+            SymbolId const_id = symtab_find_scoped(p, 0, tok_id);
+            if (symid_valid(const_id)) {
+                ASSERT(type_equal(symtab_get_type(p, const_id), type),
+                        "Same constant name with different types");
+                return const_id;
+            }
+            /* Use index 0 for adding constants */
+            /* Note this is a little wasteful since it is rechecking
+               if the symbol exists */
+            return symtab_add_scoped(p, 0, tok_id, type, valcat);
         }
-        /* Use index 0 for adding constants */
-        /* Note this is a little wasteful since it is rechecking
-           if the symbol exists */
-        return symtab_add_scoped(p, 0, tok_id, type);
     }
 
     /* Add new symbol to current scope */
     ASSERT(p->i_scope > 0, "No scope exists");
     int curr_scope = p->i_scope - 1;
-    return symtab_add_scoped(p, curr_scope, tok_id, type);
+    return symtab_add_scoped(p, curr_scope, tok_id, type, valcat);
 }
 
 /* Creates a new temporary for the current scope in symbol table */
@@ -742,7 +812,7 @@ static SymbolId symtab_add_temporary(Parser* p, Type type) {
     ++p->symtab_temp_num;
 
     TokenId tok_id = parser_add_token(p, token);
-    return symtab_add(p, tok_id, type);
+    return symtab_add(p, tok_id, type, vc_nlval);
 }
 
 /* Creates a new label for the current scope in symbol table */
@@ -753,7 +823,7 @@ static SymbolId symtab_add_label(Parser* p) {
     TokenId tok_id = parser_add_token(p, token);
     ASSERT(p->i_scope >= 2, "No function scope");
     /* Scope at index 1 is function scope */
-    return symtab_add_scoped(p, 1, tok_id, type_label);
+    return symtab_add_scoped(p, 1, tok_id, type_label, vc_nlval);
 }
 
 /* Handles format specifier $d
@@ -1356,7 +1426,8 @@ static SymbolId cg_extract_symbol(Parser* p,
 static void cg_function_signature(Parser* p, ParseNode* node);
 static SymbolId cg_make_temporary(Parser* p, Type type);
 static SymbolId cg_make_label(Parser* p);
-static void cg_assign(Parser* p, SymbolId dest, SymbolId source);
+/* TODO replace with function for each IL instruction for
+   Lval nlval correctness */
 static void cg_increment(Parser* p, SymbolId id, int n);
 static SymbolId cg_expression_op2(
         Parser*, ParseNode*, SymbolId (*)(Parser*, ParseNode*));
@@ -1367,7 +1438,9 @@ static SymbolId cg_expression_op2t(
         const Type* result_type);
 static void cg_com_type_rtol(Parser*, SymbolId, SymbolId*);
 static Type cg_com_type_lr(Parser*, SymbolId*, SymbolId*);
-
+/* Code generation for each IL instruction */
+static SymbolId cg_nlval(Parser*, SymbolId);
+static void cgil_mov(Parser*, SymbolId, SymbolId);
 
 /* identifier */
 static int parse_identifier(Parser* p, ParseNode* parent) {
@@ -2732,7 +2805,7 @@ static SymbolId cg_integer_constant(Parser* p, ParseNode* node) {
     Type type;
     type.typespec = ts_i32; /* TODO temporary hardcode */
     type.pointers = 0;
-    SymbolId sym_id = symtab_add(p, tok_id, type);
+    SymbolId sym_id = symtab_add(p, tok_id, type, vc_nlval);
 
     DEBUG_CG_FUNC_END();
     return sym_id;
@@ -2786,13 +2859,13 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
         /* Postfix increment, decrement */
         if (strequ(token, "++")) {
             SymbolId temp_id = cg_make_temporary(p, symtab_get_type(p, result_id));
-            cg_assign(p, temp_id, result_id);
+            cgil_mov(p, temp_id, result_id);
             result_id = temp_id;
             cg_increment(p, sym_id, 1);
         }
         else if (strequ(token, "--")) {
             SymbolId temp_id = cg_make_temporary(p, symtab_get_type(p, result_id));
-            cg_assign(p, temp_id, result_id);
+            cgil_mov(p, temp_id, result_id);
             result_id = temp_id;
             cg_increment(p, sym_id, -1);
         }
@@ -2869,8 +2942,8 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
                     break;
                 case '*':
                     type_dec_pointer(&result_type);
-                    result_id = cg_make_temporary(p, result_type);
-                    parser_output_il(p, "mdr $s,$s\n", result_id, operand_1);
+                    result_id = symtab_add(p, -1, result_type, vc_lval);
+                    symbol_sl_access(symtab_get(p, result_id), operand_1);
                     break;
                 case '-':
                     result_id = cg_make_temporary(p, result_type);
@@ -2949,6 +3022,7 @@ static SymbolId cg_relational_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(relational_expression);
 
     SymbolId operand_1 = cg_shift_expression(p, parse_node_child(node, 0));
+
     ParseNode* operator = parse_node_child(node, 1);
     node = parse_node_child(node, 2);
     while (node != NULL) {
@@ -3125,13 +3199,14 @@ static SymbolId cg_assignment_expression(Parser* p, ParseNode* node) {
     else {
         ASSERT(parse_node_count_child(node) == 3, "Expected 3 children");
         opl_id = cg_unary_expression(p, parse_node_child(node, 0));
+
         SymbolId opr_id =
             cg_assignment_expression(p, parse_node_child(node, 2));
 
         cg_com_type_rtol(p, opl_id, &opr_id);
         const char* token = parse_node_token(p, parse_node_child(node, 1));
         if (strequ(token, "=")) {
-            parser_output_il(p, "mov $s,$s\n", opl_id, opr_id);
+            cgil_mov(p, opl_id, opr_id);
         }
         else {
             const char* ins;
@@ -3192,7 +3267,7 @@ static void cg_declaration(Parser* p, ParseNode* node) {
         ParseNode* initializer = parse_node_child(initdecl, 1);
         SymbolId rval_id = cg_initializer(p, initializer);
         cg_com_type_rtol(p, lval_id, &rval_id);
-        cg_assign(p, lval_id, rval_id);
+        cgil_mov(p, lval_id, rval_id);
     }
 
     DEBUG_CG_FUNC_END();
@@ -3457,7 +3532,7 @@ static SymbolId cg_extract_symbol(Parser* p,
     Type type;
     type.typespec = cg_extract_type_specifiers(p, declaration_specifiers_node);
     type.pointers = cg_extract_pointer(declarator_node);
-    return symtab_add(p, tok_id, type);
+    return symtab_add(p, tok_id, type, vc_lval);
 }
 
 /* Generates il for function-definition excluding compound-statement */
@@ -3495,11 +3570,6 @@ static SymbolId cg_make_label(Parser* p) {
 
     parser_output_il(p, "def $t $s\n", label_id, label_id);
     return label_id;
-}
-
-/* Generates code to copy value from source into dest */
-static void cg_assign(Parser* p, SymbolId dest, SymbolId source) {
-    parser_output_il(p, "mov $s,$s\n", dest, source);
 }
 
 /* Generates code to increment provided symbol by n*/
@@ -3600,6 +3670,54 @@ static Type cg_com_type_lr(Parser* p, SymbolId* op1_id, SymbolId* op2_id) {
         *op2_id = promoted_id;
     }
     return com_type;
+}
+
+/* Generates the instructions to convert the given symbol to a non Lvalue if
+   it is not already one
+   Returns the SymbolId of the converted non Lvalue, or the provided SymbolId
+   if already a non Lvalue */
+static SymbolId cg_nlval(Parser* p, SymbolId symid) {
+    if (symtab_get_valcat(p, symid) == vc_nlval) {
+        return symid;
+    }
+
+    /* FIXME the returned symbol is still of value category lval
+       It is fine for now since it is converted to nlval right before
+       it is used to emit IL, thus it is never checked */
+
+    Symbol* sym = symtab_get(p, symid);
+    switch (symbol_class(sym)) {
+        case sl_normal:
+            return symid;
+        case sl_access:
+            {
+                /* 6.3.2.1.2 Convert to value stored in object */
+                SymbolId temp_id =
+                    cg_make_temporary(p, symtab_get_type(p, symid));
+                parser_output_il(p, "mfi $s,$s,0\n",
+                        temp_id,
+                        symbol_ptr_sym(sym));
+                return temp_id;
+            }
+        default:
+            ASSERT(0, "Unimplemented");
+            return symid;
+    }
+}
+
+static void cgil_mov(Parser* p, SymbolId dest, SymbolId src) {
+    Symbol* sym_dest = symtab_get(p, dest);
+    switch (symbol_class(sym_dest)) {
+        case sl_normal:
+            parser_output_il(p, "mov $s,$s\n", dest, cg_nlval(p, src));
+            break;
+        case sl_access:
+            parser_output_il(p, "mti $s,0,$s\n",
+                    symbol_ptr_sym(sym_dest), cg_nlval(p, src));
+            break;
+        default:
+            ASSERT(0, "Unimplemented");
+    }
 }
 
 /* ============================================================ */

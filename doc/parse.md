@@ -102,6 +102,12 @@ int a = 1;
          ^ ;
 ```
 
+### Value categories
+
+The expression `*p` where p is a pointer takes on different meanings depending on where it appears in an expression. To correctly generate IL instructions based on how p is used, the value category of symbols are examined. When `*p` is used in the left hand side of an assignment, it notices `*p` is a Lvalue and generates IL to assign to a memory address. When `*p` is used in the right hand right hand side of an assignment, the assignment operator will first convert operands to a non Lvalue, during which IL will be generated to dereference p.
+
+The rules for value category conversions are specified in the C standard, which are obeyed.
+
 ### Intermediate code generation
 
 Intermediate code generation function expects a valid parse tree and a `ParseNode` with a symbol type matching the respective function, e.g., a node of type function-definition for a function generating function definition. Generation functions which return void emit intermediate code, generation functions which return `SymbolId` do not emit code, the returned `SymbolId` is the symbol holding the result of the identifier/expression/etc.

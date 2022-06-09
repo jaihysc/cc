@@ -65,8 +65,6 @@ Control flow instructions
 Arithmetic and logical instructions
 | Instruction | Args | Summary                                                                                                                                     |
 | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| mov         |    2 | `<arg0>s` = `<arg1>si`                                                                                                                      |
-| mse         |    2 | `<arg0>s` = (T)`<arg1>si` where T is the type of `<arg0>`, `<arg1>` is changed to T (Mov Size changE)                                       |
 | add         |    3 | `<arg0>s` = `<arg1>si` + `<arg2>si`                                                                                                         |
 | sub         |    3 | `<arg0>s` = `<arg1>si` - `<arg2>si`                                                                                                         |
 | mul         |    3 | `<arg0>s` = `<arg1>si` * `<arg2>si`                                                                                                         |
@@ -81,8 +79,11 @@ Arithmetic and logical instructions
 Memory manipulation instructions
 | Instruction | Args | Summary                                                                                                                                     |
 | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| mov         |    2 | `<arg0>s` = `<arg1>si`                                                                                                                      |
+| mse         |    2 | `<arg0>s` = (T)`<arg1>si` where T is the type of `<arg0>`, `<arg1>` is changed to T (Mov Size changE)                                       |
 | mad         |    2 | `<arg0>s` = &`<arg1>s` (Mov ADdress)                                                                                                        |
-| mdr         |    2 | `<arg0>s` = *`<arg1>si` (Mov DeReference)                                                                                                   |
+| mfi         |    2 | `<arg0>s` = `<arg1>si`\[`<arg2>si`\] (Mov From Index)                                                                                       |
+| mti         |    2 | `<arg0>s`\[`<arg1>si`\] = `<arg2>si` (Mov To Index)                                                                                         |
 
 - `0,1` Means 0 or 1
 - `+` Means variable number of arguments

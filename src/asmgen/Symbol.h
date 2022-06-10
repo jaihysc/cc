@@ -46,6 +46,12 @@ static Register symbol_register(Symbol* sym) {
     return reg_get(sym->loc, type_bytes(sym->type));
 }
 
+/* Returns 1 if symbol is located in a register, 0 otherwise */
+static int symbol_in_register(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->loc >= 0;
+}
+
 /* Returns 1 if symbol is located on the stack, 0 otherwise */
 static int symbol_on_stack(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");

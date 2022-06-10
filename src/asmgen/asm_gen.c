@@ -1332,12 +1332,38 @@ newerr:
 /* Computes register assignments / spills which are required by the
    instruction set / operations to be performed
    (e.g., taking address requires variable to be in memory) */
-static void ig_precolor(Parser* p, PasmStatement* stat) {
-    if (pasmstat_ins(stat) == asmins_lea) {
-        /* Must be a symbol, instruction cannot have register for operand 2 */
-        SymbolId id = pasmstat_op_sym(stat, 1);
-        Symbol* sym = symtab_get(p, id);
-        symbol_set_location(sym, loc_stack);
+static void ig_precolor(Parser* p) {
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
+            if (pasmstat_ins(stat) == asmins_lea) {
+                /* Must be a symbol, instruction cannot have register for
+                   operand 2 */
+                SymbolId id = pasmstat_op_sym(stat, 1);
+                Symbol* sym = symtab_get(p, id);
+
+                /* If the symbol is in a register because it is a function
+                   parameter, it has to be copied over to the stack.
+                   Assembly generated is:
+                   mov %param, <param-register>
+                   param is now on the stack, so it moves from its former
+                   register to its location on the stack */
+                if (symbol_in_register(sym)) {
+                    PasmStatement mov;
+                    pasmstat_construct(&mov, asmins_mov, 2);
+                    pasmstat_set_op_sym(&mov, 0, id);
+                    pasmstat_set_op_reg(&mov, 1, symbol_register(sym));
+
+                    block_insert_pasmstat(blk, mov, j);
+                    /* Skip the inserted statement
+                       j moved to index of inserted statement, on reloop it
+                       moves to statement after */
+                    j += 1;
+                }
+                symbol_set_location(sym, loc_stack);
+            }
+        }
     }
 }
 
@@ -1383,6 +1409,11 @@ static int ig_compute_coalesce(Parser* p, PasmStatement* stat) {
     Location dest_loc =
         symbol_location(symtab_get(p, ignode_symid(dest_node, 0)));
     Location loc; /* Assigned to all the symbols of the source node */
+    /* Cannot coalesce those on the stack, as the assembly generator always
+       gives symbols on the stack distinct locations */
+    if (src_loc == loc_stack || dest_loc == loc_stack) {
+        return 1;
+    }
     if (src_loc != loc_none && dest_loc != loc_none) {
         /* Cannot coalesce if both are precolored different locations */
         if (src_loc != dest_loc) {
@@ -1586,6 +1617,14 @@ static int compute_register(Parser* p) {
     if (!ig_create_nodes(p)) goto error;
     if (!ig_compute_edge(p)) goto error;
 
+    /* Precolor has to run by itself through all the statements
+       first, otherwise symbols which should be precolored may
+       be coalesced before it gets precolored
+       Example:
+       mov p1, t0 <- Coalesce sees this, p1 not precolored yet
+                     thus p1 gets incorrectly coalesced
+       lea p2, p1 <- p1 precolored here */
+    ig_precolor(p);
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
 
@@ -1595,7 +1634,6 @@ static int compute_register(Parser* p) {
 
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* stat = block_pasmstat(blk, j);
-            ig_precolor(p, stat);
             if (!cfg_compute_reg_pref(p, stat)) goto error;
             if (!ig_compute_coalesce(p, stat)) goto error;
         }

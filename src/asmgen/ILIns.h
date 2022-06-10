@@ -26,7 +26,7 @@
     INSTRUCTION(mdr)  \
     INSTRUCTION(mod)  \
     INSTRUCTION(mov)  \
-    INSTRUCTION(mse)  \
+    INSTRUCTION(mtc)  \
     INSTRUCTION(mul)  \
     INSTRUCTION(not)  \
     INSTRUCTION(ret)  \

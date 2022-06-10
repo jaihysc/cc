@@ -1919,7 +1919,7 @@ static INSTRUCTION_PROC(mov) {
     }
 }
 
-static INSTRUCTION_PROC(mse) {
+static INSTRUCTION_PROC(mtc) {
     if (arg_count != 2) {
         parser_set_error(p, ec_badargs);
         return;

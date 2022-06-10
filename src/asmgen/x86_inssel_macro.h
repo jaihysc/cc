@@ -714,7 +714,7 @@
             )                                                     \
         )                                                         \
     )                                                             \
-    INSSEL_MACRO(mse,                                             \
+    INSSEL_MACRO(mtc,                                             \
         /* Widening */                                            \
         /* Sign extend signed <- signed */                        \
         INSSEL_MACRO_CASE(                                        \

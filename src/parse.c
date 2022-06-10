@@ -184,6 +184,7 @@ static SymbolId symbol_ptr_index(Symbol* sym) {
     SYMBOL_TYPE(parameter_list)            \
     SYMBOL_TYPE(parameter_declaration)     \
     SYMBOL_TYPE(type_name)                 \
+    SYMBOL_TYPE(abstract_declarator)       \
     SYMBOL_TYPE(initializer)               \
                                            \
     SYMBOL_TYPE(statement)                 \
@@ -1379,6 +1380,7 @@ static int parse_parameter_type_list(Parser* p, ParseNode* parent);
 static int parse_parameter_list(Parser* p, ParseNode* parent);
 static int parse_parameter_declaration(Parser* p, ParseNode* parent);
 static int parse_type_name(Parser*, ParseNode*);
+static int parse_abstract_declarator(Parser*, ParseNode*);
 static int parse_initializer(Parser* p, ParseNode* parent);
 /* 6.8 Statements and blocks */
 static int parse_statement(Parser* p, ParseNode* parent);
@@ -1457,7 +1459,7 @@ static void cgil_jz(Parser*, SymbolId, SymbolId);
 static void cgil_lab(Parser*, SymbolId);
 static void cgil_movss(Parser*, SymbolId, SymbolId);
 static void cgil_movsi(Parser*, SymbolId, int);
-static void cgil_mse(Parser*, SymbolId, SymbolId);
+static void cgil_mtc(Parser*, SymbolId, SymbolId);
 static void cgil_mul(Parser*, SymbolId, SymbolId, int);
 static void cgil_not(Parser*, SymbolId, SymbolId);
 static void cgil_ret(Parser*, SymbolId);
@@ -2300,6 +2302,18 @@ static int parse_type_name(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(type_name);
 
     if (!parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE)) goto exit;
+    parse_abstract_declarator(p, PARSE_CURRENT_NODE);
+
+    PARSE_MATCHED();
+
+exit:
+    PARSE_FUNC_END();
+}
+
+static int parse_abstract_declarator(Parser* p, ParseNode* parent) {
+    PARSE_FUNC_START(abstract_declarator);
+
+    if (!parse_pointer(p, PARSE_CURRENT_NODE)) goto exit;
 
     /* Incomplete */
 
@@ -2934,7 +2948,7 @@ static Type cg_unary_expression_promote(Parser* p, SymbolId* id) {
            if it is the same nothing needs to be done */
         if (!type_equal(type, promoted)) {
             SymbolId promoted_id = cg_make_temporary(p, promoted);
-            cgil_mse(p, promoted_id, *id);
+            cgil_mtc(p, promoted_id, *id);
             *id = promoted_id;
             return promoted;
         }
@@ -3023,7 +3037,7 @@ static SymbolId cg_cast_expression(Parser* p, ParseNode* node) {
 
         if (!type_equal(type, symtab_get_type(p, sym_id))) {
             SymbolId temp_id = cg_make_temporary(p, type);
-            cgil_mse(p, temp_id, sym_id);
+            cgil_mtc(p, temp_id, sym_id);
             sym_id = temp_id;
         }
     }
@@ -3521,23 +3535,29 @@ static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node) {
     return ts_none;
 }
 
-/* Counts number of pointers
-   Expects declarator node */
+/* Extracts pointer count from parse tree of following format:
+   a-node
+   - pointer
+     - pointer
+   - b-node
+   where a-node is some node whose children is examined, if its first
+   child is a pointer, it will count the total number of pointers attached
+   by descending down the first child */
 static int cg_extract_pointer(ParseNode* node) {
-    ASSERT(parse_node_type(node) == st_declarator, "Incorrect node type");
     ASSERT(parse_node_count_child(node) >= 1,
             "Expected at least 1 children of node");
 
+    ParseNode* child = parse_node_child(node, 0);
+
     /* No pointer node */
-    if (parse_node_count_child(node) == 1) {
+    if (parse_node_type(child) != st_pointer) {
         return 0;
     }
 
-    ParseNode* pointer = parse_node_child(node, 0);
     int count = 0;
-    while (pointer != NULL) {
+    while (child != NULL) {
         ++count;
-        pointer = parse_node_child(pointer, 0);
+        child = parse_node_child(child, 0);
     }
     return count;
 }
@@ -3549,9 +3569,11 @@ static Type cg_type_name_extract(Parser* p, ParseNode* node) {
             "Expected at least 1 children of node");
     ParseNode* spec_qual_list = parse_node_child(node, 0);
     TypeSpecifiers ts = cg_extract_type_specifiers(p, spec_qual_list);
+    ParseNode* abstract_decl = parse_node_child(node, 1);
+    int pointers = cg_extract_pointer(abstract_decl);
 
     Type type;
-    type_construct(&type, ts, 0); /* FIXME assuming pointers to be 0 */
+    type_construct(&type, ts, pointers);
     return type;
 }
 
@@ -3684,7 +3706,7 @@ static void cg_com_type_rtol(Parser* p, SymbolId opl_id, SymbolId* opr_id) {
     Type opr_type = symtab_get_type(p, *opr_id);
     if (!type_equal(opl_type, opr_type)) {
         SymbolId temp_id = cg_make_temporary(p, opl_type);
-        cgil_mse(p, temp_id, *opr_id);
+        cgil_mtc(p, temp_id, *opr_id);
         *opr_id = temp_id;
     }
 }
@@ -3699,12 +3721,12 @@ static Type cg_com_type_lr(Parser* p, SymbolId* op1_id, SymbolId* op2_id) {
             type_promotion(symtab_get_type(p, *op2_id)));
     if (!type_equal(symtab_get_type(p, *op1_id), com_type)) {
         SymbolId promoted_id = cg_make_temporary(p, com_type);
-        cgil_mse(p, promoted_id, *op1_id);
+        cgil_mtc(p, promoted_id, *op1_id);
         *op1_id = promoted_id;
     }
     if (!type_equal(symtab_get_type(p, *op2_id), com_type)) {
         SymbolId promoted_id = cg_make_temporary(p, com_type);
-        cgil_mse(p, promoted_id, *op2_id);
+        cgil_mtc(p, promoted_id, *op2_id);
         *op2_id = promoted_id;
     }
     return com_type;
@@ -3822,8 +3844,8 @@ static void cgil_movsi(Parser* p, SymbolId dest, int src) {
     }
 }
 
-static void cgil_mse(Parser* p, SymbolId dest, SymbolId src) {
-    parser_output_il(p, "mse $s,$s\n", dest, cg_nlval(p, src));
+static void cgil_mtc(Parser* p, SymbolId dest, SymbolId src) {
+    parser_output_il(p, "mtc $s,$s\n", dest, cg_nlval(p, src));
 }
 
 static void cgil_mul(Parser* p, SymbolId dest, SymbolId op1, int op2) {

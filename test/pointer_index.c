@@ -4,5 +4,5 @@ int main(int argc, char** argv) {
 
     p[1] = argc;
     p[0] = p[1];
-    return 5;
+    return a;
 }

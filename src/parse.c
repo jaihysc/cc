@@ -3572,7 +3572,10 @@ static Type cg_type_name_extract(Parser* p, ParseNode* node) {
     ParseNode* spec_qual_list = parse_node_child(node, 0);
     TypeSpecifiers ts = cg_extract_type_specifiers(p, spec_qual_list);
     ParseNode* abstract_decl = parse_node_child(node, 1);
-    int pointers = cg_extract_pointer(abstract_decl);
+    int pointers = 0;
+    if (abstract_decl != NULL) {
+        pointers = cg_extract_pointer(abstract_decl);
+    }
 
     Type type;
     type_construct(&type, ts, pointers);

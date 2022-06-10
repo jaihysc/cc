@@ -314,39 +314,77 @@ static const char* asm_size_directive(int bytes) {
 }
 
 #define MAX_ASM_OP 2 /* Maximum operands for assembly instruction */
-#define ASMINSS   \
-    ASMINS(add)   \
-    ASMINS(cmp)   \
-    ASMINS(idiv)  \
-    ASMINS(imul)  \
-    ASMINS(jmp)   \
-    ASMINS(jnz)   \
-    ASMINS(jz)    \
-    ASMINS(leave) \
-    ASMINS(mov)   \
-    ASMINS(movsx) \
-    ASMINS(movzx) \
-    ASMINS(pop)   \
-    ASMINS(push)  \
-    ASMINS(ret)   \
-    ASMINS(setb)  \
-    ASMINS(setbe) \
-    ASMINS(sete)  \
-    ASMINS(setl)  \
-    ASMINS(setle) \
-    ASMINS(setne) \
-    ASMINS(setz)  \
-    ASMINS(sub)   \
-    ASMINS(test)  \
-    ASMINS(xor)
+#define ASMINSS                   \
+    ASMINS(add,                   \
+        ADDRESS_MODE(RM, IMM)     \
+        ADDRESS_MODE(RM, R)       \
+        ADDRESS_MODE(R, RM))      \
+    ASMINS(cmp,                   \
+        ADDRESS_MODE(RM, IMM)     \
+        ADDRESS_MODE(RM, R)       \
+        ADDRESS_MODE(R, RM))      \
+    ASMINS(idiv,                  \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(imul,                  \
+        ADDRESS_MODE(R, IMM)      \
+        ADDRESS_MODE(R, RM))      \
+    ASMINS(jmp,                   \
+        ADDRESS_MODE(NONE, NONE)) \
+    ASMINS(jnz,                   \
+        ADDRESS_MODE(NONE, NONE)) \
+    ASMINS(jz,                    \
+        ADDRESS_MODE(NONE, NONE)) \
+    ASMINS(lea,                   \
+        ADDRESS_MODE(R, M))       \
+    ASMINS(leave,                 \
+        ADDRESS_MODE(NONE, NONE)) \
+    ASMINS(mov,                   \
+        ADDRESS_MODE(RM, IMM)     \
+        ADDRESS_MODE(RM, R)       \
+        ADDRESS_MODE(R, RM))      \
+    ASMINS(movsx,                 \
+        ADDRESS_MODE(R, RM))      \
+    ASMINS(movzx,                 \
+        ADDRESS_MODE(R, RM))      \
+    ASMINS(pop,                   \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(push,                  \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(ret,                   \
+        ADDRESS_MODE(NONE, NONE)) \
+    ASMINS(setb,                  \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(setbe,                 \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(sete,                  \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(setl,                  \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(setle,                 \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(setne,                 \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(setz,                  \
+        ADDRESS_MODE(RM, NONE))   \
+    ASMINS(sub,                   \
+        ADDRESS_MODE(RM, IMM)     \
+        ADDRESS_MODE(RM, R)       \
+        ADDRESS_MODE(R, RM))      \
+    ASMINS(test,                  \
+        ADDRESS_MODE(RM, IMM)     \
+        ADDRESS_MODE(RM, R))      \
+    ASMINS(xor,                   \
+        ADDRESS_MODE(RM, IMM)     \
+        ADDRESS_MODE(RM, R)       \
+        ADDRESS_MODE(R, RM))
 
-#define ASMINS(name__) asmins_ ## name__,
-typedef enum {ASMINSS} AsmIns;
+#define ASMINS(name__, modes__) asmins_ ## name__,
+typedef enum {ASMINSS asmins_count} AsmIns;
 #undef ASMINS
 
 /* Returns x86 instruction string for AsmIns */
 static const char* asmins_str(AsmIns asmins) {
-#define ASMINS(name__) #name__,
+#define ASMINS(name__, modes__) #name__,
     const char* strings[] = {ASMINSS};
 #undef ASMINS
     ASSERT(asmins >= 0, "Invalid AsmIns");
@@ -379,4 +417,71 @@ static int asmins_copy_dest_index(void) {
     return 0;
 }
 
+typedef struct {
+    /* Mode for each operand */
+    int op[MAX_ASM_OP];
+} AddressMode;
+
+/* Returns the number of addressing modes for asmins */
+static int asmins_mode_count(AsmIns asmins) {
+    /* Expands out into an expression 0 + 1 + 1 ... */
+#define ASMINS(name__, modes__) 0 modes__,
+#define ADDRESS_MODE(op1__, op2__) + 1
+    const int modes[] = {ASMINSS};
+#undef ADDRESS_MODE
+#undef ASMINS
+    return modes[asmins];
+}
+
+/* Returns ith addressing mode for asmins */
+static AddressMode asmins_mode(AsmIns asmins, int i) {
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < asmins_mode_count(asmins), "Index out of range");
+#define NONE 0
+#define IMM 1
+#define R 2
+#define M 3
+#define RM 4
+#define ASMINS(name__, modes__) modes__
+#define ADDRESS_MODE(op1__, op2__) {{op1__, op2__}},
+    const AddressMode modes[] = {ASMINSS};
+#undef ADDRESS_MODE
+#undef ASMINS
+    /* Count the number of addressing modes for prior instructions to
+       find the offer to the desired instruction */
+    int index = 0;
+    for (int j = 0; j < (int)asmins; ++j) {
+        index += asmins_mode_count(j);
+    }
+    index += i;
+    return modes[index];
+}
+
+/* Returns 1 if addressing mode at operand i can address register, 0 if not */
+static int addressmode_reg(AddressMode* mode, int i) {
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < MAX_ASM_OP, "Index out of range");
+    return mode->op[i] == R || mode->op[i] == RM;
+}
+
+/* Returns 1 if addressing mode at operand i can address memory, 0 if not */
+static int addressmode_mem(AddressMode* mode, int i) {
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < MAX_ASM_OP, "Index out of range");
+    return mode->op[i] == M || mode->op[i] == RM;
+}
+
+/* Returns 1 if addressing mode at operand i can address immediate, 0 if not */
+static int addressmode_imm(AddressMode* mode, int i) {
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < MAX_ASM_OP, "Index out of range");
+    return mode->op[i] == IMM;
+}
+
+#undef RM
+#undef R
+#undef IMM
+#undef NONE
+
+#undef ASMINSS
 #endif

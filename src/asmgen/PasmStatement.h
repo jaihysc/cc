@@ -188,6 +188,7 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
         /* Uses 1, def 1 */
         case asmins_add:
         case asmins_imul:
+        case asmins_lea:
         case asmins_mov:
         case asmins_movsx:
         case asmins_movzx:
@@ -259,6 +260,7 @@ static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
         case asmins_sub:
         case asmins_xor:
         /* Def 1 */
+        case asmins_lea:
         case asmins_pop:
         case asmins_setb:
         case asmins_setbe:

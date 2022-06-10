@@ -571,6 +571,12 @@
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mad,                                             \
+        INSSEL_MACRO_CASE(ss,                                     \
+            INSSEL_MACRO_REPLACE2(lea,                            \
+                REGISTER_VIRTUAL, 0, SIZE_DEFAULT,                \
+                REGISTER_VIRTUAL, 1, SIZE_DEFAULT                 \
+            )                                                     \
+        )                                                         \
     )                                                             \
     INSSEL_MACRO(mdr,                                             \
     )                                                             \

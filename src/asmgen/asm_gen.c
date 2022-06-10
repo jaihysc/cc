@@ -960,6 +960,77 @@ static int cfg_compute_spill_code(Parser* p) {
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            PasmStatement* stat = block_pasmstat(blk, j);
+
+            /* Determine the operators which need spill code generated */
+
+            int best_mode = -1;
+            /* Number of spill code which have to be generated
+               Big number so first found mode is always better than no mode */
+            int best_spill_code = 16;
+            /* Indices of operands which need spill code */
+            int best_spill_index[MAX_ASM_OP];
+
+            AsmIns asmins = pasmstat_ins(stat);
+            for (int k = 0; k < asmins_mode_count(asmins); ++k) {
+                /* Search for the addressing mode which requires the least
+                   operators be spilled */
+
+                AddressMode mode = asmins_mode(asmins, k);
+                int spill_code = 0; /* Number of operands spilled */
+                int spill_index[MAX_ASM_OP]; /*  Indices of operand spilled */
+                for (int l = 0; l < pasmstat_op_count(stat); ++l) {
+                    /* If a register was explicitly specified, it is assumed
+                       that it forms a valid addressing mode */
+                    if (!pasmstat_is_sym(stat, l)) {
+                        continue;
+                    }
+
+                   /* Check if operand can be used with the addressing mode
+                      that is currently being examined */
+                    Symbol* sym = symtab_get(p, pasmstat_op_sym(stat, l));
+                    switch (symbol_location(sym)) {
+                        case loc_stack:
+                            if (!addressmode_mem(&mode, l)) {
+                                /* Addressing most must be usuable with a
+                                   register as spill code reloads memory into a
+                                   register */
+                                if (!addressmode_reg(&mode, l)) goto no_match;
+                                spill_index[spill_code] = l;
+                                ++spill_code;
+                            }
+                            break;
+                        case loc_constant:
+                            if (!addressmode_imm(&mode, l)) goto no_match;
+                            break;
+                        case loc_a: case loc_b: case loc_c: case loc_d:
+                        case loc_bp: case loc_sp: case loc_si: case loc_di:
+                        case loc_8: case loc_9: case loc_10: case loc_11:
+                        case loc_12: case loc_13: case loc_14: case loc_15:
+                            if (!addressmode_reg(&mode, l)) goto no_match;
+                            break;
+                        default:
+                            /* Labels and others */
+                            break;
+                    }
+                }
+
+                if (spill_code < best_spill_code) {
+                    best_spill_code = spill_code;
+                    for (int l = 0; l < MAX_ASM_OP; ++l) {
+                        best_spill_index[l] = spill_index[l];
+                    }
+                    best_mode = k;
+                }
+no_match:
+                ;
+            }
+            ASSERT(best_mode >= 0, "Failed to find suitable addressing mode");
+
+
+            /* Generate spill code for spilled operands */
+
+
             /* During the iteration: j will be adjusted so it is always the
                index of the current statement, so the generated code is
                correctly inserted before and after the statement */
@@ -969,32 +1040,33 @@ static int cfg_compute_spill_code(Parser* p) {
             int j_last_stat = j;
             Location loc_to_use = loc_a;
 
-            PasmStatement* stat = block_pasmstat(blk, j);
-            SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
-
-            /* Insert spill code for 'def'ed symbols */
-            ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold use");
+            SymbolId syms[MAX_ASM_OP];
             int def_count = pasmstat_def(stat, syms);
-            for (int k = 0; k < def_count; ++k) {
-                /* stat has to be reloaded since the vec holding it may have
-                   resized */
-                stat = block_pasmstat(blk, j);
 
-                Symbol* sym = symtab_get(p, syms[k]);
-                /* Not spilled */
-                if (!symbol_on_stack(sym)) {
-                    continue;
+            for (int k = 0; k < best_spill_code; ++k) {
+                int i_operand = best_spill_index[k];
+                SymbolId operand_id = pasmstat_op_sym(stat, i_operand);
+                Symbol* operand_sym = symtab_get(p, operand_id);
+
+                /* Determine whether the operand is a def'ed or use'd symbol
+                   to as they have different patterns for spill code */
+                int def = 0; /* 1 for def, 0 for use */
+                for (int l = 0; l < def_count; ++l) {
+                    if (operand_id == syms[l]) {
+                        def = 1;
+                        break;
+                    }
                 }
 
                 /* Replace original statement operand with reloaded register */
-                int bytes = symbol_bytes(sym);
+                int bytes = symbol_bytes(operand_sym);
                 Register temp_reg = reg_get(loc_to_use, bytes);
-                cfg_compute_spill_code_replace(stat, syms[k], temp_reg);
+                cfg_compute_spill_code_replace(stat, operand_id, temp_reg);
 
                 /* Setup the operands for register reload */
                 pasmstat_set_op_reg(&pasm_load, 0, temp_reg);
-                pasmstat_set_op_sym(&pasm_load, 1, syms[k]);
-                pasmstat_set_op_sym(&pasm_save, 0, syms[k]);
+                pasmstat_set_op_sym(&pasm_load, 1, operand_id);
+                pasmstat_set_op_sym(&pasm_save, 0, operand_id);
                 pasmstat_set_op_reg(&pasm_save, 1, temp_reg);
                 /* x64 must push the full 8 byte register */
                 pasmstat_set_op_reg(&pasm_push, 0, reg_get(loc_to_use, 8));
@@ -1005,63 +1077,32 @@ static int cfg_compute_spill_code(Parser* p) {
                 }
                 ++loc_to_use;
 
-                /* Is in this order because it is being inserted at index,
-                   moving existing contents back */
-                if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto newerr;
-                if (!block_insert_pasmstat(blk, pasm_save, j + 1)) goto newerr;
-                if (!block_insert_pasmstat(blk, pasm_load, j)) goto newerr;
-                if (!block_insert_pasmstat(blk, pasm_push, j)) goto newerr;
+                if (def) {
+                    /* Is in this order because it is being inserted at index,
+                       moving existing contents back */
+                    if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto newerr;
+                    if (!block_insert_pasmstat(blk, pasm_save, j + 1)) goto newerr;
+                    if (!block_insert_pasmstat(blk, pasm_load, j)) goto newerr;
+                    if (!block_insert_pasmstat(blk, pasm_push, j)) goto newerr;
 
-                /* push mov (some statement) mov pop
-                   ^        ^ Move j here        ^ Last stat here
-                   ^ Previously here */
-                j += 2;
-                j_last_stat += 4;
-            }
-
-            /* Insert spill code for 'use'd symbols */
-
-            /* stat has to be reloaded since the vec holding it may have
-               resized */
-            stat = block_pasmstat(blk, j);
-            int use_count = pasmstat_use(stat, syms);
-            for (int k = 0; k < use_count; ++k) {
-                /* stat has to be reloaded since the vec holding it may have
-                   resized */
-                stat = block_pasmstat(blk, j);
-
-                Symbol* sym = symtab_get(p, syms[k]);
-                /* Not spilled */
-                if (!symbol_on_stack(sym)) {
-                    continue;
+                    /* push mov (some statement) mov pop
+                       ^        ^ Move j here        ^ Last stat here
+                       ^ Previously here */
+                    j += 2;
+                    j_last_stat += 4;
                 }
+                else {
+                    /* Generate for use'ed symbol */
+                    if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto newerr;
+                    if (!block_insert_pasmstat(blk, pasm_load, j)) goto newerr;
+                    if (!block_insert_pasmstat(blk, pasm_push, j)) goto newerr;
 
-                /* Replace original statement operand with reloaded register */
-                int bytes = symbol_bytes(sym);
-                Register temp_reg = reg_get(loc_to_use, bytes);
-                cfg_compute_spill_code_replace(stat, syms[k], temp_reg);
-
-                /* Setup the operands for register reload */
-                pasmstat_set_op_reg(&pasm_load, 0, temp_reg);
-                pasmstat_set_op_sym(&pasm_load, 1, syms[k]);
-                /* x64 must push the full 8 byte register */
-                pasmstat_set_op_reg(&pasm_push, 0, reg_get(loc_to_use, 8));
-                pasmstat_set_op_reg(&pasm_pop, 0, reg_get(loc_to_use, 8));
-
-                if (loc_to_use == loc_15) {
-                    ASSERT(0, "Out of registers to use for spill code");
+                    /* push mov (some statement) pop
+                       ^        ^ Move j here    ^ Last stat here
+                       ^ Previously here */
+                    j += 2;
+                    j_last_stat += 3;
                 }
-                ++loc_to_use;
-
-                if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto newerr;
-                if (!block_insert_pasmstat(blk, pasm_load, j)) goto newerr;
-                if (!block_insert_pasmstat(blk, pasm_push, j)) goto newerr;
-
-                /* push mov (some statement) pop
-                   ^        ^ Move j here    ^ Last stat here
-                   ^ Previously here */
-                j += 2;
-                j_last_stat += 3;
             }
             j = j_last_stat;
         }
@@ -1286,6 +1327,18 @@ static int ig_compute_edge(Parser* p) {
 newerr:
     parser_set_error(p, ec_outofmemory);
     return 0;
+}
+
+/* Computes register assignments / spills which are required by the
+   instruction set / operations to be performed
+   (e.g., taking address requires variable to be in memory) */
+static void ig_precolor(Parser* p, PasmStatement* stat) {
+    if (pasmstat_ins(stat) == asmins_lea) {
+        /* Must be a symbol, instruction cannot have register for operand 2 */
+        SymbolId id = pasmstat_op_sym(stat, 1);
+        Symbol* sym = symtab_get(p, id);
+        symbol_set_location(sym, loc_stack);
+    }
 }
 
 /* Computes candidates for coalescing to eliminate copies
@@ -1542,6 +1595,7 @@ static int compute_register(Parser* p) {
 
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* stat = block_pasmstat(blk, j);
+            ig_precolor(p, stat);
             if (!cfg_compute_reg_pref(p, stat)) goto error;
             if (!ig_compute_coalesce(p, stat)) goto error;
         }

@@ -61,6 +61,7 @@ typedef struct {
 
     /* Only for class sl_access */
     SymbolId ptr;
+    SymbolId ptr_idx;
 } Symbol;
 
 /* Creates symbol at given memory location */
@@ -77,13 +78,16 @@ static void symbol_construct(
 }
 
 /* Converts symbol to class representing access to memory location
-   ptr is a symbol which when indexed yields this symbol
+   ptr: Is a symbol which when indexed yields this symbol
+   idx: Is a symbol which indexes into ptr to yield this
+        symbol, leave as symid_invalid to default to 0
    e.g., int* p; int a = p[2];
-   If this symbol is a, ptr is p */
-static void symbol_sl_access(Symbol* sym, SymbolId ptr) {
+   If this symbol is a, ptr is p, idx is 2 */
+static void symbol_sl_access(Symbol* sym, SymbolId ptr, SymbolId idx) {
     ASSERT(sym != NULL, "Symbol is null");
     sym->class = sl_access;
     sym->ptr = ptr;
+    sym->ptr_idx = idx;
 }
 
 /* Returns SymbolClass for symbol */
@@ -120,6 +124,13 @@ static int symbol_scope_num(Symbol* sym) {
 static SymbolId symbol_ptr_sym(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->ptr;
+}
+
+/* Returns the symbol of the index, which when used to index symbol_ptr_sym
+   yields this symbol */
+static SymbolId symbol_ptr_index(Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->ptr_idx;
 }
 
 /* Sorted by Annex A */
@@ -1656,20 +1667,22 @@ static int parse_postfix_expression(Parser* p, ParseNode* parent) {
 static int parse_postfix_expression_2(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(postfix_expression);
 
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
-
-    /* Postfix increment, decrement */
-    if (strequ(token, "++")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
+    if (parse_expect(p, "[")) {
+        if (!parse_expression(p, PARSE_CURRENT_NODE)) goto exit;
+        if (!parse_expect(p, "]")) goto exit;
         PARSE_MATCHED();
 
         parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
     }
-    else if (strequ(token, "--")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
+    /* Postfix increment, decrement */
+    else if (parse_expect(p, "++")) {
+        tree_attach_token(p, PARSE_CURRENT_NODE, "++");
+        PARSE_MATCHED();
+
+        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
+    }
+    else if (parse_expect(p, "--")) {
+        tree_attach_token(p, PARSE_CURRENT_NODE, "--");
         PARSE_MATCHED();
 
         parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
@@ -2857,26 +2870,44 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
     /* Traverse the postfix nodes, no need for recursion
        as they are all the same type */
     /* Does not need to check for NULL with last_child as it always has at
-       least 1 node to return (primary expression, token node)*/
+       least 1 node to return (primary expression, token node, etc)*/
     ParseNode* last_child = parse_node_child(node, -1);
     while (parse_node_type(last_child) == st_postfix_expression) {
-        ParseNode* token_node = parse_node_child(last_child, 0);
-        ASSERT(token_node, "Missing token node");
-        const char* token =
-            parser_get_token(p, parse_node_token_id(token_node));
+        /* Node held by each child */
+        ParseNode* n = parse_node_child(last_child, 0);
+        ASSERT(node != NULL, "Expected node");
 
-        /* Postfix increment, decrement */
-        if (strequ(token, "++")) {
-            SymbolId temp_id = cg_make_temporary(p, symtab_get_type(p, result_id));
-            cgil_movss(p, temp_id, result_id);
-            result_id = temp_id;
-            parser_output_il(p, "add $s,$s,$d\n", sym_id, sym_id, 1);
+        if (parse_node_type(n) == st_expression) {
+            Type type = symtab_get_type(p, result_id);
+            type_dec_pointer(&type);
+            SymbolId new_result = symtab_add(p, -1, type, vc_lval);
+
+            /* Obtain the pointer (value of the object's location) by
+               converting the previous result to a non Lvalue */
+            SymbolId index = cg_expression(p, n);
+            symbol_sl_access(
+                    symtab_get(p, new_result),
+                    cg_nlval(p, result_id),
+                    index);
+            result_id = new_result;
         }
-        else if (strequ(token, "--")) {
-            SymbolId temp_id = cg_make_temporary(p, symtab_get_type(p, result_id));
-            cgil_movss(p, temp_id, result_id);
-            result_id = temp_id;
-            parser_output_il(p, "add $s,$s,$d\n", sym_id, sym_id, -1);
+        else {
+            const char* token = parser_get_token(p, parse_node_token_id(n));
+            /* Postfix increment, decrement */
+            if (strequ(token, "++")) {
+                SymbolId temp_id =
+                    cg_make_temporary(p, symtab_get_type(p, result_id));
+                cgil_movss(p, temp_id, result_id);
+                result_id = temp_id;
+                parser_output_il(p, "add $s,$s,$d\n", sym_id, sym_id, 1);
+            }
+            else if (strequ(token, "--")) {
+                SymbolId temp_id =
+                    cg_make_temporary(p, symtab_get_type(p, result_id));
+                cgil_movss(p, temp_id, result_id);
+                result_id = temp_id;
+                parser_output_il(p, "add $s,$s,$d\n", sym_id, sym_id, -1);
+            }
         }
 
         /* Incomplete */
@@ -2952,7 +2983,12 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
                 case '*':
                     type_dec_pointer(&result_type);
                     result_id = symtab_add(p, -1, result_type, vc_lval);
-                    symbol_sl_access(symtab_get(p, result_id), operand_1);
+                    /* Obtain the pointer (value of the object's location) by
+                       converting the operand to a non Lvalue */
+                    symbol_sl_access(
+                            symtab_get(p, result_id),
+                            cg_nlval(p, operand_1),
+                            symid_invalid);
                     break;
                 case '-':
                     result_id = cg_make_temporary(p, result_type);
@@ -3501,7 +3537,7 @@ static int cg_extract_pointer(ParseNode* node) {
     int count = 0;
     while (pointer != NULL) {
         ++count;
-        pointer = parse_node_child(pointer, 1);
+        pointer = parse_node_child(pointer, 0);
     }
     return count;
 }
@@ -3694,11 +3730,16 @@ static SymbolId cg_nlval(Parser* p, SymbolId symid) {
         case sl_access:
             {
                 /* 6.3.2.1.2 Convert to value stored in object */
-                SymbolId temp_id =
-                    cg_make_temporary(p, symtab_get_type(p, symid));
-                parser_output_il(p, "mfi $s,$s,0\n",
-                        temp_id,
-                        symbol_ptr_sym(sym));
+                SymbolId temp_id = cg_make_temporary(p, symbol_type(sym));
+                SymbolId index = symbol_ptr_index(sym);
+                if (symid_valid(index)) {
+                    parser_output_il(p, "mfi $s,$s,$s\n",
+                            temp_id, symbol_ptr_sym(sym), index);
+                }
+                else {
+                    parser_output_il(p, "mfi $s,$s,0\n",
+                            temp_id, symbol_ptr_sym(sym));
+                }
                 return temp_id;
             }
         default:
@@ -3740,8 +3781,17 @@ static void cgil_movss(Parser* p, SymbolId dest, SymbolId src) {
             parser_output_il(p, "mov $s,$s\n", dest, cg_nlval(p, src));
             break;
         case sl_access:
-            parser_output_il(p, "mti $s,0,$s\n",
-                    symbol_ptr_sym(sym_dest), cg_nlval(p, src));
+            {
+                SymbolId index = symbol_ptr_index(sym_dest);
+                if (symid_valid(index)) {
+                    parser_output_il(p, "mti $s,$s,$s\n",
+                            symbol_ptr_sym(sym_dest), index, cg_nlval(p, src));
+                }
+                else {
+                    parser_output_il(p, "mti $s,0,$s\n",
+                            symbol_ptr_sym(sym_dest), cg_nlval(p, src));
+                }
+            }
             break;
         default:
             ASSERT(0, "Unimplemented");
@@ -3755,8 +3805,17 @@ static void cgil_movsi(Parser* p, SymbolId dest, int src) {
             parser_output_il(p, "mov $s,$d\n", dest, src);
             break;
         case sl_access:
-            parser_output_il(p, "mti $s,0,$d\n",
-                    symbol_ptr_sym(sym_dest), src);
+            {
+                SymbolId index = symbol_ptr_index(sym_dest);
+                if (symid_valid(index)) {
+                    parser_output_il(p, "mti $s,$s,$d\n",
+                            symbol_ptr_sym(sym_dest), index, src);
+                }
+                else {
+                    parser_output_il(p, "mti $s,0,$d\n",
+                            symbol_ptr_sym(sym_dest), src);
+                }
+            }
             break;
         default:
             ASSERT(0, "Unimplemented");

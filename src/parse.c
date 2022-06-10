@@ -2228,18 +2228,20 @@ static int parse_direct_declarator_2(Parser* p, ParseNode* parent) {
        split into two */
     PARSE_FUNC_START(direct_declarator);
 
-    if (parse_expect(p, "(")) {
-        if (parse_parameter_type_list(p, PARSE_CURRENT_NODE)) {
-            if (parse_expect(p, ")")) goto matched;
-        }
+    if (parse_expect(p, "[")) {
+        if (!parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto exit;
+        /* Incomplete */
+        if (!parse_expect(p, "]")) goto exit;
+        PARSE_MATCHED();
+        parse_direct_declarator_2(p, PARSE_CURRENT_NODE);
     }
-
+    if (parse_expect(p, "(")) {
+        if (!parse_parameter_type_list(p, PARSE_CURRENT_NODE)) goto exit;
+        if (!parse_expect(p, ")")) goto exit;
+        PARSE_MATCHED();
+        parse_direct_declarator_2(p, PARSE_CURRENT_NODE);
+    }
     goto exit;
-
-matched:
-    PARSE_MATCHED();
-    parse_direct_declarator_2(p, PARSE_CURRENT_NODE);
-
 exit:
     PARSE_FUNC_END();
 }

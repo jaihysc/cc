@@ -23,6 +23,7 @@
     INSTRUCTION(jz)   \
     INSTRUCTION(lab)  \
     INSTRUCTION(mad)  \
+    INSTRUCTION(mfi)  \
     INSTRUCTION(mod)  \
     INSTRUCTION(mov)  \
     INSTRUCTION(mtc)  \

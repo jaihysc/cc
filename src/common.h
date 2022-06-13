@@ -453,6 +453,14 @@ static inline int type_dec_pointer(Type* type) {
     return type->pointers;
 }
 
+/* Returns Type of what this pointer points to */
+static inline Type type_point_to(const Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    Type t = *type;
+    type_dec_pointer(&t);
+    return t;
+}
+
 /* Converts a string into a type */
 static inline Type type_from_str(const char* str) {
     Type type;

@@ -577,6 +577,15 @@
             )                                                     \
         )                                                         \
     )                                                             \
+    INSSEL_MACRO(mfi,                                             \
+        INSSEL_MACRO_CASE(ssi,                                    \
+            /* FIXME I assume the index is 0 for now */           \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0,,                             \
+                REGISTER_VIRTUAL, 1, DEREFERENCE                  \
+            )                                                     \
+        )                                                         \
+    )                                                             \
     INSSEL_MACRO(mod,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
@@ -799,7 +808,7 @@
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mti,                                             \
-        INSSEL_MACRO_CASE(sis,                                    \
+        INSSEL_MACRO_CASE(sis sii,                                \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,,                                 \
                 REGISTER_VIRTUAL, 0,                              \

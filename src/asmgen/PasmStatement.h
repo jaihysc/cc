@@ -103,7 +103,7 @@ static void pasmstat_set_op_sym(PasmStatement* stat, int i, SymbolId id) {
 }
 
 /* Returns flag for operand index i for pseudo-assembly statement */
-static ISMRFlag pasmstat_flag(PasmStatement* stat, int i) {
+static ISMRFlag pasmstat_flag(const PasmStatement* stat, int i) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");

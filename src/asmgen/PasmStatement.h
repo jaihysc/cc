@@ -17,8 +17,9 @@ struct PasmStatement {
     vec_t(SymbolId) live_in;
     /* Live symbols after this statement */
     vec_t(SymbolId) live_out;
-    /* Overrides byte size of operand, negative number for no override */
-    int size_override[MAX_ASM_OP];
+    /* Flags for operands
+       See declaration of ISMRFlag in fwddecl.h */
+    ISMRFlag flag[MAX_ASM_OP];
 };
 
 /* Initializes values in pseudo-assembly statement */
@@ -29,7 +30,7 @@ static void pasmstat_construct(PasmStatement* stat, AsmIns ins, int op_count) {
     vec_construct(&stat->live_in);
     vec_construct(&stat->live_out);
     for (int i = 0; i < MAX_ASM_OP; ++i) {
-        stat->size_override[i] = -1;
+        stat->flag[i] = 0;
     }
 }
 
@@ -101,20 +102,20 @@ static void pasmstat_set_op_sym(PasmStatement* stat, int i, SymbolId id) {
     stat->op_type[i] = 1;
 }
 
-/* Returns size override for operand index i for pseudo-assembly statement */
-static int pasmstat_size_override(PasmStatement* stat, int i) {
+/* Returns flag for operand index i for pseudo-assembly statement */
+static ISMRFlag pasmstat_flag(PasmStatement* stat, int i) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
-    return stat->size_override[i];
+    return stat->flag[i];
 }
 
-/* Sets size override for operand index i for pseudo-assembly statement */
-static void pasmstat_set_size_override(PasmStatement* stat, int i, int size) {
+/* Sets flag for operand index i for pseudo-assembly statement */
+static void pasmstat_set_flag(PasmStatement* stat, int i, ISMRFlag flag) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
-    stat->size_override[i] = size;
+    stat->flag[i] = flag;
 }
 
 /* Returns the number of operands in pseudo-assembly statement */

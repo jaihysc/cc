@@ -23,10 +23,10 @@
     INSTRUCTION(jz)   \
     INSTRUCTION(lab)  \
     INSTRUCTION(mad)  \
-    INSTRUCTION(mdr)  \
     INSTRUCTION(mod)  \
     INSTRUCTION(mov)  \
     INSTRUCTION(mtc)  \
+    INSTRUCTION(mti)  \
     INSTRUCTION(mul)  \
     INSTRUCTION(not)  \
     INSTRUCTION(ret)  \

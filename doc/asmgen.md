@@ -53,7 +53,7 @@ To quantify preferences, each variable holds preference scores for each register
 
 ### Pseudo-assembly
 
-Pseudo-assembly (pasm) is a low level IR, target specific language which closely resembles assembly. Its difference from assembly is unlimited registers and no memory addressing, each variable/memory location is written `%name` and referred to as virtual registers. Physical registers can be referred to without their size, with the size being calculated later during translation into assembly. For example on x86: a, b, c, d, 9, 10, 11 ... instead of eax, ax, r9d, ... .
+Pseudo-assembly (pasm) is a low level IR, target specific language which closely resembles assembly. Its difference from assembly is unlimited registers, each variable/memory location is written `%name` and referred to as virtual registers. Physical registers can be referred to without their size, with the size being calculated later during translation into assembly. For example on x86: a, b, c, d, 9, 10, 11 ... instead of eax, ax, r9d, ... .
 
 On x86, do not confuse the % for AT&T syntax, pseudo-assembly on x86 is in Intel syntax and the % here represents a virtual register for the variable or a memory location. For example, targeting x86, the following pseudo-assembly may be generated from the intermediate language:
 

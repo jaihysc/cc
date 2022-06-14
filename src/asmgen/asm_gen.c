@@ -382,7 +382,8 @@ static SymbolId symtab_find(Parser* p, const char* name) {
        them to the table when not found to make them exist */
     if (name_isconstant(name)) {
         /* TODO calculate size of constant, assume integer for now */
-        Type type = {.typespec = ts_i32};
+        Type type;
+        type_construct(&type, ts_i32, 0);
         SymbolId sym_id = symtab_add(p, type, name);
         symbol_make_constant(symtab_get(p, sym_id));
         return sym_id;
@@ -1161,10 +1162,6 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int i) {
         SymbolId sym_id = pasmstat_op_sym(stat, i);
         Symbol* sym = symtab_get(p, sym_id);
 
-        int bytes = symbol_bytes(sym);
-        if (override > 0) {
-            bytes = override;
-        }
         if (symbol_on_stack(sym)) {
             /* Generates assembly code to reference symbol
                Example: "dword [rbp+10]" */
@@ -1175,6 +1172,17 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int i) {
             if (abs_offset < 0) {
                 sign = '-';
                 abs_offset = -abs_offset;
+            }
+
+            int bytes = symbol_bytes(sym);
+            Type type = symbol_type(sym);
+            /* Arrays are always on the stack, they are referenced by
+               their element's size (writing / reading from it) */
+            if (type_array(&type)) {
+                bytes = type_bytes(type_element(&type));
+            }
+            if (override > 0) {
+                bytes = override;
             }
 
             const char* size_dir = asm_size_directive(bytes);
@@ -1189,6 +1197,10 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int i) {
             else {
                 ASSERT(symbol_in_register(sym),
                             "Expected symbol in register");
+                int bytes = symbol_bytes(sym);
+                if (override > 0) {
+                    bytes = override;
+                }
                 const char* str = reg_get_str(symbol_location(sym), bytes);
                 if (deref) {
                     /* Size directive is size of pointed to Type,
@@ -1445,6 +1457,15 @@ static void ig_precolor(Parser* p) {
                 }
                 symbol_set_location(sym, loc_stack);
             }
+        }
+    }
+
+    /* Arrays go on the stack */
+    for (int i = 0; i < vec_size(&p->symbol); ++i) {
+        Symbol* sym = &vec_at(&p->symbol, i);
+        Type type = symbol_type(sym);
+        if (type_array(&type)) {
+            symbol_set_location(sym, loc_stack);
         }
     }
 }
@@ -1746,6 +1767,9 @@ static void debug_print_symtab(Parser* p) {
         for (int j = 0; j < type.pointers; ++j) {
             LOG("*");
         }
+        for (int j = 0; j < type_dimension(&type); ++j) {
+            LOGF("[%d]", type_dimension_size(&type, j));
+        }
         LOGF(" %s (%s)\n", symbol_name(sym), loc_str(symbol_location(sym)));
     }
 }
@@ -1828,6 +1852,13 @@ static void debug_print_cfg(Parser* p) {
                 else {
                     LOG(",");
                 }
+
+                /* Add [] for memory access */
+                int deref = ismr_dereference(pasmstat_flag(stat, k));
+                if (deref) {
+                    LOG("[");
+                }
+
                 if (pasmstat_is_reg(stat, k)) {
                     Register reg = pasmstat_op_reg(stat, k);
                     LOGF("%s", reg_str(reg));
@@ -1836,6 +1867,10 @@ static void debug_print_cfg(Parser* p) {
                     SymbolId id = pasmstat_op_sym(stat, k);
                     Symbol* sym = symtab_get(p, id);
                     LOGF("%%%s", symbol_name(sym));
+                }
+
+                if (deref) {
+                    LOG("]");
                 }
             }
             LOG("\n");
@@ -2204,11 +2239,13 @@ static InsSelMacroCase* inssel_find(Parser* p, const ILStatement* stat) {
                     else if (c == 'l') {
                         if (!symtab_is_label(p, arg_id)) goto no_match;
                     }
-                    else if (c == 's') {
+                    else if (c == 's' || c == 'a') {
                         Symbol* sym = symtab_get(p, arg_id);
                         Type type = symbol_type(sym);
                         TypeSpecifiers ts = type_typespec(&type);
                         if (!symbol_is_var(sym)) goto no_match;
+                        /* 'a' => Must be array */
+                        if (c == 'a' && !type_array(&type)) goto no_match;
                         if (must_sign && !type_signed(ts)) goto no_match;
                         if (must_unsign && !type_unsigned(ts)) goto no_match;
                     }

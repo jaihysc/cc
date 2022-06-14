@@ -873,10 +873,13 @@ static int parser_output_ils(Parser* p, SymbolId sym_id) {
    Returns 1 if successful, 0 if not */
 static int parser_output_ilt(Parser* p, SymbolId sym_id) {
     Type type = symtab_get_type(p, sym_id);
-    if (fprintf(p->of, "%s", type_specifiers_str(type.typespec)) < 0)
+    if (fprintf(p->of, "%s", type_specifiers_str(type_typespec(&type))) < 0)
         goto error;
-    for (int i = 0; i < type.pointers; ++i) {
+    for (int i = 0; i < type_pointer(&type); ++i) {
         if (fprintf(p->of, "*") < 0) goto error;
+    }
+    for (int i = 0; i < type_dimension(&type); ++i) {
+        fprintf(p->of, "[%d]", type_dimension_size(&type, i));
     }
     return 1;
 
@@ -1432,7 +1435,6 @@ static void cg_jump_statement(Parser* p, ParseNode* node);
 static TypeSpecifiers cg_extract_type_specifiers(Parser* p, ParseNode* node);
 static int cg_extract_pointer(ParseNode* node);
 static Type cg_type_name_extract(Parser*, ParseNode*);
-static TokenId cg_extract_identifier(ParseNode* node);
 static SymbolId cg_extract_symbol(Parser* p,
         ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
 /* Code generation helpers */
@@ -2229,6 +2231,8 @@ static int parse_direct_declarator_2(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(direct_declarator);
 
     if (parse_expect(p, "[")) {
+        tree_attach_token(p, PARSE_CURRENT_NODE, "[");
+
         if (!parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto exit;
         /* Incomplete */
         if (!parse_expect(p, "]")) goto exit;
@@ -2236,6 +2240,8 @@ static int parse_direct_declarator_2(Parser* p, ParseNode* parent) {
         parse_direct_declarator_2(p, PARSE_CURRENT_NODE);
     }
     if (parse_expect(p, "(")) {
+        tree_attach_token(p, PARSE_CURRENT_NODE, "(");
+
         if (!parse_parameter_type_list(p, PARSE_CURRENT_NODE)) goto exit;
         if (!parse_expect(p, ")")) goto exit;
         PARSE_MATCHED();
@@ -2840,9 +2846,9 @@ static SymbolId cg_integer_constant(Parser* p, ParseNode* node) {
     ParseNode* token_node = parse_node_child(constant_node, 0);
     TokenId tok_id = parse_node_token_id(token_node);
 
+    /* TODO temporary hardcode for ts_i32 */
     Type type;
-    type.typespec = ts_i32; /* TODO temporary hardcode */
-    type.pointers = 0;
+    type_construct(&type, ts_i32, 0);
     SymbolId sym_id = symtab_add(p, tok_id, type, vc_nlval);
 
     DEBUG_CG_FUNC_END();
@@ -2895,7 +2901,7 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
 
         if (parse_node_type(n) == st_expression) {
             Type type = symtab_get_type(p, result_id);
-            type_dec_pointer(&type);
+            type_dec_indirection(&type);
             SymbolId new_result = symtab_add(p, -1, type, vc_lval);
 
             /* Obtain the pointer (value of the object's location) by
@@ -2997,7 +3003,7 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
                     parser_output_il(p, "mad $s,$s\n", result_id, operand_1);
                     break;
                 case '*':
-                    type_dec_pointer(&result_type);
+                    type_dec_indirection(&result_type);
                     result_id = symtab_add(p, -1, result_type, vc_lval);
                     /* Obtain the pointer (value of the object's location) by
                        converting the operand to a non Lvalue */
@@ -3582,25 +3588,51 @@ static Type cg_type_name_extract(Parser* p, ParseNode* node) {
     return type;
 }
 
-/* Retrieves identifier string
-   Expects declarator node */
-static TokenId cg_extract_identifier(ParseNode* node) {
-    ASSERT(node->type == st_declarator, "Incorrect node type");
-
-    ParseNode* dirdecl = parse_node_child(node, -1);
-    ParseNode* identifier = parse_node_child(dirdecl, 0);
-    ParseNode* token_node = parse_node_child(identifier, 0);
-    return parse_node_token_id(token_node);
-}
-
 /* Adds symbol (type + token) to symbol table
    Expects declaration-specifiers node and declarator node*/
 static SymbolId cg_extract_symbol(Parser* p,
-        ParseNode* declaration_specifiers_node, ParseNode* declarator_node) {
-    TokenId tok_id = cg_extract_identifier(declarator_node);
+        ParseNode* declspec, ParseNode* declarator) {
+    TypeSpecifiers ts = cg_extract_type_specifiers(p, declspec);
+    int pointers = cg_extract_pointer(declarator);
+
+    ParseNode* dirdeclarator = parse_node_child(declarator, -1);
+
+    /* Identifier */
+    ParseNode* identifier = parse_node_child(dirdeclarator, 0);
+    ParseNode* identifier_tok = parse_node_child(identifier, 0);
+    TokenId tok_id = parse_node_token_id(identifier_tok);
+
     Type type;
-    type.typespec = cg_extract_type_specifiers(p, declaration_specifiers_node);
-    type.pointers = cg_extract_pointer(declarator_node);
+    type_construct(&type, ts, pointers);
+
+    /* Arrays, e.g., [10][90][11] */
+    dirdeclarator = parse_node_child(dirdeclarator, 1);
+    while (dirdeclarator != NULL &&
+            parse_node_type(dirdeclarator) == st_direct_declarator) {
+        ParseNode* tok_node = parse_node_child(dirdeclarator, 0);
+        const char* tok = parse_node_token(p, tok_node);
+        /* May be parameter-type-list, which we ignore */
+        if (strequ("(", tok)) {
+            goto loop;
+        }
+        if (!strequ("[", tok)) {
+            ERRMSG("Expected ( or [\n");
+            return symid_invalid;
+        }
+
+        /* FIXME assuming assignment-expression is at index 1, this is only
+           the case for some productions of direct-declarator */
+        /* Evaluates to number of elements for this dimension */
+        SymbolId dim_count_id =
+            cg_assignment_expression(p, parse_node_child(dirdeclarator, 1));
+        Symbol* sym = symtab_get(p, dim_count_id);
+        int count = strtoi(symbol_token(p, sym));
+
+        type_add_dimension(&type, count);
+loop:
+        dirdeclarator = parse_node_child(dirdeclarator, -1);
+    }
+
     return symtab_add(p, tok_id, type, vc_lval);
 }
 
@@ -3617,7 +3649,13 @@ static void cg_function_signature(Parser* p, ParseNode* node) {
 
     ParseNode* dirdeclarator = parse_node_child(declarator, -1);
     ParseNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
-    ParseNode* paramtypelist = parse_node_child(dirdeclarator2, 0);
+
+    const char* tok = parse_node_token(p, parse_node_child(dirdeclarator2, 0));
+    if (!strequ( "(", tok)) {
+        ERRMSG("Expected (' to begin parameter-type-list");
+        return;
+    }
+    ParseNode* paramtypelist = parse_node_child(dirdeclarator2, 1);
     ParseNode* paramlist = parse_node_child(paramtypelist, 0);
     cg_parameter_list(p, paramlist);
     parser_output_il(p, "\n");

@@ -188,6 +188,49 @@ static inline void itostr(int i, char* buf) {
     }
 }
 
+/* Converts str representation of integer to integer */
+static inline int strtoi(const char* str) {
+    int val = 0;
+    int sign = 1;
+
+    int i = 0;
+    char c;
+
+    if (str[0] == '-') {
+        sign = -1;
+        i = 1;
+    }
+    while ((c = str[i]) != '\0') {
+        ASSERTF('0' <= c && c <= '9', "Invalid char %c", c);
+        val *= 10;
+        val += c - '0';
+        ++i;
+    }
+    return val * sign;
+}
+
+/* Converts str representation of integer with given length to integer */
+static inline int strtoi2(const char* str, int len) {
+    int val = 0;
+    int sign = 1;
+
+    int i = 0;
+    char c;
+
+    ASSERT(len > 0, "No digits");
+    if (str[0] == '-') {
+        sign = -1;
+        i = 1;
+    }
+    for (; i < len; ++i) {
+        c = str[i];
+        ASSERTF('0' <= c && c <= '9', "Invalid char %c", c);
+        val *= 10;
+        val += c - '0';
+    }
+    return val * sign;
+}
+
 /* Creates a c string on the stack with name,
    has given prefix string with number appended */
 #define AAPPENDI(name__, prefix__, num__)                \
@@ -394,6 +437,11 @@ static inline const char* type_specifiers_str(TypeSpecifiers typespec) {
 typedef struct {
     TypeSpecifiers typespec;
     int pointers;
+
+    /* Arrays */
+    int dimension; /* Dimension of array, e.g., [123][321] has dimension 2 */
+    int size[1]; /* Number of elements for each dimension */
+    /* FIXME assume dimension 1 arrays for now to get something implemented */
 } Type;
 
 /* Returned by relational, equality, logical and, logical or as required by
@@ -410,6 +458,8 @@ static inline void type_construct(
         Type* type, TypeSpecifiers ts, int pointers) {
     type->typespec = ts;
     type->pointers = pointers;
+    type->dimension = 0;
+    type->size[0] = 0;
 }
 
 /* Returns type specifiers for Type */
@@ -444,35 +494,61 @@ static inline int type_inc_pointer(Type* type) {
     return type->pointers;
 }
 
-/* Decrements the number of pointers for Type, returns the new number of
-   pointers */
-static inline int type_dec_pointer(Type* type) {
+/* Sets the current type to the type obtained from dereferencing the current
+   type (thus decreasing one level of indirection) */
+static inline void type_dec_indirection(Type* type) {
     ASSERT(type != NULL, "Type is null");
-    ASSERT(type->pointers > 0, "No pointers to decrement");
-    --type->pointers;
-    return type->pointers;
+    if (type->dimension > 0) {
+        --type->dimension;
+    }
+    else {
+        ASSERT(type->pointers > 0, "No pointers to decrement");
+        --type->pointers;
+    }
 }
 
 /* Returns Type of what this pointer points to */
 static inline Type type_point_to(const Type* type) {
     ASSERT(type != NULL, "Type is null");
     Type t = *type;
-    type_dec_pointer(&t);
+    type_dec_indirection(&t);
     return t;
+}
+
+/* Returns the dimension of this type */
+static inline int type_dimension(const Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    return type->dimension;
+}
+
+/* Adds a dimension to the type
+   size: Number of elements the dimension can hold in total
+         e.g., int[10][60] has count 600 */
+static inline void type_add_dimension(Type* type, int size) {
+    ASSERT(type != NULL, "Type is null");
+    ASSERT(type->dimension == 0,
+            "Only single dimension arrays supported for now");
+    ++type->dimension;
+    type->size[0] = size;
+}
+
+/* Returns the number of elements held in the dimension at index i */
+static inline int type_dimension_size(const Type* type, int i) {
+    ASSERT(type != NULL, "Type is null");
+    return type->size[i];
 }
 
 /* Converts a string into a type */
 static inline Type type_from_str(const char* str) {
     Type type;
-    type.typespec = ts_none;
-    type.pointers = 0;
+    type_construct(&type, ts_none, 0);
 
     /* type at most 4 char, + 1 null terminator */
     char buf[5];
     int i = 0;
     for (; i < 4; ++i) {
         char c = str[i];
-        if (c == '\0' || c == '*') {
+        if (c == '\0' || c == '*' || c == '[') {
             break;
         }
         buf[i] = c;
@@ -486,56 +562,105 @@ static inline Type type_from_str(const char* str) {
     }
     /* Pointers */
     char c;
-    while ((c = str[i]) != '\0') {
-        ASSERT(c == '*', "Expected pointer");
+    while ((c = str[i]) == '*') {
         ++type.pointers;
         ++i;
     }
+    /* Arrays */
+    ASSERT(c == '[' || c == '\0', "Expected array or end of string");
+
+    while (c == '[') {
+        /* Start at the character after [
+           e.g., [100]
+                  ^ i_start */
+        int digits = 0;
+        ++i;
+        int i_start = i;
+        while (1) {
+            if (str[i] == ']') {
+                break;
+            }
+            ASSERT(str[i] != '\0', "Expected ]");
+            ++i;
+            ++digits;
+        }
+        int size = strtoi2(str + i_start, digits);
+        type_add_dimension(&type, size);
+
+        /* [100][200]
+               ^ Currently here, advance to next dimension or end of string */
+        ++i;
+        c = str[i];
+    }
+
     return type;
 }
 
-/* Number of bytes this type takes up */
+/* Number of bytes this type takes up
+   For arrays, the element count are part of the type's size */
 static inline int type_bytes(Type type) {
     ASSERT(type.typespec != ts_none, "Invalid type specifiers");
 
     if (type.pointers > 0) {
         return 8;
     }
+    int bytes = 0;
     switch (type.typespec) {
         case ts_void:
-            return 0;
+            bytes = 0;
+            break;
         case ts_i8:
-            return 1;
+            bytes = 1;
+            break;
         case ts_i16:
-            return 2;
+            bytes = 2;
+            break;
         case ts_i32:
-            return 4;
+            bytes = 4;
+            break;
         case ts_i32_:
-            return 4;
+            bytes = 4;
+            break;
         case ts_i64:
-            return 8;
+            bytes = 8;
+            break;
         case ts_u8:
-            return 1;
+            bytes = 1;
+            break;
         case ts_u16:
-            return 2;
+            bytes = 2;
+            break;
         case ts_u32:
-            return 4;
+            bytes = 4;
+            break;
         case ts_u32_:
-            return 4;
+            bytes = 4;
+            break;
         case ts_u64:
-            return 8;
+            bytes = 8;
+            break;
         case ts_f32:
-            return 4;
+            bytes = 4;
+            break;
         case ts_f64:
-            return 8;
+            bytes = 8;
+            break;
         case ts_f64_:
-            return 8;
+            bytes = 8;
+            break;
         case ts_none:
         case ts_count:
         default:
             ASSERT(0, "Bad type specifier");
-            return 0;
+            bytes = 0;
+            break;
     }
+    if (type.dimension > 0) {
+        ASSERT(type.dimension == 1,
+            "Only single dimension arrays supported for now");
+        bytes *= type.size[0];
+    }
+    return bytes;
 }
 
 /* Return 1 if both types are equal, 0 if not */
@@ -571,6 +696,20 @@ static inline int type_rank(TypeSpecifiers typespec) {
             ASSERT(0, "Bad type specifier");
             return 0;
     }
+}
+
+/* Returns 1 if provided type is an array type, 0 if not */
+static inline int type_array(const Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    return type->dimension > 0;
+}
+
+/* Returns the type of the array's element */
+static inline Type type_element(const Type* type) {
+    ASSERT(type_array(type), "Not an array");
+    Type t;
+    type_construct(&t, type_typespec(type), 0);
+    return t;
 }
 
 /* Returns 1 if the provided type is an integer type, 0 if not */

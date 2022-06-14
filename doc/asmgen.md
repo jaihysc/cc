@@ -130,7 +130,7 @@ Using liveness information, an interference graph is built for all the variables
 
 ### 3. Precolor
 
-Variables whose address gets taken are automatically spilled.
+Variables whose address gets taken, arrays are automatically spilled.
 
 ### 4. Coalesce
 
@@ -190,6 +190,12 @@ Assembly
 
 imul eax, edi
 ```
+
+## Implementation of language features
+
+### Arrays
+
+Arrays are always precolored to the stack and have assembly generation patterns specific to them as they are handled differently from other automatic variables. Referencing each element of an array is translated to a reference to a location the stack. When generating assembly, the size directive emitted is not the size of the array, but the size of the array's element, e.g., int p[] gets a size directive DWORD.
 
 ## References
 

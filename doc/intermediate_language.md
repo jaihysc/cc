@@ -14,9 +14,13 @@ The parser will generate additional symbols with prefix `__`, the following char
 ## Types
 
 ```
-<fundamental-type><*(optional)>
+<fundamental-type><*(optional)><[array-size](optional)>
 ```
-\* denotes pointer, similar to C, chain them together for pointer to pointer, e.g., i8\*\*
+
+Types are in a format similiar to C:
+
+- `*` denotes pointer, chain them together for pointer to pointer, e.g., `i8**`
+- `[]` denotes array, e.g., `i32*[10][17]`
 
 | Type   | Summary                                                                                                                                            |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |

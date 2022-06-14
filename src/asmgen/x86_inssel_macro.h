@@ -22,9 +22,10 @@
                    [] denodes a group, each group has 1 letter, each letter
                    separated by |. The first group [s|i|l] is required.
 
-                   [s|i|l][u|U][0|1|2|3|4|5|6|7|8|9] ...
+                   [s|a|i|l][u|U][0|1|2|3|4|5|6|7|8|9] ...
 
                    s = Register/Memory
+                   a = Array
                    i = Immediate
                    l = Label
                    u = Unsigned
@@ -808,6 +809,12 @@
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mti,                                             \
+        INSSEL_MACRO_CASE(ais aii,                                \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                REGISTER_VIRTUAL, 0,,                             \
+                REGISTER_VIRTUAL, 2,                              \
+            )                                                     \
+        )                                                         \
         INSSEL_MACRO_CASE(sis sii,                                \
             INSSEL_MACRO_REPLACE2(mov,                            \
                 REGISTER_NEW, 0,,                                 \

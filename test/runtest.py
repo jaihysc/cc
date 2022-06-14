@@ -16,6 +16,7 @@ class Color:
     NONE = "\033[0m"
     OK = '\033[32m'
     ERR = '\033[0;1;31m'
+    WARN = "\033[0;1;33m"
 
 def log(msg, color=Color.NONE, end='\n'):
     print(f'{color}{msg}{Color.NONE}', end=end)
@@ -47,7 +48,7 @@ class Program:
 
         args = compiler_path.split(' ') # Separate out the compiler flags
         args.append(self.c_path)
-        result = subprocess.run(args, stdout=subprocess.PIPE)
+        result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         self.compile_msg = result.stdout.decode('utf-8')
         log(self.compile_msg, end='')
@@ -203,6 +204,26 @@ def main():
                     programs.append(prog)
 
     # Keep the program objects, check success and failures in the objects
+
+    # Succeeded but warnings were emitted
+    warning_prog = []
+    for prog in programs:
+        if not prog.test_failed and prog.compile_msg:
+            warning_prog.append(prog)
+    if len(warning_prog) != 0:
+        log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
+        log(f'{len(warning_prog)} tests with warnings', Color.WARN);
+
+        # Names of tests with warnings
+        for prog in warning_prog:
+            log(prog.name)
+
+        for prog in warning_prog:
+            log('-----------------------------------------')
+            log(prog.name)
+            log(prog.compile_msg, end='')
+
+    # Failed tests
     log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
     failed_tests = 0
     for prog in programs:

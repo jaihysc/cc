@@ -15,6 +15,7 @@
 #include "ErrorCode.h"
 #include "Symbol.h"
 #include "ILStatement.h"
+#include "ISMRFlag.h"
 #include "PasmStatement.h"
 #include "Block.h"
 #include "IGNode.h"
@@ -37,7 +38,6 @@ typedef struct {
     /* See INSSEL_MACRO_REPLACE for interpretation of contents */
     uint32_t op[MAX_ASM_OP];
     int op_count;
-    /* See declaration of ISMRFlag in fwddecl.h */
     ISMRFlag flag[MAX_ASM_OP];
 } InsSelMacroReplace;
 
@@ -84,19 +84,6 @@ static ISMRFlag ismr_flag(const InsSelMacroReplace* ismr, int i) {
     ASSERT(i < ismr->op_count, "Index out of range");
     return ismr->flag[i];
 }
-
-/* For reading InsSelMacroReplace flags */
-
-/* Returns flag size override InsSelMacroReplace */
-static int ismr_size_override(ISMRFlag flag) {
-    return flag & 0x0F;
-}
-
-/* Returns flag dereference InsSelMacroReplace flag */
-static int ismr_dereference(ISMRFlag flag) {
-    return (flag & 0x10) / 16;
-}
-
 
 typedef struct {
     /* See INSSEL_MACRO_CASE for usage of constraint string */
@@ -508,7 +495,7 @@ static int cfg_compute_use_def(Parser* p) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = block_pasmstat_count(blk) - 1; j >= 0; --j) {
             PasmStatement* stat = block_pasmstat(blk, j);
-            SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
+            SymbolId syms[MAX_ASMINS_REG]; /* Buffer to hold symbols */
 
             /* Add 'def'ed symbol from statement to 'def' for block
                Remove occurrences of 'def'd symbol from 'use' for block */
@@ -521,7 +508,7 @@ static int cfg_compute_use_def(Parser* p) {
             }
 
             /* Add 'use'd symbols from statement to 'use' for block */
-            ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
+            ASSERT(MAX_ASMINS_REG >= 1, "Need at least 1 to hold def");
             int use_count = pasmstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
                 if (!symtab_is_var(p, syms[k])) {
@@ -707,14 +694,14 @@ stable:
         /* Calculate live symbols before/after each statement */
         for (int j = block_pasmstat_count(blk) - 1; j >= 0; --j) {
             PasmStatement* stat = block_pasmstat(blk, j);
-            SymbolId syms[MAX_ASM_OP]; /* Buffer to hold symbols */
+            SymbolId syms[MAX_ASMINS_REG]; /* Buffer to hold symbols */
 
             if (!pasmstat_set_live_out(
                         stat,
                         vec_data(&p->cfg_live_buf),
                         vec_size(&p->cfg_live_buf))) goto newerr;
 
-            ASSERT(MAX_ASM_OP >= 1, "Need at least 1 to hold def");
+            ASSERT(MAX_ASMINS_REG >= 1, "Need at least 1 to hold def");
             if (pasmstat_def(stat, syms) == 1) {
                 ASSERT(symtab_is_var(p, syms[0]),
                         "Assigned symbol should be variable");
@@ -900,16 +887,80 @@ static int cfg_compute_reg_pref(Parser* p, PasmStatement* stat) {
 static void cfg_compute_spill_code_replace(
         PasmStatement* stat, SymbolId symid, Register reg) {
     for (int i = 0; i < pasmstat_op_count(stat); ++i) {
-        if (!pasmstat_is_sym(stat, i)) {
-            continue;
-        }
-        if (pasmstat_op_sym(stat, i) == symid) {
+        if (pasmstat_is_sym(stat, i) && pasmstat_op_sym(stat, i) == symid) {
             pasmstat_set_op_reg(stat, i, reg);
             return;
         }
+        if (pasmstat_is_sym2(stat, i) && pasmstat_op_sym2(stat, i) == symid) {
+            pasmstat_set_op_reg2(stat, i, reg);
+            return;
+        }
     }
-    ASSERT(0,
-            "Failed to replace operand with reloaded register");
+    ASSERT(0, "Failed to replace operand with reloaded register");
+}
+
+/* Calculates the register reloads necessary for a statement with the provided
+   addressing mode
+   Returns number of reloads, stores SymbolId with must be reloaded in provided
+   array
+   Number of reloads is set to a big number (16) if provided addressing mode
+   cannot be used */
+static int cfg_compute_spill_code_reload(
+        Parser* p, const PasmStatement* stat, const AddressMode* mode,
+        SymbolId* reload_id) {
+    int reloads = 0;
+    for (int i = 0; i < pasmstat_op_count(stat); ++i) {
+        /* If a register was explicitly specified, it is assumed
+           that it forms a valid addressing mode */
+
+        if (pasmstat_is_sym(stat, i)) {
+           /* Check if operand can be used with the addressing mode
+              that is currently being examined */
+            SymbolId id = pasmstat_op_sym(stat, i);
+            Symbol* sym = symtab_get(p, id);
+            switch (symbol_location(sym)) {
+                case loc_stack:
+                    if (!addressmode_mem(mode, i)) {
+                        /* Addressing mode must be usuable with a register as
+                           spill code reloads memory into a register */
+                        if (!addressmode_reg(mode, i)) goto no_match;
+                        /* Cannot reload big objects, e.g., arrays, structs */
+                        if (!reg_has_size(symbol_bytes(sym))) goto no_match;
+                        reload_id[reloads] = id;
+                        ++reloads;
+                    }
+                    break;
+                case loc_constant:
+                    if (!addressmode_imm(mode, i)) goto no_match;
+                    break;
+                case loc_a: case loc_b: case loc_c: case loc_d:
+                case loc_bp: case loc_sp: case loc_si: case loc_di:
+                case loc_8: case loc_9: case loc_10: case loc_11:
+                case loc_12: case loc_13: case loc_14: case loc_15:
+                    if (!addressmode_reg(mode, i)) goto no_match;
+                    break;
+                default:
+                    /* Labels and others */
+                    break;
+            }
+        }
+        if (pasmstat_is_sym2(stat, i)) {
+            SymbolId id = pasmstat_op_sym2(stat, i);
+            Symbol* sym = symtab_get(p, id);
+            /* Second symbol of operand must be register or constant
+               [rax+rbx]
+                    ^ Second symbol */
+            if (symbol_location(sym) == loc_stack) {
+                ASSERT(reg_has_size(symbol_bytes(sym)),
+                        "Second symbol of operand must fit in register");
+                reload_id[reloads] = id;
+                ++reloads;
+            }
+        }
+    }
+    return reloads;
+no_match:
+    return 16;
 }
 
 /* Computes spill code between pseudo-assembly statements in blocks
@@ -943,10 +994,11 @@ static int cfg_compute_spill_code(Parser* p) {
 
             int best_mode = -1;
             /* Number of spill code which have to be generated
-               Big number so first found mode is always better than no mode */
-            int best_spill_code = 16;
-            /* Indices of operands which need spill code */
-            int best_spill_index[MAX_ASM_OP];
+               Big number so first found mode is always better than no mode
+               and the first mode found will be used over no mode */
+            int best_reloads = 16;
+            /* Id of symbols which need spill code */
+            int best_reload_id[MAX_ASMINS_REG];
 
             AsmIns asmins = pasmstat_ins(stat);
             for (int k = 0; k < asmins_mode_count(asmins); ++k) {
@@ -954,56 +1006,21 @@ static int cfg_compute_spill_code(Parser* p) {
                    operators be spilled */
 
                 AddressMode mode = asmins_mode(asmins, k);
-                int spill_code = 0; /* Number of operands spilled */
-                int spill_index[MAX_ASM_OP]; /*  Indices of operand spilled */
-                for (int l = 0; l < pasmstat_op_count(stat); ++l) {
-                    /* If a register was explicitly specified, it is assumed
-                       that it forms a valid addressing mode */
-                    if (!pasmstat_is_sym(stat, l)) {
-                        continue;
-                    }
+                /* best_reloads and best_reload_id holds the smallest
+                   found reloads and reload_id */
+                int reload_id[MAX_ASM_OP];
+                int reloads = cfg_compute_spill_code_reload(
+                        p, stat, &mode, reload_id);
 
-                   /* Check if operand can be used with the addressing mode
-                      that is currently being examined */
-                    Symbol* sym = symtab_get(p, pasmstat_op_sym(stat, l));
-                    switch (symbol_location(sym)) {
-                        case loc_stack:
-                            if (!addressmode_mem(&mode, l)) {
-                                /* Addressing most must be usuable with a
-                                   register as spill code reloads memory into a
-                                   register */
-                                if (!addressmode_reg(&mode, l)) goto no_match;
-                                spill_index[spill_code] = l;
-                                ++spill_code;
-                            }
-                            break;
-                        case loc_constant:
-                            if (!addressmode_imm(&mode, l)) goto no_match;
-                            break;
-                        case loc_a: case loc_b: case loc_c: case loc_d:
-                        case loc_bp: case loc_sp: case loc_si: case loc_di:
-                        case loc_8: case loc_9: case loc_10: case loc_11:
-                        case loc_12: case loc_13: case loc_14: case loc_15:
-                            if (!addressmode_reg(&mode, l)) goto no_match;
-                            break;
-                        default:
-                            /* Labels and others */
-                            break;
-                    }
-                }
-
-                if (spill_code < best_spill_code) {
-                    best_spill_code = spill_code;
-                    for (int l = 0; l < MAX_ASM_OP; ++l) {
-                        best_spill_index[l] = spill_index[l];
+                if (reloads < best_reloads) {
+                    best_reloads = reloads;
+                    for (int l = 0; l < reloads; ++l) {
+                        best_reload_id[l] = reload_id[l];
                     }
                     best_mode = k;
                 }
-no_match:
-                ;
             }
             ASSERT(best_mode >= 0, "Failed to find suitable addressing mode");
-
 
             /* Generate spill code for spilled operands */
 
@@ -1017,12 +1034,11 @@ no_match:
             int j_last_stat = j;
             Location loc_to_use = loc_a;
 
-            SymbolId syms[MAX_ASM_OP];
+            SymbolId syms[MAX_ASMINS_REG];
             int def_count = pasmstat_def(stat, syms);
 
-            for (int k = 0; k < best_spill_code; ++k) {
-                int i_operand = best_spill_index[k];
-                SymbolId operand_id = pasmstat_op_sym(stat, i_operand);
+            for (int k = 0; k < best_reloads; ++k) {
+                SymbolId operand_id = best_reload_id[k];
                 Symbol* operand_sym = symtab_get(p, operand_id);
 
                 /* Determine whether the operand is a def'ed or use'd symbol
@@ -1149,11 +1165,21 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int i) {
             const char* size_dir = asm_size_directive(bytes);
 
             if (pasmstat_is_offset(stat, i)) {
-                SymbolId sym_id2 = pasmstat_op_sym2(stat, i);
-                Symbol* sym2 = symtab_get(p, sym_id2);
-                parser_output_asm(p, "%s [rbp%c%d+%s]", size_dir, sign, abs_offset,
-                        reg_str(symbol_register(sym2)));
-                // TODO what if this is spilled ^^^, is constant, etc.
+                const char* index_str;
+                if (pasmstat_is_reg2(stat, i)) {
+                    index_str = reg_str(pasmstat_op_reg2(stat, i));
+                }
+                else {
+                    ASSERT(pasmstat_is_sym2(stat, i), "Expected symbol");
+                    Symbol* sym2 = symtab_get(p, pasmstat_op_sym2(stat, i));
+                    ASSERT(symbol_in_register(sym2),
+                            "Index must be in register");
+                    index_str = reg_str(symbol_register(sym2));
+                }
+
+                parser_output_asm(
+                        p, "%s [rbp%c%d+%s]",
+                        size_dir, sign, abs_offset, index_str);
             }
             else {
                 parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
@@ -1747,6 +1773,8 @@ static void debug_print_symtab(Parser* p) {
 
 static void debug_print_cfg(Parser* p) {
     /* Print out instructions and arguments of each node */
+    LOG("Warning: Liveliness information may be wrong because of peephole"
+        " optimizer removing instructions\n");
     LOGF("Control flow graph [%d]\n", vec_size(&p->cfg));
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         LOGF("  Block %d\n", i);

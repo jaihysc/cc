@@ -10,6 +10,12 @@ struct PasmStatement {
                            [rbp+rax-20]
                            base in a1, index in a2 */
     int op_type[MAX_ASM_OP];
+    /* An example of register 1, register 2 for an operand, similiar idea
+       for symbols:
+       mov [rax+rbx], rcx
+            ~~~ ~~~
+            reg1 reg2
+            ~~~~~~~ Operand 1 */
     struct {
         /* 1 = Register - Converted into register
            2 = SymbolId - Converted into where symbol is (register or memory)
@@ -31,8 +37,7 @@ struct PasmStatement {
     vec_t(SymbolId) live_in;
     /* Live symbols after this statement */
     vec_t(SymbolId) live_out;
-    /* Flags for operands
-       See declaration of ISMRFlag in fwddecl.h */
+    /* Flags for operands */
     ISMRFlag flag[MAX_ASM_OP];
 };
 
@@ -137,6 +142,16 @@ static void pasmstat_set_op_reg(PasmStatement* stat, int i, Register reg) {
     stat->op[i].a1.reg = reg;
 }
 
+/* Treats operand's second symbol/register at index i as a Register and sets
+   it for pseudo-assembly statement */
+static void pasmstat_set_op_reg2(PasmStatement* stat, int i, Register reg) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    stat->op[i].t2 = 1;
+    stat->op[i].a2.reg = reg;
+}
+
 /* Interprets operand at index i as SymbolId and returns the SymbolId
    for pseudo-assembly statement */
 static SymbolId pasmstat_op_sym(const PasmStatement* stat, int i) {
@@ -166,6 +181,17 @@ static void pasmstat_set_op_sym(PasmStatement* stat, int i, SymbolId id) {
     ASSERT(id >= 0, "Invalid SymbolId");
     stat->op[i].t1 = 2;
     stat->op[i].a1.id = id;
+}
+
+/* Treats operand's second symbol/register at index i as a SymbolId and sets it
+   for pseudo-assembly statement */
+static void pasmstat_set_op_sym2(PasmStatement* stat, int i, SymbolId id) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    ASSERT(id >= 0, "Invalid SymbolId");
+    stat->op[i].t2 = 2;
+    stat->op[i].a2.id = id;
 }
 
 /* Treats operand at index i as addressing memory via offset, sets SymbolId
@@ -263,49 +289,91 @@ static int pasmstat_set_live_out(
     return 1;
 }
 
+/* Returns 1 if the operand at index i addresses memory, 0 if not */
+static int pasmstat_address_memory(const PasmStatement* stat, int i) {
+    return stat->op_type[i] != 0 || ismr_dereference(pasmstat_flag(stat, i));
+}
+
+/* Adds SymbolId to provided array if is not already in array */
+static void pasmstat_add_(SymbolId* out_sym_id, int* used, SymbolId id) {
+    for (int i = 0; i < *used; ++i) {
+        if (out_sym_id[i] == id) {
+            return;
+        }
+    }
+    out_sym_id[*used] = id;
+    ++(*used);
+}
+
 /* Sets out_sym_id with Symbols which are used by the provided pseudo-assembly
    statement
    Returns the number of symbols
-   At most MAX_ASM_OP */
+   At most MAX_ASMINS_REG */
 static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
+    /* Symbols used to address memory are always use'd, e.g., [rax],
+       where rax is the register of some symbol */
+
+    int used = 0;
+    for (int i = 0; i < pasmstat_op_count(stat); ++i) {
+        if (pasmstat_address_memory(stat, i)) {
+            if (pasmstat_is_sym(stat, i)) {
+                pasmstat_add_(out_sym_id, &used, pasmstat_op_sym(stat, i));
+            }
+            if (pasmstat_is_sym2(stat, i)) {
+                pasmstat_add_(out_sym_id, &used, pasmstat_op_sym2(stat, i));
+            }
+        }
+    }
+
+    /* Access symbols, e.g., rax, [rbp-5], where rax, [rbp-5] is the
+       register/location of some symbol */
     switch (stat->ins) {
         /* Uses 1, def 1 */
-        case asmins_add:
-        case asmins_imul:
         case asmins_lea:
         case asmins_mov:
         case asmins_movsx:
         case asmins_movzx:
-        case asmins_sub:
-        case asmins_xor:
             if (pasmstat_is_sym(stat, 1)) {
-                out_sym_id[0] = pasmstat_op_sym(stat, 1);
-                return 1;
+                pasmstat_add_(out_sym_id, &used, pasmstat_op_sym(stat, 1));
             }
-            return 0;
+            break;
 
         /* Uses 1 */
         case asmins_idiv:
         case asmins_push:
             if (pasmstat_is_sym(stat, 0)) {
-                out_sym_id[0] = pasmstat_op_sym(stat, 0);
-                return 1;
+                pasmstat_add_(out_sym_id, &used, pasmstat_op_sym(stat, 0));
             }
-            return 0;
+            break;
 
+        /* Uses 2, def 1 */
+        case asmins_add:
+        case asmins_imul:
+        case asmins_sub:
         /* Uses 2 */
         case asmins_cmp:
         case asmins_test:
-            {
-                int used = 0;
-                for (int i = 0; i < 2; ++i) {
-                    if (pasmstat_is_sym(stat, i)) {
-                        out_sym_id[used] = pasmstat_op_sym(stat, i);
-                        ++used;
-                    }
+            for (int i = 0; i < 2; ++i) {
+                if (pasmstat_is_sym(stat, i)) {
+                    pasmstat_add_(out_sym_id, &used, pasmstat_op_sym(stat, i));
                 }
-                return used;
             }
+            break;
+        /* xor uses nothing if both operands are the same, i.e., xor reg, reg.
+           xor mem, mem is not possible, so do not need to handle that case */
+        case asmins_xor:
+            if (!pasmstat_address_memory(stat, 0) &&
+                !pasmstat_address_memory(stat, 1) &&
+                pasmstat_is_sym(stat, 0) && pasmstat_is_sym(stat, 1) &&
+                pasmstat_op_sym(stat, 0) == pasmstat_op_sym(stat, 1)) {
+                return 0;
+            }
+            for (int i = 0; i < 2; ++i) {
+                if (pasmstat_is_sym(stat, i)) {
+                    pasmstat_add_(out_sym_id, &used, pasmstat_op_sym(stat, i));
+                }
+            }
+            break;
 
         /* Uses none */
         case asmins_jmp:
@@ -327,6 +395,10 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
             ASSERT(0, "Unimplemented");
             return 0;
     }
+
+    ASSERT(used <= MAX_ASMINS_REG,
+            "Exceeded maximum number of used symbols");
+    return used;
 }
 
 /* Sets out_sym_id with Symbols which are defined by the provided
@@ -334,6 +406,9 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
    Returns the number of symbols
    At most 1 */
 static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
+    /* No def if addressing memory, e.g.,
+       mov DWORD [%a], 5
+       does not def the symbol a */
     switch (stat->ins) {
         /* Uses 1, def 1 */
         case asmins_add:
@@ -353,7 +428,8 @@ static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
         case asmins_setle:
         case asmins_setne:
         case asmins_setz:
-            if (pasmstat_is_sym(stat, 0)) {
+            if (!pasmstat_address_memory(stat, 0) &&
+                pasmstat_is_sym(stat, 0)) {
                 out_sym_id[0] = pasmstat_op_sym(stat, 0);
                 return 1;
             }

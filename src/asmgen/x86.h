@@ -116,6 +116,19 @@ typedef enum {
 const char* loc_strings[] = {SYMBOL_LOCATIONS};
 #undef SYMBOL_LOCATION
 
+/* Returns 1 if a register of the given bytes exists, 0 otherwise */
+static int reg_has_size(int bytes) {
+    switch (bytes) {
+        case 1:
+        case 2:
+        case 4:
+        case 8:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 /* Returns the name to access a given register with the indicates size
    -1 for upper byte (ah), 1 for lower byte (al) */
 static Register reg_get(Location loc, int bytes) {
@@ -314,6 +327,7 @@ static const char* asm_size_directive(int bytes) {
 }
 
 #define MAX_ASM_OP 2 /* Maximum operands for assembly instruction */
+#define MAX_ASMINS_REG 3 /* Maximum registers used per assembly instruction */
 #define ASMINSS                   \
     ASMINS(add,                   \
         ADDRESS_MODE(RM, IMM)     \
@@ -458,21 +472,21 @@ static AddressMode asmins_mode(AsmIns asmins, int i) {
 }
 
 /* Returns 1 if addressing mode at operand i can address register, 0 if not */
-static int addressmode_reg(AddressMode* mode, int i) {
+static int addressmode_reg(const AddressMode* mode, int i) {
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < MAX_ASM_OP, "Index out of range");
     return mode->op[i] == R || mode->op[i] == RM;
 }
 
 /* Returns 1 if addressing mode at operand i can address memory, 0 if not */
-static int addressmode_mem(AddressMode* mode, int i) {
+static int addressmode_mem(const AddressMode* mode, int i) {
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < MAX_ASM_OP, "Index out of range");
     return mode->op[i] == M || mode->op[i] == RM;
 }
 
 /* Returns 1 if addressing mode at operand i can address immediate, 0 if not */
-static int addressmode_imm(AddressMode* mode, int i) {
+static int addressmode_imm(const AddressMode* mode, int i) {
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < MAX_ASM_OP, "Index out of range");
     return mode->op[i] == IMM;

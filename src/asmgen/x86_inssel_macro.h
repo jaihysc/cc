@@ -94,7 +94,7 @@
             Mode                Param 2   Param 1
 
      op1_flags__: Macros SIZE_OVERRIDE() and DEREFERENCE and provided
-     op2_flags__  See declaration of ISMRFlag in fwddecl.h for more detail */
+     op2_flags__ */
 
 #define INSSEL_MACROS                                             \
     INSSEL_MACRO(add,                                             \

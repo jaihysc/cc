@@ -4,12 +4,26 @@
 
 struct PasmStatement {
     AsmIns ins;
-    /* 0 = Register
-       1 = SymbolId */
+    /* 1 = Memory offset - Converted into [base + index], where base is in
+                           memory, e.g., [rbp-20] and index a register or
+                           constant, e.g., rax. They are combined to form
+                           [rbp+rax-20]
+                           base in a1, index in a2 */
     int op_type[MAX_ASM_OP];
-    union {
-        Register reg;
-        SymbolId id;
+    struct {
+        /* 1 = Register - Converted into register
+           2 = SymbolId - Converted into where symbol is (register or memory)
+           */
+        int t1;
+        int t2;
+        union {
+            Register reg;
+            SymbolId id;
+        } a1;
+        union {
+            Register reg;
+            SymbolId id;
+        } a2;
     } op[MAX_ASM_OP];
     int op_count;
 
@@ -30,6 +44,11 @@ static void pasmstat_construct(PasmStatement* stat, AsmIns ins, int op_count) {
     vec_construct(&stat->live_in);
     vec_construct(&stat->live_out);
     for (int i = 0; i < MAX_ASM_OP; ++i) {
+        /* Initialize to 0 so uninitialized value does not make it think
+           there is a symbol / register */
+        stat->op_type[i] = 0;
+        stat->op[i].t1 = 0;
+        stat->op[i].t2 = 0;
         stat->flag[i] = 0;
     }
 }
@@ -50,11 +69,38 @@ static int pasmstat_is_reg(const PasmStatement* stat, int i) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
-    return stat->op_type[i] == 0;
+    return stat->op[i].t1 == 1;
+}
+
+/* Returns 1 if operand second symbol/register at index i is a Register,
+   0 if not */
+static int pasmstat_is_reg2(const PasmStatement* stat, int i) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    return stat->op[i].t2 == 1;
 }
 
 /* Returns 1 if operand at index i is a SymbolId, 0 if not */
 static int pasmstat_is_sym(const PasmStatement* stat, int i) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    return stat->op[i].t1 == 2;
+}
+
+/* Returns 1 if operand second symbol/register at index i is a SymbolId,
+   0 if not */
+static int pasmstat_is_sym2(const PasmStatement* stat, int i) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    return stat->op[i].t2 == 2;
+}
+
+/* Returns 1 if operand at index i address memory via offset
+    (see INSSEL_MACRO_REPLACE for offset details), 0 if not */
+static int pasmstat_is_offset(const PasmStatement* stat, int i) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
@@ -68,7 +114,17 @@ static Register pasmstat_op_reg(const PasmStatement* stat, int i) {
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
     ASSERT(pasmstat_is_reg(stat, i), "Incorrect op type");
-    return stat->op[i].reg;
+    return stat->op[i].a1.reg;
+}
+
+/* Interprets operand's second symbol/register at index i as Register and
+   returns the Register for pseudo-assembly statement */
+static Register pasmstat_op_reg2(const PasmStatement* stat, int i) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    ASSERT(pasmstat_is_reg2(stat, i), "Incorrect op type");
+    return stat->op[i].a2.reg;
 }
 
 /* Treats operand at index i as a Register, sets Register at index i for
@@ -77,8 +133,8 @@ static void pasmstat_set_op_reg(PasmStatement* stat, int i, Register reg) {
     ASSERT(stat != NULL, "PasmStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
-    stat->op[i].reg = reg;
-    stat->op_type[i] = 0;
+    stat->op[i].t1 = 1;
+    stat->op[i].a1.reg = reg;
 }
 
 /* Interprets operand at index i as SymbolId and returns the SymbolId
@@ -88,7 +144,17 @@ static SymbolId pasmstat_op_sym(const PasmStatement* stat, int i) {
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
     ASSERT(pasmstat_is_sym(stat, i), "Incorrect op type");
-    return stat->op[i].id;
+    return stat->op[i].a1.id;
+}
+
+/* Interprets operand's second symbol/register at index i as SymbolId and
+   returns the SymbolId for pseudo-assembly statement */
+static SymbolId pasmstat_op_sym2(const PasmStatement* stat, int i) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    ASSERT(pasmstat_is_sym2(stat, i), "Incorrect op type");
+    return stat->op[i].a2.id;
 }
 
 /* Treats operand at index i as a Symbolid, sets SymbolId at index i for
@@ -98,7 +164,24 @@ static void pasmstat_set_op_sym(PasmStatement* stat, int i, SymbolId id) {
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->op_count, "Index out of range");
     ASSERT(id >= 0, "Invalid SymbolId");
-    stat->op[i].id = id;
+    stat->op[i].t1 = 2;
+    stat->op[i].a1.id = id;
+}
+
+/* Treats operand at index i as addressing memory via offset, sets SymbolId
+   for base and index */
+static void pasmstat_set_op_offset(
+        PasmStatement* stat, int i, SymbolId base, SymbolId index) {
+    ASSERT(stat != NULL, "PasmStatement is null");
+    ASSERT(i >= 0, "Index out of range");
+    ASSERT(i < stat->op_count, "Index out of range");
+    ASSERT(base >= 0, "Invalid SymbolId");
+    ASSERT(index >= 0, "Invalid SymbolId");
+
+    stat->op[i].t1 = 2;
+    stat->op[i].t2 = 2;
+    stat->op[i].a1.id = base;
+    stat->op[i].a2.id = index;
     stat->op_type[i] = 1;
 }
 

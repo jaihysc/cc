@@ -34,14 +34,8 @@ static IGNode* ig_node(Parser* p, int i);
 
 typedef struct {
     AsmIns ins;
-    /* See INSSEL_MACRO_REPLACE for usage of type */
-    int op_type[MAX_ASM_OP];
-    union {
-        Location loc;
-        Register reg;
-        /* Index of the argument in IL instruction */
-        int index;
-    } op[MAX_ASM_OP];
+    /* See INSSEL_MACRO_REPLACE for interpretation of contents */
+    uint32_t op[MAX_ASM_OP];
     int op_count;
     /* See declaration of ISMRFlag in fwddecl.h */
     ISMRFlag flag[MAX_ASM_OP];
@@ -53,61 +47,28 @@ static AsmIns ismr_ins(const InsSelMacroReplace* ismr) {
     return ismr->ins;
 }
 
-/* Returns 1 if operand at index i is a new virtual register, 0 if not */
-static int ismr_op_new(const InsSelMacroReplace* ismr, int i) {
+/* Returns addressing mode for operand at index i */
+static int ismr_op_mode(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < ismr->op_count, "Index out of range");
-    return ismr->op_type[i] == 0;
+    return (int)((ismr->op[i] & 0xF0000000) >> 28);
 }
 
-/* Returns 1 if operand at index i is a virtual register, 0 if not */
-static int ismr_op_virtual(const InsSelMacroReplace* ismr, int i) {
+/* Returns the first parameter for addressing mode for operand at index i */
+static int ismr_op_param1(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < ismr->op_count, "Index out of range");
-    return ismr->op_type[i] == 1;
+    return (int)(ismr->op[i] & 0x000000FF);
 }
 
-/* Returns 1 if operand at index i is a physical register location, 0 if not */
-static int ismr_op_location(const InsSelMacroReplace* ismr, int i) {
+/* Returns the second parameter for addressing mode for operand at index i */
+static int ismr_op_param2(const InsSelMacroReplace* ismr, int i) {
     ASSERT(ismr != NULL, "Macro replace is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < ismr->op_count, "Index out of range");
-    return ismr->op_type[i] == 2;
-}
-
-/* Returns 1 if operand at index i is a physical register, 0 if not */
-static int ismr_op_physical(const InsSelMacroReplace* ismr, int i) {
-    ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(i >= 0, "Index out of range");
-    ASSERT(i < ismr->op_count, "Index out of range");
-    return ismr->op_type[i] == 3;
-}
-
-/* Interprets operand at index i as a virtual register (Symbol) and returns the
-   index of the argument (SymbolId) in the IL instruction (to perform macro
-   replacement) */
-static int ismr_op_index(const InsSelMacroReplace* ismr, int i) {
-    ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op_new(ismr, i) || ismr_op_virtual(ismr, i),
-            "Incorrect op1 type");
-    return ismr->op[i].index;
-}
-
-/* Interprets operand at index i as a physical register location and returns
-   it */
-static Location ismr_op_loc(const InsSelMacroReplace* ismr, int i) {
-    ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op_location(ismr, i), "Incorrect op1 type");
-    return ismr->op[i].loc;
-}
-
-/* Interprets operand at index i as a physical register and returns it */
-static Register ismr_op_reg(const InsSelMacroReplace* ismr, int i) {
-    ASSERT(ismr != NULL, "Macro replace is null");
-    ASSERT(ismr_op_physical(ismr, i), "Incorrect op1 type");
-    return ismr->op[i].reg;
+    return (int)((ismr->op[i] & 0xFF00) >> 8);
 }
 
 /* Returns number of operands this replacement specifies */
@@ -1186,7 +1147,17 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int i) {
             }
 
             const char* size_dir = asm_size_directive(bytes);
-            parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
+
+            if (pasmstat_is_offset(stat, i)) {
+                SymbolId sym_id2 = pasmstat_op_sym2(stat, i);
+                Symbol* sym2 = symtab_get(p, sym_id2);
+                parser_output_asm(p, "%s [rbp%c%d+%s]", size_dir, sign, abs_offset,
+                        reg_str(symbol_register(sym2)));
+                // TODO what if this is spilled ^^^, is constant, etc.
+            }
+            else {
+                parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
+            }
         }
         else {
             /* label is for jump destinations */
@@ -2321,14 +2292,16 @@ static int cfg_compute_pasm(Parser* p) {
                     /* Transfer the flags over */
                     pasmstat_set_flag(&pasmstat, l, ismr_flag(ismr, l));
 
-                    if (ismr_op_new(ismr, l)) {
+                    int mode = ismr_op_mode(ismr, l);
+                    int param1 = ismr_op_param1(ismr, l);
+                    int param2 = ismr_op_param2(ismr, l);
+                    if (mode == 0) {
                         /* Use the newly created symbol if it exists
                            otherwise create it */
                         SymbolId id;
                         if (created[0] == 0) {
                             /* Make a new Symbol with the same type */
-                            int index = ismr_op_index(ismr, l);
-                            SymbolId arg_id = ilstat_arg(ilstat, index);
+                            SymbolId arg_id = ilstat_arg(ilstat, param1);
                             Symbol* arg_sym = symtab_get(p, arg_id);
 
                             ASSERT(symbol_bytes(arg_sym) > 0,
@@ -2342,12 +2315,11 @@ static int cfg_compute_pasm(Parser* p) {
                         }
                         pasmstat_set_op_sym(&pasmstat, l, id);
                     }
-                    else if (ismr_op_virtual(ismr, l)) {
-                        int index = ismr_op_index(ismr, l);
-                        SymbolId id = ilstat_arg(ilstat, index);
+                    else if (mode == 1) {
+                        SymbolId id = ilstat_arg(ilstat, param1);
                         pasmstat_set_op_sym(&pasmstat, l, id);
                     }
-                    else if (ismr_op_location(ismr, l)) {
+                    else if (mode == 2) {
                         /* Find the first symbol of the IL and use its size
                            to convert location to a register */
                         int bytes = 0;
@@ -2364,12 +2336,18 @@ static int cfg_compute_pasm(Parser* p) {
                         pasmstat_set_op_reg(
                                 &pasmstat,
                                 l,
-                                reg_get(ismr_op_loc(ismr, l), bytes));
+                                reg_get(param1, bytes));
+                    }
+                    else if (mode == 3) {
+                        pasmstat_set_op_reg(&pasmstat, l, param1);
+                    }
+                    else if (mode == 4) {
+                        SymbolId id1 = ilstat_arg(ilstat, param1);
+                        SymbolId id2 = ilstat_arg(ilstat, param2);
+                        pasmstat_set_op_offset(&pasmstat, l, id1, id2);
                     }
                     else {
-                        ASSERT(ismr_op_physical(ismr, l),
-                                "Incorrect InsSelMacroReplace operand type");
-                        pasmstat_set_op_reg(&pasmstat, l, ismr_op_reg(ismr, l));
+                        ASSERT(0, "Unrecognized mode");
                     }
                 }
 

@@ -2879,6 +2879,27 @@ static SymbolId cg_primary_expression(Parser* p, ParseNode* node) {
     return sym_id;
 }
 
+/* Generates the IL necessary to index a given pointer at the given index
+   Returns Lvalue holding the location yielded from indexing */
+static SymbolId cg_array_subscript(Parser* p, SymbolId ptr, SymbolId index) {
+    /* Calculate the index in bytes */
+    SymbolId byte_index = cg_make_temporary(p, type_ptroffset);
+    cg_com_type_rtol(p, byte_index, &index);
+
+    Type type = symtab_get_type(p, ptr);
+    type_dec_indirection(&type);
+    parser_output_il(
+            p, "mul $s,$s,$d\n", byte_index, index, type_bytes(type));
+
+    /* Obtain old_ptr by converting a non Lvalue
+       p[0][1]
+       ~~~~ This to a non Lvalue so can take first index of pointer.
+            The index is converted into bytes as required by IL */
+    SymbolId result = symtab_add(p, -1, type, vc_lval);
+    symbol_sl_access(symtab_get(p, result), cg_nlval(p, ptr), byte_index);
+    return result;
+}
+
 static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(postfix_expression);
 
@@ -2900,18 +2921,10 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
         ASSERT(node != NULL, "Expected node");
 
         if (parse_node_type(n) == st_expression) {
-            Type type = symtab_get_type(p, result_id);
-            type_dec_indirection(&type);
-            SymbolId new_result = symtab_add(p, -1, type, vc_lval);
-
-            /* Obtain the pointer (value of the object's location) by
-               converting the previous result to a non Lvalue */
             SymbolId index = cg_expression(p, n);
-            symbol_sl_access(
-                    symtab_get(p, new_result),
-                    cg_nlval(p, result_id),
-                    index);
-            result_id = new_result;
+            result_id = cg_array_subscript(p, result_id, index);
+            /* ^ New                          ^ Old
+               Dereference old result_id to get new result_id */
         }
         else {
             const char* token = parser_get_token(p, parse_node_token_id(n));
@@ -3005,8 +3018,10 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
                 case '*':
                     type_dec_indirection(&result_type);
                     result_id = symtab_add(p, -1, result_type, vc_lval);
-                    /* Obtain the pointer (value of the object's location) by
-                       converting the operand to a non Lvalue */
+                    /* Obtain the pointer by converting a non Lvalue
+                       **p
+                       ^~~ Underlined to a non Lvalue so can be dereferenced by
+                       ^   indicated */
                     symbol_sl_access(
                             symtab_get(p, result_id),
                             cg_nlval(p, operand_1),

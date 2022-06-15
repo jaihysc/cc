@@ -47,683 +47,705 @@
                  INSSEL_MACRO_REPLACE
 
    INSSEL_MACRO_REPLACE0(asmins__)
-   INSSEL_MACRO_REPLACE1(asmins__, op1_t__, op1__, op1_flag__)
-   INSSEL_MACRO_REPLACE2(asmins__, op1_t__, op1__, op1_flag__,
-                                   op2_t__, op2__, op2_flag__)
+   INSSEL_MACRO_REPLACE1(asmins__, op1__, op1_flag__)
+   INSSEL_MACRO_REPLACE2(asmins__, op1__, op1_flag__,
+                                   op2__, op2_flag__)
      Each INSSEL_MACRO_REPLACE replaces to one pseudo-assembly instruction.
      The number at the end corresponds to the number of operands
 
      asmins__: Name of the AsmIns this macro replaces with, no prefix,
                i.e., mov instead of asmins_mov
-     op1_t__: Type of the operands for performing the replacement,
-     op2_t__  in order from first operand to last
-              0 = New virtual register - operand corresponds to index in
-                  IL argument for SymbolId. The new register will have the
-                  same type as the symbol at the SymbolId
-                  at the SymbolId
-              1 = Virtual register - operand is an index into IL argument for
-                  SymbolId, the register/memory location of the symbol will
-                  be output when generating assembly with spill code generated
-                  as necessary
-              2 = Physical register location - operand corresponds to an enum
-                  Location which will be converted to a register by using the
-                  the size of the first symbol with storage in the IL
-                  instruction
-                  As a result, this can only be used if the IL has
-                  at least 1 argument with a byte size
-              3 = Physical register - operand corresponds to an enum Register
-              Use the provided macros REGISTER_NEW, REGISTER_VIRTUAL,
-              REGISTER_PHYSICAL, REGISTER_LOCATION to declare the types
+     op1__: Describes the operand, can be a register address mode (see below)
+     op2__  to address registers, e.g., rax or a memory address mode
+            (see below) to address memory, e.g., [rax+rbx]
 
-     op1__: Operand
-     op2__
-     op1_flags__: See declaration of ISMRFlag in fwddecl.h
-     op2_flags__  */
+            Register address mode:
+            NEW(i__) Mode: 0
+              New virtual register - operand corresponds to index in IL
+              argument for SymbolId. The new register will have the same type
+              as the symbol at the SymbolId.
+            VIRTUAL(i__) Mode: 1
+              Virtual register - operand is an index into IL argument for
+              SymbolId, the register/memory location of the symbol will be
+              output when generating assembly with spill code generated as
+              necessary.
+            LOCATION(loc__) Mode: 2
+              Physical register location - operand corresponds to an enum.
+              Location which will be converted to a register by using the the
+              size of the first symbol with storage in the IL instruction.
+              As a result, this can only be used if the IL has
+              at least 1 argument with a byte size.
+            PHYSICAL(reg__) Mode: 3
+              Physical register - operand corresponds to an enum Register.
+
+            Memory address mode:
+            OFFSET(base__, offset__) Mode: 4
+              Read at offset in memory - base__ is an index into IL argument
+              for SymbolId, the symbol must be in memory.
+              offset__ is an index into IL argument for SymbolId, the symbol's
+              value will be used as an offset.
+              The formed assembly operand is [base__ + offset__], for example
+              if base__ is at [rbp-30] and offset__ is rax: the formed operand
+              is [rbp+rax-30].
+
+            The addressing mode are stored as follows:
+            0000 0000 0000 0000 0000 0000 0000 0000
+            ~~~~                ~~~~~~~~~ ~~~~~~~~~
+            Mode                Param 2   Param 1
+
+     op1_flags__: Macros SIZE_OVERRIDE() and DEREFERENCE and provided
+     op2_flags__  See declaration of ISMRFlag in fwddecl.h for more detail */
 
 #define INSSEL_MACROS                                             \
     INSSEL_MACRO(add,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(add,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(add,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(add,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(add,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(ce,                                              \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(sete,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(sete,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(sete,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(cl,                                              \
         INSSEL_MACRO_CASE(ssUsU,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setl,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssUiU,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setl,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(siUsU,                                  \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setl,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssusu,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setb,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssuiu,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setb,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(siusu,                                  \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setb,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(cle,                                             \
         INSSEL_MACRO_CASE(ssUsU,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setle,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssUiU,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setle,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(siUsU,                                  \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setle,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssusu,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setbe,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssuiu,                                  \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setbe,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(siusu,                                  \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setbe,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(cne,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setne,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setne,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(cmp,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setne,                          \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(div,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_LOCATION, loc_d,,                        \
-                REGISTER_LOCATION, loc_d,                         \
+                LOCATION(loc_d),,                                 \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 1,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(idiv,                           \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_LOCATION, loc_a,                         \
+                VIRTUAL(0),,                                      \
+                LOCATION(loc_a),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_LOCATION, loc_d,,                        \
-                REGISTER_LOCATION, loc_d,                         \
+                LOCATION(loc_d),,                                 \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 1,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(idiv,                           \
-                REGISTER_NEW, 0,                                  \
+                NEW(0),                                           \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_LOCATION, loc_a,                         \
+                VIRTUAL(0),,                                      \
+                LOCATION(loc_a),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_LOCATION, loc_d,,                        \
-                REGISTER_LOCATION, loc_d,                         \
+                LOCATION(loc_d),,                                 \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 1,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(idiv,                           \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_LOCATION, loc_a,                         \
+                VIRTUAL(0),,                                      \
+                LOCATION(loc_a),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_LOCATION, loc_d,,                        \
-                REGISTER_LOCATION, loc_d,                         \
+                LOCATION(loc_d),,                                 \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 1,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(idiv,                           \
-                REGISTER_NEW, 0,                                  \
+                NEW(0),                                           \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_LOCATION, loc_a,                         \
+                VIRTUAL(0),,                                      \
+                LOCATION(loc_a),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(jmp,                                             \
         INSSEL_MACRO_CASE(l,                                      \
             INSSEL_MACRO_REPLACE1(jmp,                            \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(jnz,                                             \
         INSSEL_MACRO_CASE(ls,                                     \
             INSSEL_MACRO_REPLACE2(test,                           \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(jnz,                            \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(li,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 1,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(1),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(test,                           \
-                REGISTER_NEW, 1,,                                 \
-                REGISTER_NEW, 1,                                  \
+                NEW(1),,                                          \
+                NEW(1),                                           \
             )                                                     \
             INSSEL_MACRO_REPLACE1(jnz,                            \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(jz,                                              \
         INSSEL_MACRO_CASE(ls,                                     \
             INSSEL_MACRO_REPLACE2(test,                           \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(jz,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(li,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 1,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(1),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(test,                           \
-                REGISTER_NEW, 1,,                                 \
-                REGISTER_NEW, 1,                                  \
+                NEW(1),,                                          \
+                NEW(1),                                           \
             )                                                     \
             INSSEL_MACRO_REPLACE1(jz,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mad,                                             \
         INSSEL_MACRO_CASE(ss,                                     \
             INSSEL_MACRO_REPLACE2(lea,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mfi,                                             \
+        INSSEL_MACRO_CASE(sas sai,                                \
+            INSSEL_MACRO_REPLACE2(mov,                            \
+                VIRTUAL(0),,                                      \
+                OFFSET(1, 2),                                     \
+            )                                                     \
+        )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
             /* FIXME I assume the index is 0 for now */           \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1, DEREFERENCE                  \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1), DEREFERENCE                           \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mod,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_LOCATION, loc_d,,                        \
-                REGISTER_LOCATION, loc_d,                         \
+                LOCATION(loc_d),,                                 \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 1,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(idiv,                           \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_LOCATION, loc_d,                         \
+                VIRTUAL(0),,                                      \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_LOCATION, loc_d,,                        \
-                REGISTER_LOCATION, loc_d,                         \
+                LOCATION(loc_d),,                                 \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 1,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(idiv,                           \
-                REGISTER_NEW, 0,                                  \
+                NEW(0),                                           \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_LOCATION, loc_d,                         \
+                VIRTUAL(0),,                                      \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_LOCATION, loc_d,,                        \
-                REGISTER_LOCATION, loc_d,                         \
+                LOCATION(loc_d),,                                 \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 1,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(idiv,                           \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_LOCATION, loc_d,                         \
+                VIRTUAL(0),,                                      \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(push,                           \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_LOCATION, loc_d,,                        \
-                REGISTER_LOCATION, loc_d,                         \
+                LOCATION(loc_d),,                                 \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 1,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(idiv,                           \
-                REGISTER_NEW, 0,                                  \
+                NEW(0),                                           \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_LOCATION, loc_d,                         \
+                VIRTUAL(0),,                                      \
+                LOCATION(loc_d),                                  \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rdx,                       \
+                PHYSICAL(reg_rdx),                                \
             )                                                     \
             INSSEL_MACRO_REPLACE1(pop,                            \
-                REGISTER_PHYSICAL, reg_rax,                       \
+                PHYSICAL(reg_rax),                                \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mov,                                             \
         INSSEL_MACRO_CASE(ss,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(si,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
@@ -733,8 +755,8 @@
         INSSEL_MACRO_CASE(                                        \
             sU2sU1 sU4sU1 sU8sU1 sU4sU2 sU8sU2 sU8sU4,            \
             INSSEL_MACRO_REPLACE2(movsx,                          \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
         /* Zero extend signed <- unsigned */                      \
@@ -742,178 +764,178 @@
         INSSEL_MACRO_CASE(sU2su1 sU4su1 sU8su1 sU4su2 sU8su2      \
                           su2s1 su4s1 su8s1 su4s2 su8s2,          \
             INSSEL_MACRO_REPLACE2(movzx,                          \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
             /* mov qword <- dword zero extends */                 \
         INSSEL_MACRO_CASE(sU8su4 su8s4,                           \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
         /* Implement narrowing by simply accessing the lower */   \
         /* part of the register */                                \
         INSSEL_MACRO_CASE(s1s2,                                   \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1),            \
-                REGISTER_VIRTUAL, 1, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1),                     \
+                VIRTUAL(1), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(s1s4,                                   \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1),            \
-                REGISTER_VIRTUAL, 1, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1),                     \
+                VIRTUAL(1), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(s1s8,                                   \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1),            \
-                REGISTER_VIRTUAL, 1, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1),                     \
+                VIRTUAL(1), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(s2s4,                                   \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(2),            \
-                REGISTER_VIRTUAL, 1, SIZE_OVERRIDE(2)             \
+                VIRTUAL(0), SIZE_OVERRIDE(2),                     \
+                VIRTUAL(1), SIZE_OVERRIDE(2)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(s2s8,                                   \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(2),            \
-                REGISTER_VIRTUAL, 1, SIZE_OVERRIDE(2)             \
+                VIRTUAL(0), SIZE_OVERRIDE(2),                     \
+                VIRTUAL(1), SIZE_OVERRIDE(2)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(s4s8,                                   \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(4),            \
-                REGISTER_VIRTUAL, 1, SIZE_OVERRIDE(4)             \
+                VIRTUAL(0), SIZE_OVERRIDE(4),                     \
+                VIRTUAL(1), SIZE_OVERRIDE(4)                      \
             )                                                     \
         )                                                         \
         /* No need to actually sign extend if the types */        \
         /* are actually the same size */                          \
         INSSEL_MACRO_CASE(ss,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
         /* Widening / narrowing of constants can be done */       \
         /* by the assembler */                                    \
         INSSEL_MACRO_CASE(si,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mti,                                             \
-        INSSEL_MACRO_CASE(ais aii,                                \
+        INSSEL_MACRO_CASE(ass asi ais aii,                        \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                OFFSET(0, 1),,                                    \
+                VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis sii,                                \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 0,                              \
+                NEW(0),,                                          \
+                VIRTUAL(0),                                       \
             )                                                     \
             /* FIXME I assume the index is 0 for now */           \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0, DEREFERENCE,                     \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0), DEREFERENCE,                              \
+                VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(mul,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(imul,                           \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(imul,                           \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(imul,                           \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(imul,                           \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(not,                                             \
         INSSEL_MACRO_CASE(ss,                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(test,                           \
-                REGISTER_VIRTUAL, 1,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(1),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setz,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(si,                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(xor,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 0,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(test,                           \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_NEW, 0,                                  \
+                NEW(0),,                                          \
+                NEW(0),                                           \
             )                                                     \
             INSSEL_MACRO_REPLACE1(setz,                           \
-                REGISTER_VIRTUAL, 0, SIZE_OVERRIDE(1)             \
+                VIRTUAL(0), SIZE_OVERRIDE(1)                      \
             )                                                     \
         )                                                         \
     )                                                             \
     INSSEL_MACRO(ret,                                             \
         INSSEL_MACRO_CASE(s,                                      \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 0,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE0(leave)                          \
             INSSEL_MACRO_REPLACE0(ret)                            \
         )                                                         \
         INSSEL_MACRO_CASE(i,                                      \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_LOCATION, loc_a,,                        \
-                REGISTER_VIRTUAL, 0,                              \
+                LOCATION(loc_a),,                                 \
+                VIRTUAL(0),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE0(leave)                          \
             INSSEL_MACRO_REPLACE0(ret)                            \
@@ -922,50 +944,50 @@
     INSSEL_MACRO(sub,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(sub,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(ssi,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 1,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(sub,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_VIRTUAL, 2,                              \
+                VIRTUAL(0),,                                      \
+                VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sis,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(sub,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_NEW, 0,                                  \
+                VIRTUAL(0),,                                      \
+                NEW(0),                                           \
             )                                                     \
         )                                                         \
         INSSEL_MACRO_CASE(sii,                                    \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 1,                              \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(sub,                            \
-                REGISTER_NEW, 0,,                                 \
-                REGISTER_VIRTUAL, 2,                              \
+                NEW(0),,                                          \
+                VIRTUAL(2),                                       \
             )                                                     \
             INSSEL_MACRO_REPLACE2(mov,                            \
-                REGISTER_VIRTUAL, 0,,                             \
-                REGISTER_NEW, 0,                                  \
+                VIRTUAL(0),,                                      \
+                NEW(0),                                           \
             )                                                     \
         )                                                         \
     )
@@ -995,29 +1017,25 @@
     replace__ = &vec_back(&case__->replace);                                 \
     replace__->ins = asmins_ ## asmins__;                                    \
     replace__->op_count = 0;
-#define INSSEL_MACRO_REPLACE1(asmins__, op1_t__, op1__, op1_flag__)          \
+#define INSSEL_MACRO_REPLACE1(asmins__, op1__, op1_flag__)                   \
     INSSEL_MACRO_REPLACE0(asmins__)                                          \
-    replace__->op_type[0] = op1_t__;                                         \
+    replace__->op[0] = op1__;                                                \
     /* Flags may be empty, if so it is initialized to 0 */                   \
     replace__->flag[0] = 0 op1_flag__;                                       \
-    replace__->op_count = 1;                                                 \
-    if (op1_t__ <= 1) replace__->op[0].index = op1__;                        \
-    if (op1_t__ == 2) replace__->op[0].loc = (Location)op1__;                \
-    if (op1_t__ == 3) replace__->op[0].reg = (Register)op1__;
-#define INSSEL_MACRO_REPLACE2(asmins__, op1_t__, op1__, op1_flag__,          \
-                                        op2_t__, op2__, op2_flag__)          \
-    INSSEL_MACRO_REPLACE1(asmins__, op1_t__, op1__, op1_flag__)              \
-    replace__->op_type[1] = op2_t__;                                         \
+    replace__->op_count = 1;
+#define INSSEL_MACRO_REPLACE2(asmins__, op1__, op1_flag__,                   \
+                                        op2__, op2_flag__)                   \
+    INSSEL_MACRO_REPLACE1(asmins__, op1__, op1_flag__)                       \
+    replace__->op[1] = op2__;                                                \
     replace__->flag[1] = 0 op2_flag__;                                       \
-    replace__->op_count = 2;                                                 \
-    if (op2_t__ <= 1) replace__->op[1].index = op2__;                        \
-    if (op2_t__ == 2) replace__->op[1].loc = (Location)op2__;                \
-    if (op1_t__ == 3) replace__->op[1].reg = (Register)op2__;
+    replace__->op_count = 2;
 
-#define REGISTER_NEW 0
-#define REGISTER_VIRTUAL 1
-#define REGISTER_LOCATION 2
-#define REGISTER_PHYSICAL 3
+#define NEW(i__) i__ & 0xFF
+#define VIRTUAL(i__) (i__ & 0xFF) | 0x10000000
+#define LOCATION(loc__) (loc__ & 0xFF) | 0x20000000
+#define PHYSICAL(reg__) (reg__ & 0xFF) | 0x30000000
+#define OFFSET(base__, offset__) \
+         (base__ & 0xFF) | ((offset__ & 0xFF) << 8) | 0x40000000
 /* The flags expands out as 0 | 0x00 | 0x01
                               ~~~~~~        Flag 1
                                      ~~~~~~ Flag 2 */
@@ -1056,10 +1074,13 @@ static void inssel_macro_destruct(vec_InsSelMacro* macros) {
 #undef INSSEL_MACRO_CASE
 #undef INSSEL_MACRO_REPLACE1
 #undef INSSEL_MACRO_REPLACE2
-#undef REGISTER_NEW
-#undef REGISTER_VIRTUAL
-#undef REGISTER_LOCATION
-#undef REGISTER_PHYSICAL
+
+#undef NEW
+#undef VIRTUAL
+#undef LOCATION
+#undef PHYSICAL
+#undef OFFSET
+
 #undef SIZE_OVERRIDE
 #undef DEREFERENCE
 #endif

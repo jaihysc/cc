@@ -86,8 +86,8 @@ Memory manipulation instructions
 | mov         |    2 | `<arg0>s` = `<arg1>si`                                                                                                                      |
 | mtc         |    2 | `<arg0>s` = (T)`<arg1>si` where T is the type of `<arg0>`, `<arg1>` is cast to T (Mov Type Cast)                                            |
 | mad         |    2 | `<arg0>s` = &`<arg1>s` (Mov ADdress)                                                                                                        |
-| mfi         |    2 | `<arg0>s` = `<arg1>si`\[`<arg2>si`\] (Mov From Index)                                                                                       |
-| mti         |    2 | `<arg0>s`\[`<arg1>si`\] = `<arg2>si` (Mov To Index)                                                                                         |
+| mfi         |    2 | `<arg0>s` = `<arg1>si`\[`<arg2>si`\] where the index is in bytes (Mov From Index)                                                           |
+| mti         |    2 | `<arg0>s`\[`<arg1>si`\] = `<arg2>si` where the index is in bytes (Mov To Index)                                                             |
 
 - `0,1` Means 0 or 1
 - `+` Means variable number of arguments

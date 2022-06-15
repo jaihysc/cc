@@ -452,6 +452,8 @@ typedef struct {
 Type type_int = {.typespec = ts_i32, .pointers = 0};
 /* Type for labels */
 Type type_label = {.typespec = ts_void, .pointers = 0};
+/* Type for offsetting pointers */
+Type type_ptroffset = {.typespec = ts_i64, .pointers = 0};
 
 /* Constructs a type at given location */
 static inline void type_construct(

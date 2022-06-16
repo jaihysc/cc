@@ -392,6 +392,15 @@ static const char* asm_size_directive(int bytes) {
         ADDRESS_MODE(RM, R)       \
         ADDRESS_MODE(R, RM))
 
+
+
+
+
+
+
+
+
+
 #define ASMINS(name__, modes__) asmins_ ## name__,
 typedef enum {ASMINSS asmins_count} AsmIns;
 #undef ASMINS
@@ -433,22 +442,256 @@ static int asmins_copy_dest_index(void) {
 
 typedef struct {
     /* Mode for each operand */
-    int op[MAX_ASM_OP];
+    int op[MAX_ASMINS_REG];
 } AddressMode;
 
+
+
+
+
+
+/* X86_PASMINS(asmins__, pasm_mode__, mode__)
+     asmins__: The assembly instruction (AsmIns) this pseudo-assembly
+               instruction maps to
+     pasm_mode__: The pseudo-assembly addressing mode - PasmMode
+                  (See PasmStatement for PasmMode)
+     mode__: The x86 addressing mode for each operand
+
+   ADDRESS_MODE(m1__, m2__, m3__)
+     m1__, m2__, m3__: The addressing mode for each operand, respectively
+     Use the macros NONE, IMM, R, M, RM which corresponds to x86 imm, r, m, r/m
+*/
+
+#define PASMINSS                            \
+    ASMINS(add, rr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(add, rs,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(add, sr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(add, ss,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(cmp, rr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(cmp, rs,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(cmp, sr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(cmp, ss,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(idiv, r,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(idiv, s,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(imul, rr,                        \
+        ADDRESS_MODE(R, IMM, NONE)          \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(imul, rs,                        \
+        ADDRESS_MODE(R, IMM, NONE)          \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(imul, sr,                        \
+        ADDRESS_MODE(R, IMM, NONE)          \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(imul, ss,                        \
+        ADDRESS_MODE(R, IMM, NONE)          \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(jmp,,                            \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
+    ASMINS(jnz,,                            \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
+    ASMINS(jz,,                             \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
+    ASMINS(lea, rs,                         \
+        ADDRESS_MODE(R, M, NONE))           \
+    ASMINS(lea, ss,                         \
+        ADDRESS_MODE(R, M, NONE))           \
+    ASMINS(leave,,                          \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
+    ASMINS(mov, rr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(mov, rs,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(mov, ro,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(mov, sr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(mov, ss,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(mov, so,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(mov, or,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(mov, os,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(movsx, rr,                       \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(movsx, rs,                       \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(movsx, sr,                       \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(movsx, ss,                       \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(movzx, rr,                       \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(movzx, rs,                       \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(movzx, sr,                       \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(movzx, ss,                       \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(pop, r,                          \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(pop, s,                          \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(push, r,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(push, s,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(ret,,                            \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
+    ASMINS(setb, r,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setb, s,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setbe, r,                        \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setbe, s,                        \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(sete, r,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(sete, s,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setl, r,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setl, s,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setle, r,                        \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setle, s,                        \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setne, r,                        \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setne, s,                        \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setz, r,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(setz, s,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
+    ASMINS(sub, rr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(sub, rs,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(sub, sr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(sub, ss,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(test, rr,                        \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE))          \
+    ASMINS(test, rs,                        \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE))          \
+    ASMINS(test, sr,                        \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE))          \
+    ASMINS(test, ss,                        \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE))          \
+    ASMINS(xor, rr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(xor, rs,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(xor, sr,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))          \
+    ASMINS(xor, ss,                         \
+        ADDRESS_MODE(RM, IMM, NONE)         \
+        ADDRESS_MODE(RM, R, NONE)           \
+        ADDRESS_MODE(R, RM, NONE))
+
+
+
+
+
+
+
+
+
+
+#define ASMINS(name__, pasm_mode__, mode__) \
+    pasmins_ ## name__ ## _ ## pasm_mode__,
+typedef enum {PASMINSS} PasmIns;
+#undef ASMINS
+
+/* Converts PasmIns to a AsmIns */
+static AsmIns pasmins_asm(PasmIns pins) {
+#define ASMINS(name__, pasm_mode__, mode__) asmins_ ## name__,
+    const int asmins[] = {PASMINSS};
+#undef ASMINS
+    return asmins[pins];
+}
+
+
+// TODO Update comments, rename variables, .
+
 /* Returns the number of addressing modes for asmins */
-static int asmins_mode_count(AsmIns asmins) {
+static int asmins_mode_count(PasmIns asmins) {
     /* Expands out into an expression 0 + 1 + 1 ... */
-#define ASMINS(name__, modes__) 0 modes__,
-#define ADDRESS_MODE(op1__, op2__) + 1
-    const int modes[] = {ASMINSS};
+#define ASMINS(name__, pasm_mode__, mode__) 0 mode__,
+#define ADDRESS_MODE(m1__, m2__, m3__) + 1
+    const int modes[] = {PASMINSS};
 #undef ADDRESS_MODE
 #undef ASMINS
     return modes[asmins];
 }
 
 /* Returns ith addressing mode for asmins */
-static AddressMode asmins_mode(AsmIns asmins, int i) {
+static AddressMode asmins_mode(PasmIns asmins, int i) {
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < asmins_mode_count(asmins), "Index out of range");
 #define NONE 0
@@ -456,9 +699,9 @@ static AddressMode asmins_mode(AsmIns asmins, int i) {
 #define R 2
 #define M 3
 #define RM 4
-#define ASMINS(name__, modes__) modes__
-#define ADDRESS_MODE(op1__, op2__) {{op1__, op2__}},
-    const AddressMode modes[] = {ASMINSS};
+#define ASMINS(name__, pasm_mode__, mode__) mode__
+#define ADDRESS_MODE(m1__, m2__, m3__) {{m1__, m2__, m3__}},
+    const AddressMode modes[] = {PASMINSS};
 #undef ADDRESS_MODE
 #undef ASMINS
     /* Count the number of addressing modes for prior instructions to

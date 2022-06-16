@@ -34,7 +34,7 @@ int g_debug_print_symtab = 0;
 static IGNode* ig_node(Parser* p, int i);
 
 typedef struct {
-    AsmIns ins;
+    PasmIns ins;
     /* See INSSEL_MACRO_REPLACE for interpretation of contents */
     uint32_t op[MAX_ASM_OP];
     int op_count;
@@ -42,7 +42,7 @@ typedef struct {
 } InsSelMacroReplace;
 
 /* Returns AsmIns */
-static AsmIns ismr_ins(const InsSelMacroReplace* ismr) {
+static PasmIns ismr_ins(const InsSelMacroReplace* ismr) {
     ASSERT(ismr != NULL, "Macro replace is null");
     return ismr->ins;
 }
@@ -891,10 +891,6 @@ static void cfg_compute_spill_code_replace(
             pasmstat_set_op_reg(stat, i, reg);
             return;
         }
-        if (pasmstat_is_sym2(stat, i) && pasmstat_op_sym2(stat, i) == symid) {
-            pasmstat_set_op_reg2(stat, i, reg);
-            return;
-        }
     }
     ASSERT(0, "Failed to replace operand with reloaded register");
 }
@@ -944,19 +940,6 @@ static int cfg_compute_spill_code_reload(
                     break;
             }
         }
-        if (pasmstat_is_sym2(stat, i)) {
-            SymbolId id = pasmstat_op_sym2(stat, i);
-            Symbol* sym = symtab_get(p, id);
-            /* Second symbol of operand must be register or constant
-               [rax+rbx]
-                    ^ Second symbol */
-            if (symbol_location(sym) == loc_stack) {
-                ASSERT(reg_has_size(symbol_bytes(sym)),
-                        "Second symbol of operand must fit in register");
-                reload_id[reloads] = id;
-                ++reloads;
-            }
-        }
     }
     return reloads;
 no_match:
@@ -970,19 +953,19 @@ no_match:
 static int cfg_compute_spill_code(Parser* p) {
     /* Construct the PasmStatements which will be used for spill code */
     PasmStatement pasm_push;
-    pasmstat_construct(&pasm_push, asmins_push, 1);
+    pasmstat_construct(&pasm_push, pasmins_push_r);
     pasmstat_set_op_reg(&pasm_push, 0, reg_rbx);
 
     PasmStatement pasm_load;
-    pasmstat_construct(&pasm_load, asmins_mov, 2);
+    pasmstat_construct(&pasm_load, pasmins_mov_rs);
     /* src,dest operand set when generating for statement */
 
     PasmStatement pasm_save;
-    pasmstat_construct(&pasm_save, asmins_mov, 2);
+    pasmstat_construct(&pasm_save, pasmins_mov_sr);
     /* src,dest operand set when generating for statement */
 
     PasmStatement pasm_pop;
-    pasmstat_construct(&pasm_pop, asmins_pop, 1);
+    pasmstat_construct(&pasm_pop, pasmins_pop_r);
     pasmstat_set_op_reg(&pasm_pop, 0, reg_rbx);
 
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
@@ -1000,7 +983,7 @@ static int cfg_compute_spill_code(Parser* p) {
             /* Id of symbols which need spill code */
             int best_reload_id[MAX_ASMINS_REG];
 
-            AsmIns asmins = pasmstat_ins(stat);
+            PasmIns asmins = pasmstat_pins(stat);
             for (int k = 0; k < asmins_mode_count(asmins); ++k) {
                 /* Search for the addressing mode which requires the least
                    operators be spilled */
@@ -1164,26 +1147,26 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int i) {
 
             const char* size_dir = asm_size_directive(bytes);
 
-            if (pasmstat_is_offset(stat, i)) {
-                const char* index_str;
-                if (pasmstat_is_reg2(stat, i)) {
-                    index_str = reg_str(pasmstat_op_reg2(stat, i));
-                }
-                else {
-                    ASSERT(pasmstat_is_sym2(stat, i), "Expected symbol");
-                    Symbol* sym2 = symtab_get(p, pasmstat_op_sym2(stat, i));
-                    ASSERT(symbol_in_register(sym2),
-                            "Index must be in register");
-                    index_str = reg_str(symbol_register(sym2));
-                }
+            //if (pasmstat_is_offset(stat, i)) {
+            //    const char* index_str;
+            //    if (pasmstat_is_reg2(stat, i)) {
+            //        index_str = reg_str(pasmstat_op_reg2(stat, i));
+            //    }
+            //    else {
+            //        ASSERT(pasmstat_is_sym2(stat, i), "Expected symbol");
+            //        Symbol* sym2 = symtab_get(p, pasmstat_op_sym2(stat, i));
+            //        ASSERT(symbol_in_register(sym2),
+            //                "Index must be in register");
+            //        index_str = reg_str(symbol_register(sym2));
+            //    }
 
-                parser_output_asm(
-                        p, "%s [rbp%c%d+%s]",
-                        size_dir, sign, abs_offset, index_str);
-            }
-            else {
-                parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
-            }
+            //    parser_output_asm(
+            //            p, "%s [rbp%c%d+%s]",
+            //            size_dir, sign, abs_offset, index_str);
+            //}
+            //else {
+            //}
+            parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
         }
         else {
             /* label is for jump destinations */
@@ -1442,7 +1425,7 @@ static void ig_precolor(Parser* p) {
                    register to its location on the stack */
                 if (symbol_in_register(sym)) {
                     PasmStatement mov;
-                    pasmstat_construct(&mov, asmins_mov, 2);
+                    pasmstat_construct(&mov, pasmins_mov_sr);
                     pasmstat_set_op_sym(&mov, 0, id);
                     pasmstat_set_op_reg(&mov, 1, symbol_register(sym));
 
@@ -2314,8 +2297,7 @@ static int cfg_compute_pasm(Parser* p) {
                 InsSelMacroReplace* ismr = ismc_replace(ismc, k);
 
                 PasmStatement pasmstat;
-                pasmstat_construct(&pasmstat,
-                        ismr_ins(ismr), ismr_op_count(ismr));
+                pasmstat_construct(&pasmstat, ismr_ins(ismr));
                 for (int l = 0; l < ismr_op_count(ismr); ++l) {
                     /* Transfer the flags over */
                     pasmstat_set_flag(&pasmstat, l, ismr_flag(ismr, l));

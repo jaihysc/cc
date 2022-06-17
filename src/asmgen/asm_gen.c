@@ -41,7 +41,7 @@ typedef struct {
     ISMRFlag flag[MAX_ASM_OP];
 } InsSelMacroReplace;
 
-/* Returns AsmIns */
+/* Returns the PasmIns for a macro replacement maps to */
 static PasmIns ismr_ins(const InsSelMacroReplace* ismr) {
     ASSERT(ismr != NULL, "Macro replace is null");
     return ismr->ins;
@@ -385,6 +385,38 @@ static SymbolId symtab_add_temporary(Parser* p, Type type) {
     AAPPENDI(name, "__tt", p->symtab_temp_num);
     ++p->symtab_temp_num;
     return symtab_add(p, type, name);
+}
+
+/* Creates a new compiler generated Symbol with the given register
+   The type will be an integer of the appropriate size for the register */
+static SymbolId symtab_add_temporaryr(Parser* p, Register reg) {
+    /* Create a type of the appropriate size, just need to get the size
+       right for the code generator */
+    TypeSpecifiers ts;
+    switch (reg_bytes(reg)) {
+        case 1:
+            ts = ts_i8;
+            break;
+        case 2:
+            ts = ts_i16;
+            break;
+        case 4:
+            ts = ts_i32;
+            break;
+        case 8:
+            ts = ts_i64;
+            break;
+        default:
+            ASSERT(0, "Bad byte size");
+            break;
+    }
+    Type type;
+    type_construct(&type, ts, 0);
+
+    SymbolId id = symtab_add_temporary(p, type);
+    Symbol* sym = symtab_get(p, id);
+    symbol_set_location(sym, reg_loc(reg));
+    return id;
 }
 
 /* Returns the size of the stack for the current function */
@@ -842,17 +874,14 @@ static int cfg_compute_reg_pref(Parser* p, PasmStatement* stat) {
             !vec_empty(&p->cfg_pasm_stack)) {
         PasmStatement* pushed_stat = vec_back(&p->cfg_pasm_stack);
 
-        /* Check that the statements use the same arguments,
-           Only save + restore of physical registers are handled
-           for now */
+        /* Check that the statements use the same location */
         ASSERT(pasmstat_op_count(pushed_stat) == 1, "Only 1 operand supported");
         ASSERT(pasmstat_op_count(stat) == 1, "Only 1 operand supported");
-        if (pasmstat_is_reg(pushed_stat, 0) == pasmstat_is_reg(stat, 0)) {
-            if (pasmstat_op_reg(pushed_stat, 0) != pasmstat_op_reg(stat, 0)) {
-                return 1;
-            }
-        }
-        else {
+        SymbolId id1 = pasmstat_op(pushed_stat, 0);
+        SymbolId id2 = pasmstat_op(stat, 0);
+        Symbol* sym1 = symtab_get(p, id1);
+        Symbol* sym2 = symtab_get(p, id2);
+        if (symbol_location(sym1) != symbol_location(sym2)) {
             return 1;
         }
 
@@ -871,7 +900,7 @@ static int cfg_compute_reg_pref(Parser* p, PasmStatement* stat) {
         }
 
         /* Apply decrement in register preference score to live variables */
-        Register reg = pasmstat_op_reg(pushed_stat, 0);
+        Register reg = symbol_register(sym1);
         for (int i = 0; i < vec_size(&p->cfg_live_buf); ++i) {
             SymbolId id = vec_at(&p->cfg_live_buf, i);
             IGNode* node = ig_node(p, id);
@@ -885,10 +914,10 @@ static int cfg_compute_reg_pref(Parser* p, PasmStatement* stat) {
 
 /* Replaces symbol in pseudo-assembly statement with register */
 static void cfg_compute_spill_code_replace(
-        PasmStatement* stat, SymbolId symid, Register reg) {
+        PasmStatement* stat, SymbolId old, Register new) {
     for (int i = 0; i < pasmstat_op_count(stat); ++i) {
-        if (pasmstat_is_sym(stat, i) && pasmstat_op_sym(stat, i) == symid) {
-            pasmstat_set_op_reg(stat, i, reg);
+        if (pasmstat_op(stat, i) == old) {
+            pasmstat_set_op_sym(stat, i, new);
             return;
         }
     }
@@ -906,39 +935,34 @@ static int cfg_compute_spill_code_reload(
         SymbolId* reload_id) {
     int reloads = 0;
     for (int i = 0; i < pasmstat_op_count(stat); ++i) {
-        /* If a register was explicitly specified, it is assumed
-           that it forms a valid addressing mode */
-
-        if (pasmstat_is_sym(stat, i)) {
-           /* Check if operand can be used with the addressing mode
-              that is currently being examined */
-            SymbolId id = pasmstat_op_sym(stat, i);
-            Symbol* sym = symtab_get(p, id);
-            switch (symbol_location(sym)) {
-                case loc_stack:
-                    if (!addressmode_mem(mode, i)) {
-                        /* Addressing mode must be usuable with a register as
-                           spill code reloads memory into a register */
-                        if (!addressmode_reg(mode, i)) goto no_match;
-                        /* Cannot reload big objects, e.g., arrays, structs */
-                        if (!reg_has_size(symbol_bytes(sym))) goto no_match;
-                        reload_id[reloads] = id;
-                        ++reloads;
-                    }
-                    break;
-                case loc_constant:
-                    if (!addressmode_imm(mode, i)) goto no_match;
-                    break;
-                case loc_a: case loc_b: case loc_c: case loc_d:
-                case loc_bp: case loc_sp: case loc_si: case loc_di:
-                case loc_8: case loc_9: case loc_10: case loc_11:
-                case loc_12: case loc_13: case loc_14: case loc_15:
+        /* Check if operand can be used with the addressing mode
+           that is currently being examined */
+        SymbolId id = pasmstat_op(stat, i);
+        Symbol* sym = symtab_get(p, id);
+        switch (symbol_location(sym)) {
+            case loc_stack:
+                if (!addressmode_mem(mode, i)) {
+                    /* Addressing mode must be usuable with a register as
+                       spill code reloads memory into a register */
                     if (!addressmode_reg(mode, i)) goto no_match;
-                    break;
-                default:
-                    /* Labels and others */
-                    break;
-            }
+                    /* Cannot reload big objects, e.g., arrays, structs */
+                    if (!reg_has_size(symbol_bytes(sym))) goto no_match;
+                    reload_id[reloads] = id;
+                    ++reloads;
+                }
+                break;
+            case loc_constant:
+                if (!addressmode_imm(mode, i)) goto no_match;
+                break;
+            case loc_a: case loc_b: case loc_c: case loc_d:
+            case loc_bp: case loc_sp: case loc_si: case loc_di:
+            case loc_8: case loc_9: case loc_10: case loc_11:
+            case loc_12: case loc_13: case loc_14: case loc_15:
+                if (!addressmode_reg(mode, i)) goto no_match;
+                break;
+            default:
+                /* Labels and others */
+                break;
         }
     }
     return reloads;
@@ -951,22 +975,25 @@ no_match:
    Requires register assignments
    Returns 1 if successful, 0 if error */
 static int cfg_compute_spill_code(Parser* p) {
-    /* Construct the PasmStatements which will be used for spill code */
+    /* Construct the PasmStatements which will be used for spill code,
+       add a random symbol in to reserve space for operands */
     PasmStatement pasm_push;
-    pasmstat_construct(&pasm_push, pasmins_push_r);
-    pasmstat_set_op_reg(&pasm_push, 0, reg_rbx);
+    pasmstat_construct(&pasm_push, pasmins_push_s);
+    pasmstat_add_op_sym(&pasm_push, 0);
 
     PasmStatement pasm_load;
-    pasmstat_construct(&pasm_load, pasmins_mov_rs);
-    /* src,dest operand set when generating for statement */
+    pasmstat_construct(&pasm_load, pasmins_mov_ss);
+    pasmstat_add_op_sym(&pasm_load, 0);
+    pasmstat_add_op_sym(&pasm_load, 0);
 
     PasmStatement pasm_save;
-    pasmstat_construct(&pasm_save, pasmins_mov_sr);
-    /* src,dest operand set when generating for statement */
+    pasmstat_construct(&pasm_save, pasmins_mov_ss);
+    pasmstat_add_op_sym(&pasm_save, 0);
+    pasmstat_add_op_sym(&pasm_save, 0);
 
     PasmStatement pasm_pop;
-    pasmstat_construct(&pasm_pop, pasmins_pop_r);
-    pasmstat_set_op_reg(&pasm_pop, 0, reg_rbx);
+    pasmstat_construct(&pasm_pop, pasmins_pop_s);
+    pasmstat_add_op_sym(&pasm_pop, 0);
 
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
@@ -984,7 +1011,7 @@ static int cfg_compute_spill_code(Parser* p) {
             int best_reload_id[MAX_ASMINS_REG];
 
             PasmIns asmins = pasmstat_pins(stat);
-            for (int k = 0; k < asmins_mode_count(asmins); ++k) {
+            for (int k = 0; k < pasmins_mode_count(asmins); ++k) {
                 /* Search for the addressing mode which requires the least
                    operators be spilled */
 
@@ -1034,19 +1061,24 @@ static int cfg_compute_spill_code(Parser* p) {
                     }
                 }
 
-                /* Replace original statement operand with reloaded register */
+                /* Replace original statement operand register value was
+                   reloaded into */
                 int bytes = symbol_bytes(operand_sym);
-                Register temp_reg = reg_get(loc_to_use, bytes);
-                cfg_compute_spill_code_replace(stat, operand_id, temp_reg);
+                Register reload_reg = reg_get(loc_to_use, bytes);
+                SymbolId reload_id = symtab_add_temporaryr(p, reload_reg);
+                cfg_compute_spill_code_replace(stat, operand_id, reload_id);
 
                 /* Setup the operands for register reload */
-                pasmstat_set_op_reg(&pasm_load, 0, temp_reg);
+                pasmstat_set_op_sym(&pasm_load, 0, reload_id);
                 pasmstat_set_op_sym(&pasm_load, 1, operand_id);
                 pasmstat_set_op_sym(&pasm_save, 0, operand_id);
-                pasmstat_set_op_reg(&pasm_save, 1, temp_reg);
-                /* x64 must push the full 8 byte register */
-                pasmstat_set_op_reg(&pasm_push, 0, reg_get(loc_to_use, 8));
-                pasmstat_set_op_reg(&pasm_pop, 0, reg_get(loc_to_use, 8));
+                pasmstat_set_op_sym(&pasm_save, 1, reload_id);
+                /* x64 must push the full 8 byte register prior to reloading
+                   into it to save it */
+                SymbolId save_id =
+                    symtab_add_temporaryr(p, reg_get(loc_to_use, 8));
+                pasmstat_set_op_sym(&pasm_push, 0, save_id);
+                pasmstat_set_op_sym(&pasm_pop, 0, save_id);
 
                 if (loc_to_use == loc_15) {
                     ASSERT(0, "Out of registers to use for spill code");
@@ -1089,112 +1121,88 @@ newerr:
     return 0;
 }
 
-/* Generates assembly for pseudo-assembly operand i */
-static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int i) {
-    ISMRFlag flag = pasmstat_flag(stat, i);
+/* Generates assembly for pseudo-assembly operand i,
+   the index i may be adjusted to skip pseudo-assembly operands which do not
+   go in the final assembly */
+static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int* i) {
+    ISMRFlag flag = pasmstat_flag(stat, *i);
     int override = ismr_size_override(flag);
     int deref = ismr_dereference(flag);
 
-    if (pasmstat_is_reg(stat, i)) {
-        /* Generate asm to reference register */
-        Register reg = pasmstat_op_reg(stat, i);
-        const char* str;
-        if (override > 0) {
-            str = reg_get_str(reg_loc(reg), override);
-        }
-        else {
-            str = reg_str(reg);
+    /* Generate asm to reference symbol which could
+       be on the stack, register, or constant */
+
+    SymbolId sym_id = pasmstat_op(stat, *i);
+    Symbol* sym = symtab_get(p, sym_id);
+
+    if (symbol_on_stack(sym)) {
+        /* Generates assembly code to reference symbol
+           Example: "dword [rbp+10]" */
+        ASSERT(!deref, "Cannot dereference symbol on stack");
+
+        char sign = '+';
+        int abs_offset = symtab_get_offset(p, sym_id);
+        if (abs_offset < 0) {
+            sign = '-';
+            abs_offset = -abs_offset;
         }
 
-        if (deref) {
-            parser_output_asm(p, "[%s]", str);
+        int bytes = symbol_bytes(sym);
+        Type type = symbol_type(sym);
+        /* Arrays are always on the stack, they are referenced by
+           their element's size (writing / reading from it) */
+        if (type_array(&type)) {
+            bytes = type_bytes(type_element(&type));
+        }
+        if (override > 0) {
+            bytes = override;
+        }
+
+        const char* size_dir = asm_size_directive(bytes);
+
+        if (pasmstat_op_mode(stat, *i) == pm_o) {
+            Symbol* index_sym = symtab_get(p, pasmstat_op(stat, *i + 1));
+            ASSERT(symbol_in_register(index_sym), "Index must be in register");
+            parser_output_asm(
+                    p,
+                    "%s [rbp%c%d+%s]",
+                    size_dir,
+                    sign,
+                    abs_offset,
+                    reg_str(symbol_register(index_sym)));
+            /* Do not emit the index symbol as an assembly operand */
+            *i += 1;
         }
         else {
-            parser_output_asm(p, "%s", str);
+            parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
         }
     }
     else {
-        /* Generate asm to reference symbol which could
-           be on the stack, register, or constant */
-        ASSERT(pasmstat_is_sym(stat, i),
-                "Expected PasmStatement operand as symbol");
-
-        SymbolId sym_id = pasmstat_op_sym(stat, i);
-        Symbol* sym = symtab_get(p, sym_id);
-
-        if (symbol_on_stack(sym)) {
-            /* Generates assembly code to reference symbol
-               Example: "dword [rbp+10]" */
-            ASSERT(!deref, "Cannot dereference symbol on stack");
-
-            char sign = '+';
-            int abs_offset = symtab_get_offset(p, sym_id);
-            if (abs_offset < 0) {
-                sign = '-';
-                abs_offset = -abs_offset;
-            }
-
+        /* label is for jump destinations */
+        if (symbol_is_label(sym) || symbol_is_constant(sym)) {
+            ASSERT(!deref, "Cannot dereference constant");
+            parser_output_asm(p, "%s", symbol_name(sym));
+        }
+        else {
+            ASSERT(symbol_in_register(sym),
+                        "Expected symbol in register");
             int bytes = symbol_bytes(sym);
-            Type type = symbol_type(sym);
-            /* Arrays are always on the stack, they are referenced by
-               their element's size (writing / reading from it) */
-            if (type_array(&type)) {
-                bytes = type_bytes(type_element(&type));
-            }
             if (override > 0) {
                 bytes = override;
             }
+            const char* str = reg_get_str(symbol_location(sym), bytes);
+            if (deref) {
+                /* Size directive is size of pointed to Type,
+                   e.g., int* p; *p = 100;
+                   mov DWORD [rax], 100 */
+                Type sym_type = symbol_type(sym);
+                int dest_bytes = type_bytes(type_point_to(&sym_type));
+                const char* size_dir = asm_size_directive(dest_bytes);
 
-            const char* size_dir = asm_size_directive(bytes);
-
-            //if (pasmstat_is_offset(stat, i)) {
-            //    const char* index_str;
-            //    if (pasmstat_is_reg2(stat, i)) {
-            //        index_str = reg_str(pasmstat_op_reg2(stat, i));
-            //    }
-            //    else {
-            //        ASSERT(pasmstat_is_sym2(stat, i), "Expected symbol");
-            //        Symbol* sym2 = symtab_get(p, pasmstat_op_sym2(stat, i));
-            //        ASSERT(symbol_in_register(sym2),
-            //                "Index must be in register");
-            //        index_str = reg_str(symbol_register(sym2));
-            //    }
-
-            //    parser_output_asm(
-            //            p, "%s [rbp%c%d+%s]",
-            //            size_dir, sign, abs_offset, index_str);
-            //}
-            //else {
-            //}
-            parser_output_asm(p, "%s [rbp%c%d]", size_dir, sign, abs_offset);
-        }
-        else {
-            /* label is for jump destinations */
-            if (symbol_is_label(sym) || symbol_is_constant(sym)) {
-                ASSERT(!deref, "Cannot dereference constant");
-                parser_output_asm(p, "%s", symbol_name(sym));
+                parser_output_asm(p, "%s [%s]", size_dir, str);
             }
             else {
-                ASSERT(symbol_in_register(sym),
-                            "Expected symbol in register");
-                int bytes = symbol_bytes(sym);
-                if (override > 0) {
-                    bytes = override;
-                }
-                const char* str = reg_get_str(symbol_location(sym), bytes);
-                if (deref) {
-                    /* Size directive is size of pointed to Type,
-                       e.g., int* p; *p = 100;
-                       mov DWORD [rax], 100 */
-                    Type sym_type = symbol_type(sym);
-                    int dest_bytes = type_bytes(type_point_to(&sym_type));
-                    const char* size_dir = asm_size_directive(dest_bytes);
-
-                    parser_output_asm(p, "%s [%s]", size_dir, str);
-                }
-                else {
-                    parser_output_asm(p, "%s", str);
-                }
+                parser_output_asm(p, "%s", str);
             }
         }
     }
@@ -1250,7 +1258,7 @@ static void cfg_output_asm(Parser* p) {
                 if (k != 0) {
                     parser_output_asm(p, ", ");
                 }
-                cfg_output_asm_op(p, stat, k);
+                cfg_output_asm_op(p, stat, &k);
             }
             parser_output_asm(p, "\n");
         }
@@ -1265,18 +1273,13 @@ static void cfg_pasm_po(Parser* p) {
             PasmStatement* stat = block_pasmstat(blk, j);
 
             /* Eliminate mov between the same register */
-            if (pasmstat_ins(stat) == asmins_mov) {
+            if (pasmstat_pins(stat) == pasmins_mov_ss) {
                 /* Using location because symbol may be on stack */
                 Location loc[2];
                 int deref[2];
                 for (int k = 0; k < 2; ++k) {
-                    if (pasmstat_is_reg(stat, k)) {
-                        loc[k] = reg_loc(pasmstat_op_reg(stat, k));
-                    }
-                    else {
-                        Symbol* sym = symtab_get(p, pasmstat_op_sym(stat, k));
-                        loc[k] = symbol_location(sym);
-                    }
+                    Symbol* sym = symtab_get(p, pasmstat_op(stat, k));
+                    loc[k] = symbol_location(sym);
                     deref[k] = ismr_dereference(pasmstat_flag(stat, k));
                 }
 
@@ -1414,7 +1417,7 @@ static void ig_precolor(Parser* p) {
             if (pasmstat_ins(stat) == asmins_lea) {
                 /* Must be a symbol, instruction cannot have register for
                    operand 2 */
-                SymbolId id = pasmstat_op_sym(stat, 1);
+                SymbolId id = pasmstat_op(stat, 1);
                 Symbol* sym = symtab_get(p, id);
 
                 /* If the symbol is in a register because it is a function
@@ -1425,9 +1428,11 @@ static void ig_precolor(Parser* p) {
                    register to its location on the stack */
                 if (symbol_in_register(sym)) {
                     PasmStatement mov;
-                    pasmstat_construct(&mov, pasmins_mov_sr);
-                    pasmstat_set_op_sym(&mov, 0, id);
-                    pasmstat_set_op_reg(&mov, 1, symbol_register(sym));
+                    pasmstat_construct(&mov, pasmins_mov_ss);
+                    pasmstat_add_op_sym(&mov, id);
+                    pasmstat_add_op_sym(
+                            &mov,
+                            symtab_add_temporaryr(p, symbol_register(sym)));
 
                     block_insert_pasmstat(blk, mov, j);
                     /* Skip the inserted statement
@@ -1456,20 +1461,21 @@ static void ig_precolor(Parser* p) {
    Destination is coalesced into source
    Returns 1 if successful, 0 if error */
 static int ig_compute_coalesce(Parser* p, PasmStatement* stat) {
+    /* FIXME Coalesce commented out for now as division is improperly
+       implemented - if the quotient or remainder is in A or D register
+       it gets overwritten by pop */
+    return 1;
+
     if (!asmins_is_copy(pasmstat_ins(stat))) {
         return 1;
     }
 
-    /* Only symbols are supported for now */
-    int i_src = asmins_copy_src_index();
-    int i_dest = asmins_copy_dest_index();
-    if (!pasmstat_is_sym(stat, i_src) || !pasmstat_is_sym(stat, i_dest)) {
-        return 1;
-    }
     /* Do not coalesce move to self
        (Leads to infinite loop trying to make node links) */
-    SymbolId src_id = pasmstat_op_sym(stat, i_src);
-    SymbolId dest_id = pasmstat_op_sym(stat, i_dest);
+    int i_src = asmins_copy_src_index();
+    int i_dest = asmins_copy_dest_index();
+    SymbolId src_id = pasmstat_op(stat, i_src);
+    SymbolId dest_id = pasmstat_op(stat, i_dest);
     if (src_id == dest_id) {
         return 1;
     }
@@ -1841,15 +1847,9 @@ static void debug_print_cfg(Parser* p) {
                     LOG("[");
                 }
 
-                if (pasmstat_is_reg(stat, k)) {
-                    Register reg = pasmstat_op_reg(stat, k);
-                    LOGF("%s", reg_str(reg));
-                }
-                else if (pasmstat_is_sym(stat, k)) {
-                    SymbolId id = pasmstat_op_sym(stat, k);
-                    Symbol* sym = symtab_get(p, id);
-                    LOGF("%%%s", symbol_name(sym));
-                }
+                SymbolId id = pasmstat_op(stat, k);
+                Symbol* sym = symtab_get(p, id);
+                LOGF("%%%s", symbol_name(sym));
 
                 if (deref) {
                     LOG("]");
@@ -2323,11 +2323,11 @@ static int cfg_compute_pasm(Parser* p) {
                         else {
                             id = created_id[0];
                         }
-                        pasmstat_set_op_sym(&pasmstat, l, id);
+                        pasmstat_add_op_sym(&pasmstat, id);
                     }
                     else if (mode == 1) {
                         SymbolId id = ilstat_arg(ilstat, param1);
-                        pasmstat_set_op_sym(&pasmstat, l, id);
+                        pasmstat_add_op_sym(&pasmstat, id);
                     }
                     else if (mode == 2) {
                         /* Find the first symbol of the IL and use its size
@@ -2343,18 +2343,20 @@ static int cfg_compute_pasm(Parser* p) {
                         }
                         ASSERT(bytes != 0,
                                 "Failed to calculate size for register");
-                        pasmstat_set_op_reg(
-                                &pasmstat,
-                                l,
-                                reg_get(param1, bytes));
+
+                        SymbolId id =
+                            symtab_add_temporaryr(p, reg_get(param1, bytes));
+                        pasmstat_add_op_sym(&pasmstat, id);
                     }
                     else if (mode == 3) {
-                        pasmstat_set_op_reg(&pasmstat, l, param1);
+                        SymbolId id =
+                            symtab_add_temporaryr(p, param1);
+                        pasmstat_add_op_sym(&pasmstat, id);
                     }
                     else if (mode == 4) {
                         SymbolId id1 = ilstat_arg(ilstat, param1);
                         SymbolId id2 = ilstat_arg(ilstat, param2);
-                        pasmstat_set_op_offset(&pasmstat, l, id1, id2);
+                        pasmstat_add_op_offset(&pasmstat, id1, id2);
                     }
                     else {
                         ASSERT(0, "Unrecognized mode");

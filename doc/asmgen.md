@@ -53,7 +53,7 @@ To quantify preferences, each variable holds preference scores for each register
 
 ### Pseudo-assembly
 
-Pseudo-assembly (pasm) is a low level IR, which closely resembles assembly of the target machine. Its difference from assembly is its only two addressing modes which are register and symbol. Avoiding encoding addressing modes such as [base+index*scale+displacement] greatly simplifies the logic used to analyze and manipulate pasm and eases retargeting of the compiler. Instead, specific addressing modes are implemented as separate instructions, for example `a = b[c]` where b is an array in assembly as:
+Pseudo-assembly (pasm) is a low level IR which closely resembles assembly of the target machine. Its difference from assembly is its two addressing modes which is a symbol, and dereferencing of a symbol. Avoiding encoding addressing modes such as [base+index*scale+displacement] greatly simplifies the logic used to analyze and manipulate pasm and eases retargeting of the compiler. Instead, specific addressing modes are implemented as separate instructions, for example `a = b[c]` where b is an array in assembly is:
 
 ```asm
 mov rax, [rbx+rcx]
@@ -65,9 +65,7 @@ Which is expressed in pasm as:
 mov_so %a, %b, %c
 ```
 
-In `mov_so`, the `s` stands for symbol, interpreting `%a` as a symbol and `o` stands for offset, interpreting `%b, %c` as an offset.
-
-Each variable is written `%name` and referred to as virtual registers. Physical registers can be referred to without their size, with the size being calculated later during translation into assembly. For example on x86: a, b, c, d, 9, 10, 11 ... instead of eax, ax, r9d, ... .
+Each variable is written `%name` and referred to as virtual registers. In `mov_so`, the `s` stands for symbol, interpreting `%a` as a symbol and `o` stands for offset, interpreting `%b as a base and %c` as an offset.
 
 On x86, do not confuse the % for AT&T syntax, pseudo-assembly on x86 is in Intel syntax and the % here represents a virtual register for the variable or a memory location. For example, targeting x86, the following pseudo-assembly may be generated from the intermediate language:
 
@@ -99,6 +97,25 @@ mov  %t2,  %t1
 sub  %t2,  1
 mov  eax,  %t2
 ret
+```
+
+### x86 assembly instruction expressed as pseudo-assembly
+
+Each register is given its own operand, some examples:
+
+```asm
+; Assembly above, pseudo-assembly below
+mov rax, [rbx+rcx+3]
+mov_so %a, %b, %c ; a is rax, b is at [rbx+3], c is rcx
+                  ; A reminder that s stands for symbol, o stands for offset, i.e., b offset c
+mov rax, rbx
+mov_ss %a, %b ; a is rax, b is rbx
+
+mov [rbp-30], rbx
+mov_ss %a, %b ; a is at [rbp-30], b is rbx
+
+mov [rax+rbx+1], rcx
+mov_os %a, %b, %c ; a is at [rax+1], b is rbx, c is rcx
 ```
 
 ## Instruction Selector

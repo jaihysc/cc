@@ -167,10 +167,10 @@ struct Parser {
     /* Buffer of live symbols used when calculating per statement liveness */
     vec_t(SymbolId) cfg_live_buf;
 
-    /* Interference graph
-       Index of symbol in symbol table corresponds to index of its node
-       in the interference graph */
+    /* Interference graph */
     vec_t(IGNode) ig;
+    /* Used by ig_node to cache lookups from SymbolId -> IgNode */
+    vec_t(IGNode*) ig_symid_node;
     /* The registers which can be assigned (colored) to nodes */
     Location ig_palette[X86_REGISTER_COUNT];
     int ig_palette_size;
@@ -200,6 +200,7 @@ static int parser_construct(Parser* p) {
     vec_construct(&p->cfg_live_buf);
     p->latest_blk = NULL;
     vec_construct(&p->ig);
+    vec_construct(&p->ig_symid_node);
 
     p->ig_palette[0] = loc_a;
     p->ig_palette[1] = loc_b;
@@ -235,6 +236,7 @@ static void parser_destruct(Parser* p) {
     for (int i = 0; i < vec_size(&p->ig); ++i) {
         ignode_destruct(&vec_at(&p->ig, i));
     }
+    vec_destruct(&p->ig_symid_node);
     vec_destruct(&p->ig);
     vec_destruct(&p->cfg_live_buf);
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
@@ -1317,16 +1319,21 @@ static void ig_clear(Parser* p) {
 /* Returns interference graph node at SymbolId */
 static IGNode* ig_node(Parser* p, SymbolId id) {
     ASSERT(id >= 0, "Invalid SymbolId");
-    for (int i = 0; i < vec_size(&p->ig); ++i) {
-        IGNode* node = &vec_at(&p->ig, i);
-        for (int j = 0; j < ignode_symid_count(node); ++j) {
-            if (ignode_symid(node, j) == id) {
-                return node;
+
+    /* As an optimization to reduce compilation times, cache the lookup
+       from SymbolId -> ig_node */
+    vec_reserve(&p->ig_symid_node, vec_size(&p->symbol));
+    if (g_ignode_rebuild_symid_node_table) {
+        for (int i = 0; i < vec_size(&p->ig); ++i) {
+            IGNode* node = &vec_at(&p->ig, i);
+            for (int j = 0; j < ignode_symid_count(node); ++j) {
+                vec_at(&p->ig_symid_node, ignode_symid(node, j)) = node;
             }
         }
+        g_ignode_rebuild_symid_node_table = 0;
     }
-    ASSERT(0, "Could not find IGNode for SymbolId");
-    return NULL;
+
+    return vec_at(&p->ig_symid_node, id);
 }
 
 /* Creates unlinked interference graph nodes for non constant symbols

@@ -54,10 +54,15 @@ static SymbolId ignode_symid(const IGNode* node, int i) {
     return vec_at(&node->symbol_id, i);
 }
 
+/* Cache the SymbolId -> IGNode To reduce lookup times, this is
+   needed to know when the cache is invalidated */
+int g_ignode_rebuild_symid_node_table = 1;
+
 /* Adds a new SymbolId which is represented by this interference graph node
    Returns 1 if successful, 0 otherwise */
 static int ignode_add_symid(IGNode* node, SymbolId id) {
     ASSERT(node != NULL, "IGNode is null");
+    g_ignode_rebuild_symid_node_table = 1;
     return vec_push_back(&node->symbol_id, id);
 }
 

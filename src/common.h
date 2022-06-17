@@ -337,46 +337,69 @@ static inline void quicksort(
     ((v__)->data[idx__] = (val__), (v__)->length++, 1) : 0)
 
 #define vec_unpack_(v__)      \
-    (char**)&(v__)->data,     \
+    (char*)&(v__)->data,      \
             &(v__)->length,   \
             &(v__)->capacity, \
             sizeof(*(v__)->data)
 
+/* Because of strict aliasing rule, the T** (where T is the type of the vec's
+   element) from vec_unpack_ is passed as a char*. The pointed to value of
+   this char* is T*. The 2 macros below are provided to read the T* and write
+   to the T* */
+
+/* Loads T* from src__ (char*) into dest__ (void*) */
+#define LOAD(dest__, src__)                               \
+    for (unsigned i__ = 0; i__ < sizeof(dest__); ++i__) { \
+        ((char*)&dest__)[i__] = src__[i__];               \
+    }
+/* Save T* from src__ (void*) into dest (char*) */
+#define SAVE(dest__, src__)                              \
+    for (unsigned i__ = 0; i__ < sizeof(src__); ++i__) { \
+        dest__[i__] = ((char*)&src__)[i__];              \
+    }
+
 static inline int vec_expand_(
-        char** data, int* length, int* capacity, int memsz) {
+        char* pdata, int* length, int* capacity, int memsz) {
+    char* data;
+    LOAD(data, pdata);
+
     if (*length + 1 > *capacity) {
         void* ptr;
         int n = (*capacity == 0) ? 1 : *capacity * 2;
-        ptr = realloc(*data, (size_t)(n * memsz));
+        ptr = realloc(data, (size_t)(n * memsz));
         if (ptr == NULL) return 0;
-        *data = ptr;
+        SAVE(pdata, ptr);
         *capacity = n;
     }
     return 1;
 }
 
 static inline int vec_reserve_(
-        char** data, int* length, int* capacity, int memsz, int n) {
+        char* pdata, int* length, int* capacity, int memsz, int n) {
     (void) length;
+    char* data;
+    LOAD(data, pdata);
     if (n > *capacity) {
-        void* ptr = realloc(*data, (size_t)(n * memsz));
+        void* ptr = realloc(data, (size_t)(n * memsz));
         if (ptr == NULL) return 0;
-        *data = ptr;
+        SAVE(pdata, ptr);
         *capacity = n;
     }
     return 1;
 }
 
 static inline int vec_insert_(
-        char** data, int* length, int* capacity, int memsz, int idx) {
-    if (!vec_expand_(data, length, capacity, memsz)) {
+        char* pdata, int* length, int* capacity, int memsz, int idx) {
+    if (!vec_expand_(pdata, length, capacity, memsz)) {
         return 0;
     }
+    char* data;
+    LOAD(data, pdata);
     /* |     |     |     | idx |     |     | length |
                         ^ end             ^ src    ^ ptr */
-    char* ptr = *data + (*length + 1) * memsz - 1;
-    char* src = *data + *length * memsz - 1;
-    char* end = *data + idx * memsz - 1;
+    char* ptr = data + (*length + 1) * memsz - 1;
+    char* src = data + *length * memsz - 1;
+    char* end = data + idx * memsz - 1;
 
     while (src != end) {
         *ptr = *src;
@@ -387,12 +410,14 @@ static inline int vec_insert_(
 }
 
 static inline void vec_splice_(
-        char** data, int* length, int* capacity, int memsz,
+        char* pdata, int* length, int* capacity, int memsz,
         int start, int count) {
     (void) capacity;
+    char* data;
+    LOAD(data, pdata);
 
-    char* dest = *data + start * memsz;
-    char* src = *data + (start + count) * memsz;
+    char* dest = data + start * memsz;
+    char* src = data + (start + count) * memsz;
     size_t num_bytes =  (size_t)(*length - start - count) * (size_t)memsz;
     for (size_t i = 0; i < num_bytes; ++i) {
         dest[i] = src[i];

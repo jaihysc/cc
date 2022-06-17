@@ -601,11 +601,18 @@
                 OFFSET(1, 2),                                     \
             )                                                     \
         )                                                         \
-        INSSEL_MACRO_CASE(ssi,                                    \
-            /* FIXME I assume the index is 0 for now */           \
+        INSSEL_MACRO_CASE(sss ssi,                                \
+            INSSEL_MACRO_REPLACE2(mov_ss,                         \
+                NEW(1),,                                          \
+                VIRTUAL(1),                                       \
+            )                                                     \
+            INSSEL_MACRO_REPLACE2(add_ss,                         \
+                NEW(1),,                                          \
+                VIRTUAL(2),                                       \
+            )                                                     \
             INSSEL_MACRO_REPLACE2(mov_ss,                         \
                 VIRTUAL(0),,                                      \
-                VIRTUAL(1), DEREFERENCE                           \
+                NEW(1), DEREFERENCE                               \
             )                                                     \
         )                                                         \
     )                                                             \
@@ -837,12 +844,15 @@
                 VIRTUAL(2),                                       \
             )                                                     \
         )                                                         \
-        INSSEL_MACRO_CASE(sis sii,                                \
+        INSSEL_MACRO_CASE(sss ssi sis sii,                        \
             INSSEL_MACRO_REPLACE2(mov_ss,                         \
                 NEW(0),,                                          \
                 VIRTUAL(0),                                       \
             )                                                     \
-            /* FIXME I assume the index is 0 for now */           \
+            INSSEL_MACRO_REPLACE2(add_ss,                         \
+                NEW(0),,                                          \
+                VIRTUAL(1),                                       \
+            )                                                     \
             INSSEL_MACRO_REPLACE2(mov_ss,                         \
                 NEW(0), DEREFERENCE,                              \
                 VIRTUAL(2),                                       \

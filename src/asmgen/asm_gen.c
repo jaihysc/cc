@@ -1710,8 +1710,6 @@ static void ig_compute_color(Parser* p) {
 static int compute_register(Parser* p) {
     if (!cfg_compute_liveness(p)) goto error;
     cfg_compute_loop_depth(p);
-    if (!ig_create_nodes(p)) goto error;
-    if (!ig_compute_edge(p)) goto error;
 
     /* Precolor has to run by itself through all the statements
        first, otherwise symbols which should be precolored may
@@ -1721,6 +1719,12 @@ static int compute_register(Parser* p) {
                      thus p1 gets incorrectly coalesced
        lea p2, p1 <- p1 precolored here */
     ig_precolor(p);
+
+    /* ig_precolor may create additional symbols, such as copying parameters
+       to the stack, thus hold off on creating IGNode until after precolor */
+    if (!ig_create_nodes(p)) goto error;
+    if (!ig_compute_edge(p)) goto error;
+
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
 

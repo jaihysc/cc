@@ -3427,10 +3427,10 @@ static SymbolId cg_assignment_expression(Parser* p, ParseNode* node) {
     }
     else {
         ASSERT(parse_node_count_child(node) == 3, "Expected 3 children");
-        opl_id = cg_unary_expression(p, parse_node_child(node, 0));
-
         SymbolId opr_id =
             cg_assignment_expression(p, parse_node_child(node, 2));
+
+        opl_id = cg_unary_expression(p, parse_node_child(node, 0));
 
         cg_com_type_rtol(p, opl_id, &opr_id);
         const char* token = parse_node_token(p, parse_node_child(node, 1));

@@ -479,6 +479,7 @@ Type type_int = {.typespec = ts_i32, .pointers = 0};
 Type type_label = {.typespec = ts_void, .pointers = 0};
 /* Type for offsetting pointers */
 Type type_ptroffset = {.typespec = ts_i64, .pointers = 0};
+Type type_ptrdiff = {.typespec = ts_i64, .pointers = 0};
 
 static inline int type_is_pointer(const Type*);
 
@@ -737,9 +738,14 @@ static inline int type_array(const Type* type) {
 static inline Type type_element(const Type* type) {
     ASSERT(type_array(type) || type_is_pointer(type),
             "Not an array or pointer");
-    Type t;
-    type_construct(&t, type_typespec(type), 0);
-    return t;
+    if (type_array(type)) {
+        Type t;
+        type_construct(&t, type_typespec(type), 0);
+        return t;
+    }
+    else {
+        return type_point_to(type);
+    }
 }
 
 /* Converts an array of type to pointer to type

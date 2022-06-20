@@ -3138,11 +3138,30 @@ static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
                 parser_output_il(p, "sub $s,$s,$s\n",
                         op_temp, cg_nlval(p, op1), cg_nlval(p, op2));
             }
-            else if (type_is_pointer(&op1_t) && type_is_pointer(&op2_t)) {
-                ASSERT(0, "Unimplemented");
+            /* pointer - pointer */
+            else if ((type_is_pointer(&op1_t) || type_array(&op1_t)) &&
+                    (type_is_pointer(&op2_t) || type_array(&op2_t))) {
+                SymbolId ptr1_id = cg_nlval(p, op1);
+                SymbolId ptr2_id = cg_nlval(p, op2);
+
+                op_temp = cg_make_temporary(p, type_ptrdiff);
+                parser_output_il(p, "sub $s,$s,$s\n",
+                        op_temp, ptr1_id, ptr2_id);
+                parser_output_il(p, "div $s,$s,$d\n",
+                        op_temp, op_temp, type_bytes(type_element(&op1_t)));
             }
-            else if (type_is_pointer(&op1_t) && type_is_arithmetic(&op2_t)) {
-                ASSERT(0, "Unimplemented");
+            /* pointer - arithmetic */
+            else if ((type_is_pointer(&op1_t) || type_array(&op1_t)) &&
+                    type_is_arithmetic(&op2_t)) {
+                SymbolId ptr_id = cg_nlval(p, op1);
+                op_temp = cg_make_temporary(p, symtab_get_type(p, ptr_id));
+
+                SymbolId byte_offset = cg_byte_offset(
+                        p,
+                        cg_nlval(p, op2),
+                        type_bytes(type_element(&op1_t)));
+                parser_output_il(p, "sub $s,$s,$s\n",
+                        op_temp, ptr_id, byte_offset);
             }
             else {
                 ERRMSG("Invalid operands for binary - operator\n");

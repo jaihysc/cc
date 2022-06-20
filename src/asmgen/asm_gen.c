@@ -2076,7 +2076,7 @@ static INSTRUCTION_PROC(func) {
             "    global _start\n"
             "_start:\n"
             "    mov             rdi, QWORD [rsp]\n" /* argc */
-            "    mov             rsi, QWORD [rsp+8]\n" /* argv */
+            "    lea             rsi, QWORD [rsp+8]\n" /* argv */
             "    call            f@main\n"
             "    mov             rdi, rax\n" /* exit call */
             "    mov             rax, 60\n"

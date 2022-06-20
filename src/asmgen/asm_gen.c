@@ -940,27 +940,48 @@ static int cfg_compute_spill_code_reload(
         /* Check if operand can be used with the addressing mode
            that is currently being examined */
         SymbolId id = pasmstat_op(stat, i);
+
         Symbol* sym = symtab_get(p, id);
+        int deref = ismr_dereference(pasmstat_flag(stat, i));
         switch (symbol_location(sym)) {
             case loc_stack:
                 if (!addressmode_mem(mode, i)) {
+                    if (deref) goto no_match;
                     /* Addressing mode must be usuable with a register as
                        spill code reloads memory into a register */
                     if (!addressmode_reg(mode, i)) goto no_match;
                     /* Cannot reload big objects, e.g., arrays, structs */
                     if (!reg_has_size(symbol_bytes(sym))) goto no_match;
+
+                    reload_id[reloads] = id;
+                    ++reloads;
+                }
+                else if (deref) {
+                    /* Supports memory addressing, need dereference
+                       Reload address into register, then dereference the
+                       register */
                     reload_id[reloads] = id;
                     ++reloads;
                 }
                 break;
             case loc_constant:
-                if (!addressmode_imm(mode, i)) goto no_match;
+                if (deref) {
+                    if (!addressmode_mem(mode, i)) goto no_match;
+                }
+                else {
+                    if (!addressmode_imm(mode, i)) goto no_match;
+                }
                 break;
             case loc_a: case loc_b: case loc_c: case loc_d:
             case loc_bp: case loc_sp: case loc_si: case loc_di:
             case loc_8: case loc_9: case loc_10: case loc_11:
             case loc_12: case loc_13: case loc_14: case loc_15:
-                if (!addressmode_reg(mode, i)) goto no_match;
+                if (deref) {
+                    if (!addressmode_mem(mode, i)) goto no_match;
+                }
+                else {
+                    if (!addressmode_reg(mode, i)) goto no_match;
+                }
                 break;
             default:
                 /* Labels and others */
@@ -1064,10 +1085,16 @@ static int cfg_compute_spill_code(Parser* p) {
                 }
 
                 /* Replace original statement operand register value was
-                   reloaded into */
+                   reloaded into
+                   We cannot use symtab_add_temporary_r as the type must
+                   be correct so the correct size directive is emitted */
                 int bytes = symbol_bytes(operand_sym);
                 Register reload_reg = reg_get(loc_to_use, bytes);
-                SymbolId reload_id = symtab_add_temporaryr(p, reload_reg);
+                SymbolId reload_id =
+                    symtab_add_temporary(p, symbol_type(operand_sym));
+                symbol_set_location(
+                        symtab_get(p, reload_id), reg_loc(reload_reg));
+
                 cfg_compute_spill_code_replace(stat, operand_id, reload_id);
 
                 /* Setup the operands for register reload */
@@ -1104,6 +1131,7 @@ static int cfg_compute_spill_code(Parser* p) {
                 else {
                     /* Generate for use'ed symbol */
                     if (!block_insert_pasmstat(blk, pasm_pop, j + 1)) goto newerr;
+
                     if (!block_insert_pasmstat(blk, pasm_load, j)) goto newerr;
                     if (!block_insert_pasmstat(blk, pasm_push, j)) goto newerr;
 
@@ -1113,6 +1141,9 @@ static int cfg_compute_spill_code(Parser* p) {
                     j += 2;
                     j_last_stat += 3;
                 }
+
+                /* Reload stat as the vec holding them may have resized */
+                stat = block_pasmstat(blk, j);
             }
             j = j_last_stat;
         }

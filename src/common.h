@@ -480,6 +480,8 @@ Type type_label = {.typespec = ts_void, .pointers = 0};
 /* Type for offsetting pointers */
 Type type_ptroffset = {.typespec = ts_i64, .pointers = 0};
 
+static inline int type_is_pointer(const Type*);
+
 /* Constructs a type at given location */
 static inline void type_construct(
         Type* type, TypeSpecifiers ts, int pointers) {
@@ -731,12 +733,39 @@ static inline int type_array(const Type* type) {
     return type->dimension > 0;
 }
 
-/* Returns the type of the array's element */
+/* Returns the type of the array / pointer 's element */
 static inline Type type_element(const Type* type) {
-    ASSERT(type_array(type), "Not an array");
+    ASSERT(type_array(type) || type_is_pointer(type),
+            "Not an array or pointer");
     Type t;
     type_construct(&t, type_typespec(type), 0);
     return t;
+}
+
+/* Converts an array of type to pointer to type
+   e.g., int[] -> int*, int[2][10] -> int (*)[10] */
+static inline Type type_array_as_pointer(const Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    ASSERT(type->dimension, "Expected dimension > 0");
+    Type t = *type;
+    --t.dimension;
+    ++t.pointers;
+    return t;
+}
+
+/* Returns 1 if given type is a pointer type */
+static inline int type_is_pointer(const Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    return type_pointer(type) > 0;
+}
+
+/* Returns 1 if given type is an arithmetic type */
+static inline int type_is_arithmetic(const Type* type) {
+    ASSERT(type != NULL, "Type is null");
+    if (type_is_pointer(type) || type_array(type)) {
+        return 0;
+    }
+    return 1;
 }
 
 /* Returns 1 if the provided type is an integer type, 0 if not */

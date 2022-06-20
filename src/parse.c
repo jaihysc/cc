@@ -1443,6 +1443,7 @@ static SymbolId cg_make_temporary(Parser* p, Type type);
 static SymbolId cg_make_label(Parser* p);
 static SymbolId cg_expression_op2(
         Parser*, ParseNode*, SymbolId (*)(Parser*, ParseNode*));
+static SymbolId cg_byte_offset(Parser*, SymbolId, int);
 static SymbolId cg_expression_op2t(
         Parser*,
         ParseNode*,
@@ -1799,11 +1800,11 @@ static int parse_additive_expression(Parser* p, ParseNode* parent) {
     if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
 
     if (parse_expect(p, "+")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "add");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "+");
         if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
     if (parse_expect(p, "-")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "sub");
+        tree_attach_token(p, PARSE_CURRENT_NODE, "-");
         if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
     }
 
@@ -2882,14 +2883,9 @@ static SymbolId cg_primary_expression(Parser* p, ParseNode* node) {
 /* Generates the IL necessary to index a given pointer at the given index
    Returns Lvalue holding the location yielded from indexing */
 static SymbolId cg_array_subscript(Parser* p, SymbolId ptr, SymbolId index) {
-    /* Calculate the index in bytes */
-    SymbolId byte_index = cg_make_temporary(p, type_ptroffset);
-    cg_com_type_rtol(p, byte_index, &index);
-
     Type type = symtab_get_type(p, ptr);
     type_dec_indirection(&type);
-    parser_output_il(
-            p, "mul $s,$s,$d\n", byte_index, index, type_bytes(type));
+    SymbolId byte_index = cg_byte_offset(p, index, type_bytes(type));
 
     /* Obtain old_ptr by converting a non Lvalue
        p[0][1]
@@ -3083,10 +3079,89 @@ static SymbolId cg_multiplicative_expression(Parser* p, ParseNode* node) {
 static SymbolId cg_additive_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(additive_expression);
 
-    SymbolId id = cg_expression_op2(p, node, cg_multiplicative_expression);
+    SymbolId op1 = cg_multiplicative_expression(p, parse_node_child(node, 0));
+    ParseNode* operator = parse_node_child(node, 1);
+    node = parse_node_child(node, 2);
+    while (node != NULL) {
+        SymbolId op2 =
+            cg_multiplicative_expression(p, parse_node_child(node, 0));
+        SymbolId op_temp;
+
+        Type op1_t = symtab_get_type(p, op1);
+        Type op2_t = symtab_get_type(p, op2);
+
+        /* Addition */
+        char operator_char =
+            parser_get_token(p, parse_node_token_id(operator))[0];
+        if (operator_char == '+') {
+            if (type_is_arithmetic(&op1_t) && type_is_arithmetic(&op2_t)) {
+                Type com_type = cg_com_type_lr(p, &op1, &op2);
+                op_temp = cg_make_temporary(p, com_type);
+                parser_output_il(p, "add $s,$s,$s\n",
+                        op_temp, cg_nlval(p, op1), cg_nlval(p, op2));
+            }
+            /* One pointer, one arithmetic */
+            else if ((type_is_pointer(&op1_t) || type_array(&op1_t)) &&
+                    type_is_arithmetic(&op2_t)) {
+                SymbolId ptr_id = cg_nlval(p, op1);
+                op_temp = cg_make_temporary(p, symtab_get_type(p, ptr_id));
+
+                SymbolId byte_offset = cg_byte_offset(
+                        p,
+                        cg_nlval(p, op2),
+                        type_bytes(type_element(&op1_t)));
+                parser_output_il(p, "add $s,$s,$s\n",
+                        op_temp, ptr_id, byte_offset);
+
+            }
+            else if (type_is_arithmetic(&op1_t) &&
+                    (type_is_pointer(&op2_t) || type_is_arithmetic(&op1_t))) {
+                SymbolId ptr_id = cg_nlval(p, op2);
+                op_temp = cg_make_temporary(p, symtab_get_type(p, ptr_id));
+                SymbolId byte_offset = cg_byte_offset(
+                        p,
+                        cg_nlval(p, op1),
+                        type_bytes(type_element(&op2_t)));
+                parser_output_il(p, "add $s,$s,$s\n",
+                        op_temp, ptr_id, byte_offset);
+            }
+            else {
+                ERRMSG("Invalid operands for binary + operator\n");
+                return symid_invalid;
+            }
+        }
+        /* Subtraction */
+        else if (operator_char == '-') {
+            if (type_is_arithmetic(&op1_t) && type_is_arithmetic(&op2_t)) {
+                Type com_type = cg_com_type_lr(p, &op1, &op2);
+                op_temp = cg_make_temporary(p, com_type);
+                parser_output_il(p, "sub $s,$s,$s\n",
+                        op_temp, cg_nlval(p, op1), cg_nlval(p, op2));
+            }
+            else if (type_is_pointer(&op1_t) && type_is_pointer(&op2_t)) {
+                ASSERT(0, "Unimplemented");
+            }
+            else if (type_is_pointer(&op1_t) && type_is_arithmetic(&op2_t)) {
+                ASSERT(0, "Unimplemented");
+            }
+            else {
+                ERRMSG("Invalid operands for binary - operator\n");
+                return symid_invalid;
+            }
+        }
+        else {
+            ASSERT(0, "Unrecognized operator char");
+        }
+
+        op1 = op_temp;
+        operator = parse_node_child(node, 1);
+        node = parse_node_child(node, 2);
+    }
+    ASSERT(operator == NULL,
+            "Trailing operator without multiplicative-expression");
 
     DEBUG_CG_FUNC_END();
-    return id;
+    return op1;
 }
 
 static SymbolId cg_shift_expression(Parser* p, ParseNode* node) {
@@ -3756,6 +3831,21 @@ static SymbolId cg_expression_op2t(
     return op1;
 }
 
+/* Generates the code to convert an offset to a byte offset, for example:
+   int* a;
+   a + 5; <-- The offset here 5, needs to be converted to a byte offset
+              to offset the pointer by elements. 5 * sizeof(int)
+   offset: The value which will be multiplied by the size of the element
+           to obtain the byte offset
+   ele_bytet: Number of bytes for element */
+static SymbolId cg_byte_offset(Parser* p, SymbolId offset, int elem_byte) {
+    SymbolId byte_offset = cg_make_temporary(p, type_ptroffset);
+    cg_com_type_rtol(p, byte_offset, &offset);
+    parser_output_il(
+            p, "mul $s,$s,$d\n", byte_offset, offset, elem_byte);
+    return byte_offset;
+}
+
 /* If left and right are different types, right operand is converted
    to type of left operand and the value of the provided right operand
    is changed to a temporary which has the same type as the left operand */
@@ -3804,8 +3894,16 @@ static SymbolId cg_nlval(Parser* p, SymbolId symid) {
        it is used to emit IL, thus it is never checked */
 
     Symbol* sym = symtab_get(p, symid);
+    Type type = symbol_type(sym);
     switch (symbol_class(sym)) {
         case sl_normal:
+            /* Array decay into pointer */
+            if (type_array(&type)) {
+                SymbolId temp_id =
+                    cg_make_temporary(p, type_array_as_pointer(&type));
+                parser_output_il(p, "mad $s,$s\n", temp_id, symid);
+                return temp_id;
+            }
             return symid;
         case sl_access:
             {

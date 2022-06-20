@@ -2925,19 +2925,46 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
         else {
             const char* token = parser_get_token(p, parse_node_token_id(n));
             /* Postfix increment, decrement */
+            Type type = symtab_get_type(p, result_id);
             if (strequ(token, "++")) {
-                SymbolId temp_id =
-                    cg_make_temporary(p, symtab_get_type(p, result_id));
+                SymbolId temp_id = cg_make_temporary(p, type);
                 cgil_movss(p, temp_id, result_id);
                 result_id = temp_id;
-                parser_output_il(p, "add $s,$s,$d\n", sym_id, sym_id, 1);
+
+                if (type_is_arithmetic(&type)) {
+                    parser_output_il(p, "add $s,$s,1\n", sym_id, sym_id);
+                }
+                else if (type_is_pointer(&type)) {
+                    parser_output_il(
+                            p,
+                            "add $s,$s,$d\n",
+                            sym_id,
+                            sym_id,
+                            type_bytes(type_point_to(&type)));
+                }
+                else {
+                    ERRMSG("Invalid operands for postfix ++ operator\n");
+                }
             }
             else if (strequ(token, "--")) {
-                SymbolId temp_id =
-                    cg_make_temporary(p, symtab_get_type(p, result_id));
+                SymbolId temp_id = cg_make_temporary(p, type);
                 cgil_movss(p, temp_id, result_id);
                 result_id = temp_id;
-                parser_output_il(p, "add $s,$s,$d\n", sym_id, sym_id, -1);
+
+                if (type_is_arithmetic(&type)) {
+                    parser_output_il(p, "sub $s,$s,1\n", sym_id, sym_id);
+                }
+                else if (type_is_pointer(&type)) {
+                    parser_output_il(
+                            p,
+                            "sub $s,$s,$d\n",
+                            sym_id,
+                            sym_id,
+                            type_bytes(type_point_to(&type)));
+                }
+                else {
+                    ERRMSG("Invalid operands for prefix -- operator\n");
+                }
             }
         }
 
@@ -2988,12 +3015,42 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
         if (strequ(token, "++")) {
             result_id = cg_unary_expression(p, parse_node_child(node, 1));
             cg_unary_expression_promote(p, &result_id);
-            parser_output_il(p, "add $s,$s,$d\n", result_id, result_id, 1);
+
+            Type type = symtab_get_type(p, result_id);
+            if (type_is_arithmetic(&type)) {
+                parser_output_il(p, "add $s,$s,1\n", result_id, result_id);
+            }
+            else if (type_is_pointer(&type)) {
+                parser_output_il(
+                        p,
+                        "add $s,$s,$d\n",
+                        result_id,
+                        result_id,
+                        type_bytes(type_point_to(&type)));
+            }
+            else {
+                ERRMSG("Invalid operands for prefix ++ operator\n");
+            }
         }
         else if (strequ(token, "--")) {
             result_id = cg_unary_expression(p, parse_node_child(node, 1));
             cg_unary_expression_promote(p, &result_id);
-            parser_output_il(p, "add $s,$s,$d\n", result_id, result_id, -1);
+
+            Type type = symtab_get_type(p, result_id);
+            if (type_is_arithmetic(&type)) {
+                parser_output_il(p, "sub $s,$s,1\n", result_id, result_id);
+            }
+            else if (type_is_pointer(&type)) {
+                parser_output_il(
+                        p,
+                        "sub $s,$s,$d\n",
+                        result_id,
+                        result_id,
+                        type_bytes(type_point_to(&type)));
+            }
+            else {
+                ERRMSG("Invalid operands for postfix -- operator\n");
+            }
         }
         else if (strequ(token, "sizeof")) {
             /* Incomplete */

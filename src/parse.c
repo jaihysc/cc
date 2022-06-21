@@ -127,7 +127,8 @@ static SymbolId symbol_ptr_sym(Symbol* sym) {
 }
 
 /* Returns the symbol of the index, which when used to index symbol_ptr_sym
-   yields this symbol */
+   yields this symbol
+   The index is always in bytes */
 static SymbolId symbol_ptr_index(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->ptr_idx;
@@ -3065,8 +3066,31 @@ static SymbolId cg_unary_expression(Parser* p, ParseNode* node) {
             switch (op) {
                 case '&':
                     type_inc_pointer(&result_type);
-                    result_id = cg_make_temporary(p, result_type);
-                    parser_output_il(p, "mad $s,$s\n", result_id, operand_1);
+                    Symbol* sym = symtab_get(p, operand_1);
+
+                    /* C99 6.5.3.2.3 */
+
+                    if (symbol_class(sym) == sl_access) {
+                        /* The operation of &*p, (p is ptr) does nothing */
+                        if (!symid_valid(symbol_ptr_index(sym))) {
+                            result_id = symbol_ptr_sym(sym);
+                        }
+                        /* &p[n] is p + n */
+                        else {
+                            result_id = cg_make_temporary(p, result_type);
+                            parser_output_il(
+                                    p,
+                                    "add $s,$s,$s\n",
+                                    result_id,
+                                    symbol_ptr_sym(sym),
+                                    symbol_ptr_index(sym));
+                        }
+                    }
+                    else {
+                        result_id = cg_make_temporary(p, result_type);
+                        parser_output_il(
+                                p, "mad $s,$s\n", result_id, operand_1);
+                    }
                     break;
                 case '*':
                     type_dec_indirection(&result_type);

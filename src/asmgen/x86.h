@@ -360,6 +360,7 @@ static const char* asm_size_directive(int bytes) {
 #define MAX_ASMINS_REG 3 /* Maximum registers used per assembly instruction */
 #define ASMINSS                   \
     ASMINS(add)                   \
+    ASMINS(call)                  \
     ASMINS(cmp)                   \
     ASMINS(idiv)                  \
     ASMINS(imul)                  \
@@ -442,6 +443,8 @@ static int asmins_copy_dest_index(void) {
         ADDRESS_MODE(RM, IMM, NONE)         \
         ADDRESS_MODE(RM, R, NONE)           \
         ADDRESS_MODE(R, RM, NONE))          \
+    PASMINS(call,,                          \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
     PASMINS(cmp, ss,                        \
         ADDRESS_MODE(RM, IMM, NONE)         \
         ADDRESS_MODE(RM, R, NONE)           \

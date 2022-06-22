@@ -308,6 +308,7 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
             break;
 
         /* Uses none */
+        case asmins_call:
         case asmins_jmp:
         case asmins_jnz:
         case asmins_jz:
@@ -367,6 +368,9 @@ static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
             return 0;
 
         /* Def none */
+        /* FIXME Liveness for call is wrong, the registers could change after
+           the call */
+        case asmins_call:
         case asmins_cmp:
         case asmins_idiv:
         case asmins_jmp:

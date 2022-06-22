@@ -79,7 +79,9 @@ static int symbol_is_label(const Symbol* sym) {
 /* Returns 1 if symbol is a variable which requires storage */
 static int symbol_is_var(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    return !symbol_is_label(sym) && !symbol_is_constant(sym);
+    return !symbol_is_label(sym) &&
+        !symbol_is_constant(sym) &&
+        !type_is_function(&sym->type);
 }
 
 /* Returns bytes for symbol */

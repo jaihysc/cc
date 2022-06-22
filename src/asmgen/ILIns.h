@@ -11,6 +11,7 @@
    See strbinfind for ordering requirements */
 #define INSTRUCTIONS  \
     INSTRUCTION(add)  \
+    INSTRUCTION(call) \
     INSTRUCTION(ce)   \
     INSTRUCTION(cl)   \
     INSTRUCTION(cle)  \

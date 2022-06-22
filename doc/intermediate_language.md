@@ -61,7 +61,7 @@ Control flow instructions
 | Instruction | Args | Summary                                                                                                                                     |
 | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | ret         |  0,1 | Return `<arg0>s` from function if given, otherwise returns void                                                                             |
-| call        |  1+n | Call function with name `<arg0>s`, return value placed in `<arg1>s` or left as void if no return, arguments for call `<arg1+>si`            |
+| call        |   2+ | Calls `<arg1>s` with arguments `<arg2+>si` arg2, arg3, ... Return value placed in `<arg0>s`                                                 |
 | lab         |    1 | Create label with name `<arg0>`                                                                                                             |
 | jmp         |    1 | jump to `<arg0>l`                                                                                                                           |
 | jz          |    2 | jump to `<arg0>l` if `<arg1>si` == 0                                                                                                        |

@@ -460,6 +460,10 @@ static inline const char* type_specifiers_str(TypeSpecifiers typespec) {
 }
 
 typedef struct {
+    /* 0 = Standard types, e.g., int, float, long long*
+       1 = Function */
+    int category;
+
     TypeSpecifiers typespec;
     int pointers;
 
@@ -486,10 +490,17 @@ static inline int type_is_pointer(const Type*);
 /* Constructs a type at given location */
 static inline void type_construct(
         Type* type, TypeSpecifiers ts, int pointers) {
+    type->category = 0;
     type->typespec = ts;
     type->pointers = pointers;
     type->dimension = 0;
     type->size[0] = 0;
+}
+
+/* Constructs a function type at the given location */
+static inline void type_constructf(Type* type, const Type* ret_type) {
+    *type = *ret_type;
+    type->category = 1;
 }
 
 /* Returns type specifiers for Type */
@@ -566,6 +577,20 @@ static inline void type_add_dimension(Type* type, int size) {
 static inline int type_dimension_size(const Type* type, int i) {
     ASSERT(type != NULL, "Type is null");
     return type->size[i];
+}
+
+
+/* Function types */
+
+
+/* Returns 1 if given type is a function, 0 if not */
+static inline int type_is_function(const Type* type) {
+    return type->category == 1;
+}
+
+/* Returns the return type of given function type */
+static inline Type type_return(const Type* type) {
+    return *type;
 }
 
 /* Converts a string into a type */

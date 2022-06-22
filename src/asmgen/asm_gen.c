@@ -32,6 +32,7 @@ int g_debug_print_symtab = 0;
 /* Parser data structure + functions */
 
 static IGNode* ig_node(Parser* p, int i);
+static int compute_asm(Parser* p);
 
 typedef struct {
     PasmIns ins;
@@ -153,6 +154,9 @@ struct Parser {
 
     /* First symbol element is earliest in occurrence */
     vec_t(Symbol) symbol;
+    /* Index in symbol table after which, including this index the symbols are
+       function scope */
+    int i_func_symbol;
     /* Used to create unique compiler generated symbols */
     int symtab_temp_num; /* Temporaries */
 
@@ -287,9 +291,18 @@ static void parser_output_comment(Parser* p, const char* fmt, ...) {
 static SymbolId symtab_add(Parser* p, Type type, const char* name);
 static Symbol* symtab_get(Parser* p, SymbolId sym_id);
 
-/* Clears the symbol table */
-static void symtab_clear(Parser* p) {
-    vec_clear(&p->symbol);
+/* Indicates that symbols after this function call are part of a function */
+static void symtab_func_start(Parser* p) {
+    p->i_func_symbol = vec_size(&p->symbol);
+}
+
+/* Clears symbols which are part of the function, make sure to call
+   symtab_func_start prior to this */
+static void symtab_func_end(Parser* p) {
+    vec_splice(
+            &p->symbol,
+            p->i_func_symbol,
+            vec_size(&p->symbol) - p->i_func_symbol);
 }
 
 /* Returns 1 if symbol is a constant, 0 otherwise */
@@ -1212,7 +1225,7 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int* i) {
     }
     else {
         /* label is for jump destinations */
-        if (symbol_is_label(sym) || symbol_is_constant(sym)) {
+        if (!symbol_is_var(sym)) {
             ASSERT(!deref, "Cannot dereference constant");
             parser_output_asm(p, "%s", symbol_name(sym));
         }
@@ -1246,7 +1259,7 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int* i) {
 static void cfg_output_asm(Parser* p) {
     /* Function labels always with prefix f@ */
     parser_output_asm(p,
-        "f@%s:\n"
+        "%s:\n"
         /* Function prologue */
         "push rbp\n"
         "mov rbp,rsp\n",
@@ -1781,7 +1794,7 @@ error:
 static void parser_clear_func(Parser* p) {
     cfg_clear(p);
     ig_clear(p);
-    symtab_clear(p);
+    symtab_func_end(p);
 }
 
 /* Dumps contents stored in parser */
@@ -1989,6 +2002,13 @@ static INSTRUCTION_PROC(add) {
     }
 }
 
+static INSTRUCTION_PROC(call) {
+    if (arg_count < 2) {
+        parser_set_error(p, ec_badargs);
+        return;
+    }
+}
+
 static INSTRUCTION_PROC(ce) {
     if (arg_count != 3) {
         parser_set_error(p, ec_badargs);
@@ -2041,50 +2061,60 @@ static INSTRUCTION_PROC(func) {
         return;
     }
 
-    parser_clear_func(p);
+    /* Compute assembly for IL of previous function */
+    if (p->func_name[0] != '\0') {
+        compute_asm(p);
+        parser_clear_func(p);
+    }
     cfg_new_block(p);
 
-    /* Special handling of main function */
+    Type func_type;
+    Type ret_type = type_from_str(pparg[1]);
+    type_constructf(&func_type, &ret_type);
+
+    symtab_add(p, func_type, pparg[0]);
+    symtab_func_start(p);
+
+    /* TODO calculations of stack locations
+       The locations integers are passed in, in order */
+    Location int_loc[] = {loc_di, loc_si, loc_d, loc_c, loc_8, loc_9};
+    int i_int_loc = 0; /* Next location for passing integer */
+
+
+    /* Add the function parameteres to the symbol table */
+    for (int i = 2; i < arg_count; ++i) {
+        char type[MAX_ARG_LEN];
+        char name[MAX_ARG_LEN];
+        cg_extract_param(pparg[i], type, name);
+        SymbolId id = symtab_add(p, type_from_str(type), name);
+        if (parser_has_error(p)) return;
+
+        ASSERT(i_int_loc < ARRAY_SIZE(int_loc),
+                "No registers left to pass argument");
+        symbol_set_location(symtab_get(p, id), int_loc[i_int_loc]);
+        ++i_int_loc;
+    }
+
+    strcopy(pparg[0], p->func_name);
+
+    /* Generate a _start function which calls main */
     if (strequ(pparg[0], "main")) {
         if (arg_count != 4) {
             parser_set_error(p, ec_badmain);
             return;
         }
-
-        if (parser_has_error(p)) return;
-        char type[MAX_ARG_LEN];
-        char name[MAX_ARG_LEN];
-
-        /* Symbol argc */
-        cg_extract_param(pparg[2], type, name);
-        SymbolId argc_id = symtab_add(p, type_from_str(type), name);
-        if (parser_has_error(p)) return;
-
-        /* Symbol pparg */
-        cg_extract_param(pparg[3], type, name);
-        SymbolId pparg_id = symtab_add(p, type_from_str(type), name);
-        if (parser_has_error(p)) return;
-
-        /* Wait on obtaining pointers until all symbols added
-           as add may invalidate pointer */
-        symbol_set_location(symtab_get(p, argc_id), loc_di);
-        symbol_set_location(symtab_get(p, pparg_id), loc_si);
-
-        /* Generate a _start function which calls main */
         parser_output_asm(p, "%s",
             "\n"
             "    global _start\n"
             "_start:\n"
             "    mov             rdi, QWORD [rsp]\n" /* argc */
             "    lea             rsi, QWORD [rsp+8]\n" /* argv */
-            "    call            f@main\n"
+            "    call            main\n"
             "    mov             rdi, rax\n" /* exit call */
             "    mov             rax, 60\n"
             "    syscall\n"
         );
     }
-
-    strcopy(pparg[0], p->func_name);
 }
 
 static INSTRUCTION_PROC(jmp) {
@@ -2309,6 +2339,22 @@ disqualify_case:
     return NULL;
 }
 
+/* Special handling for call to calculate where to place
+   arguments, and registers which must be saved and restored
+   Returns 1 if succeeded, 0 if error */
+static int cfg_compute_pasm_call(
+        Parser* p, Block* blk, const ILStatement* ilstat) {
+    PasmStatement pasmstat;
+
+    /* TODO Calculate the registers to put args, regs to save */
+
+    pasmstat_construct(&pasmstat, pasmins_call_);
+    pasmstat_add_op_sym(&pasmstat, ilstat_arg(ilstat, 1));
+    if (!block_add_pasmstat(blk, pasmstat)) return 0;
+
+    return 1;
+}
+
 /* Computes pseudo-assembly for statements in blocks
    Requires statements in blocks
    Returns 1 if successful, 0 if error */
@@ -2317,6 +2363,15 @@ static int cfg_compute_pasm(Parser* p) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = 0; j < block_ilstat_count(blk); ++j) {
             ILStatement* ilstat = block_ilstat(blk, j);
+
+            /* Special handling for certain IL instructions as they require
+               special behaviour */
+
+            if (ilstat_ins(ilstat) == il_call) {
+                if (!cfg_compute_pasm_call(p, blk, ilstat)) goto newerr;
+                continue;
+            }
+
             InsSelMacroCase* ismc = inssel_find(p, ilstat);
             ASSERTF(ismc != NULL,
                     "Could not find macro for IL statement %s",
@@ -2527,6 +2582,28 @@ static int read_instruction(Parser* p) {
     }
 }
 
+/* Converts IL read into CFG to assembly
+   Returns 1 if successful, 0 if error */
+static int compute_asm(Parser* p) {
+    /* Process the last (most recent) function */
+    if (!cfg_link_jump_dest(p)) goto error;
+
+    /* Instruction selection */
+    if (!cfg_compute_pasm(p)) goto error;
+
+    /* Register allocation */
+    if (!compute_register(p)) goto error;
+    cfg_pasm_po(p);
+
+    /* Code generation */
+    if (!cfg_compute_spill_code(p)) goto error;
+    cfg_output_asm(p);
+
+    return 1;
+error:
+    return 0;
+}
+
 /* Parses the IL and generates assembly
    Returns 1 if successful, 0 if error */
 static int parse(Parser* p) {
@@ -2556,20 +2633,7 @@ static int parse(Parser* p) {
             proc_handler(p, p->arg_table, p->arg_count);
         }
     }
-
-    /* Process the last (most recent) function */
-    if (!cfg_link_jump_dest(p)) goto error;
-
-    /* Instruction selection */
-    if (!cfg_compute_pasm(p)) goto error;
-
-    /* Register allocation */
-    if (!compute_register(p)) goto error;
-    cfg_pasm_po(p);
-
-    /* Code generation */
-    if (!cfg_compute_spill_code(p)) goto error;
-    cfg_output_asm(p);
+    if (!compute_asm(p)) goto error;
     return 1;
 error:
     return 0;

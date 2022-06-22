@@ -107,6 +107,12 @@ static Type symbol_type(Symbol* sym) {
     return sym->type;
 }
 
+/* Sets type for symbol */
+static void symbol_set_type(Symbol* sym, const Type* type) {
+    ASSERT(sym != NULL, "Symbol is null");
+    sym->type = *type;
+}
+
 /* Returns ValueCategory for symbol */
 static ValueCategory symbol_valcat(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
@@ -1349,6 +1355,7 @@ static int parse_hexadecimal_constant(Parser*, ParseNode*);
 static int parse_primary_expression(Parser* p, ParseNode* parent);
 static int parse_postfix_expression(Parser* p, ParseNode* parent);
 static int parse_postfix_expression_2(Parser* p, ParseNode* parent);
+static int parse_argument_expression_list(Parser*, ParseNode*);
 static int parse_unary_expression(Parser* p, ParseNode* parent);
 static int parse_cast_expression(Parser* p, ParseNode* parent);
 static int parse_multiplicative_expression(Parser* p, ParseNode* parent);
@@ -1673,9 +1680,18 @@ static int parse_postfix_expression(Parser* p, ParseNode* parent) {
 static int parse_postfix_expression_2(Parser* p, ParseNode* parent) {
     PARSE_FUNC_START(postfix_expression);
 
+    /* Array subscript */
     if (parse_expect(p, "[")) {
         if (!parse_expression(p, PARSE_CURRENT_NODE)) goto exit;
         if (!parse_expect(p, "]")) goto exit;
+        PARSE_MATCHED();
+
+        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
+    }
+    /* Function call */
+    else if (parse_expect(p, "(")) {
+        if (!parse_argument_expression_list(p, PARSE_CURRENT_NODE)) goto exit;
+        if (!parse_expect(p, ")")) goto exit;
         PARSE_MATCHED();
 
         parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
@@ -1697,6 +1713,27 @@ static int parse_postfix_expression_2(Parser* p, ParseNode* parent) {
     /* Incomplete */
 
 exit:
+    PARSE_FUNC_END();
+}
+
+static int parse_argument_expression_list(Parser* p, ParseNode* parent) {
+    /* Left recursion in C standard is converted to right recursion
+       argument-expression-list
+       -> assignment-expression
+        | assignment-expression , argument-expression-list */
+    PARSE_FUNC_START(argument_expression_list);
+
+    if (parse_assignment_expression(p, PARSE_CURRENT_NODE)) {
+        if (parse_expect(p, ",")) {
+            if (parse_argument_expression_list(p, PARSE_CURRENT_NODE)) {
+                PARSE_MATCHED();
+            }
+        }
+        else {
+            PARSE_MATCHED();
+        }
+    }
+
     PARSE_FUNC_END();
 }
 
@@ -2901,8 +2938,8 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
     DEBUG_CG_FUNC_START(postfix_expression);
 
     SymbolId sym_id = cg_primary_expression(p, parse_node_child(node, 0));
-                                 /* ^^^ The symbol which is incremented */
-    SymbolId result_id = sym_id; /* Value read (given to others) */
+                                 /* ^^^ The symbol repeatedly incremented */
+    SymbolId result_id = sym_id; /* Value of result from previous operation */
 
     /* Integer promotions not needed here as the increment is applied after
        the value is read, thus the read value can never overflow */
@@ -2916,6 +2953,8 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
         /* Node held by each child */
         ParseNode* n = parse_node_child(last_child, 0);
         ASSERT(node != NULL, "Expected node");
+        /* Type of previous result */
+        Type type = symtab_get_type(p, result_id);
 
         if (parse_node_type(n) == st_expression) {
             SymbolId index = cg_expression(p, n);
@@ -2923,10 +2962,26 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
             /* ^ New                          ^ Old
                Dereference old result_id to get new result_id */
         }
+        else if (parse_node_type(n) == st_argument_expression_list) {
+            /* Function call result */
+            SymbolId temp_id = cg_make_temporary(p, type_return(&type));
+            parser_output_il(p, "call $s,$s", temp_id, result_id);
+
+            /* Function arguments */
+            do {
+                SymbolId id =
+                    cg_assignment_expression(p, parse_node_child(n, 0));
+                parser_output_il(p, ",$s", id);
+                n = parse_node_child(n, 1);
+            }
+            while (n != NULL);
+            parser_output_il(p, "\n");
+
+            result_id = temp_id;
+        }
         else {
             const char* token = parser_get_token(p, parse_node_token_id(n));
             /* Postfix increment, decrement */
-            Type type = symtab_get_type(p, result_id);
             if (strequ(token, "++")) {
                 SymbolId temp_id = cg_make_temporary(p, type);
                 cgil_movss(p, temp_id, result_id);
@@ -3835,6 +3890,12 @@ static void cg_function_signature(Parser* p, ParseNode* node) {
 
     /* name is function name, type is return type */
     SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
+    Symbol* sym = symtab_get(p, func_id);
+
+    Type func_type;
+    Type ret_type = symbol_type(sym);
+    type_constructf(&func_type, &ret_type);
+    symbol_set_type(sym, &func_type);
     parser_output_il(p, "func $s,$t,", func_id, func_id);
 
     ParseNode* dirdeclarator = parse_node_child(declarator, -1);
@@ -4219,11 +4280,19 @@ int main(int argc, char** argv) {
     }
 
     symtab_push_scope(&p);
-    if (!parse_function_definition(&p, &p.parse_node_root)) {
-        parser_set_error(&p, ec_syntaxerr);
-        ERRMSGF("Failed to build parse tree. Line %d, around char %d\n",
-                p.last_line_num, p.last_char_num);
+
+    while (1) {
+        if (!parse_function_definition(&p, &p.parse_node_root)) {
+            parser_set_error(&p, ec_syntaxerr);
+            ERRMSGF("Failed to build parse tree. Line %d, around char %d\n",
+                    p.last_line_num, p.last_char_num);
+            break;
+        }
+        if (*read_token(&p) == '\0') {
+            break;
+        }
     }
+
     symtab_pop_scope(&p);
     ASSERT(p.i_scope == 0, "Scopes not empty on parse end");
     for (int i = 0; i < sc_count; ++i) {

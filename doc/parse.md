@@ -18,25 +18,15 @@ Pass these on the command line, if running using `cc.sh`, prefix with `-P` to in
 
 ## Concepts
 
-### Output symbols
+### Symbols
+
+Symbols are stored alongside its attributes (token, type, ...) in the symbol table (symtab for short), the storage used changes depending on scope.
+
+To reduce extra code which must be written to handle constants, the symbol table has special handling for constants. Constants can be added to symbol tables multiple times, looking up a constant in a symbol table will add the constant to the table if it does not exist and return the symbol, or if it does exist, return the existing symbol. This allows existing code for working with symbols such as `symbol_type` and `symbol_bytes` to be reused for constants as well.
+
+### Output format
 
 The parser prepends `_Z<scope-number>` for all symbols within scopes other than the global (file) scope to identify shadowed symbols. Globals have no prefixes as constants are placed in global scope and passed directly to the assembler, thus they cannot have prefixes. Parser generated temporaries are of the form `_Z<scope-number>__t<temporary-number>`, labels `_Z<scope-number>__t<label-number>`.
-
-### Output file formats (Unimplemented)
-
-The parser generates multiple output files with prefix `imm2`, ending with `_<name>` depending on the data listed below:
-
-- Function body (fun)
-- Strings (str)
-
-For example the file for all strings is `imm2_str`.
-
-Using multiple files, it is easier for the assembly generator to parse `imm2`, as all the information the assembly generator needs when generating each section (.text, .rodata, ...) is provided in a file instead of having to parse through one large file.
-
-Symbols:
-
-- Symbols with prefix `__` are predefined, the following characters until the next underscore is its group. e.g., (`__str_1` is a predefined symbol with group str)
-- Symbols are null terminated strings
 
 ## Processes
 

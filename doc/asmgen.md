@@ -37,6 +37,12 @@ Pass these on the command line, if running from `cc.sh`, prefix with `-S` to ind
 
 These concepts are referenced in this document.
 
+### Symbols
+
+Symbols are stored alongside its attributes (token, type, ...) in the symbol table (symtab for short). The symbol table is function scope, all variables are present from the beginning to the end of the function to avoid having to handle scoping rules.
+
+To reduce extra code which must be written to handle constants, the symbol table has special handling for constants. Constants can be added to symbol tables multiple times, looking up a constant in a symbol table will add the constant to the table if it does not exist and return the symbol, or if it does exist, return the existing symbol. This allows existing code for working with symbols such as `symbol_type` and `symbol_bytes` to be reused for constants as well.
+
 ### Program graph
 
 The program graph is currently represented as a control flow graph, in the future it can be a program dependency graph (PDG) or static single assignment (SSA) graph to aid instruction scheduling and optimizations. It contains data and control flow information together, with the goal of giving the instruction selector a broader view of the program under compilation to generate better assembly.

@@ -4,12 +4,13 @@ Specification for the intermediate language used by the compiler
 
 ## Symbols
 
-The parser will generate additional symbols with prefix `__`, the following characters until the next underscore is its group, the number starts from 0. e.g., (`__str_1` is a symbol with group str)
+The parser will generate additional symbols with prefix `__`, the following characters is its group, followed by a number that starts from 0. e.g., (`__t1` is a temporary)
 
 | Group  | Summary                                                                                                                                            |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| str    | String                                                                                                                                             |
-| local  | Local variables created during intermediate calculations                                                                                           |
+| t      | Local variables created during intermediate calculations                                                                                           |
+| l      | Label for jumps                                                                                                                                    |
+| s      | String                                                                                                                                             |
 
 ## Types
 

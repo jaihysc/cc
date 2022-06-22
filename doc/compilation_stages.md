@@ -24,15 +24,19 @@ The provided preprocessed source file (imm1) is scanned, and an intermediate out
 
 ### Assembly generation
 
-Preprocessed C -> Intermediate language
+Intermediate language -> Assembly
 
 The intermediate output (imm2) is read in and x86-64 assembly (imm3) in Intel syntax is generated.
 
 ### Object file generation
 
+Assembly -> Object file
+
 For now, the assembler used is NASM. Intermediate output (imm3) is read in and object file (imm4) is generated.
 
 ### Executable generation
+
+Object file -> Executable
 
 For now, the linker used is ld. Object file (imm4) is read and the final executable is generated.
 

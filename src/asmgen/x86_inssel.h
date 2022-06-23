@@ -1171,6 +1171,8 @@ static void inssel2_call_param(
     SymbolId dest_id = symtab_add_temporaryr(
             p, reg_get(loc, symbol_bytes(sym)));
 
+    /* This pasm had liveness analysis performed which needs to be freed */
+    pasmstat_destruct(pasmstat);
     pasmstat_construct(pasmstat, pasmins_mov_ss);
     pasmstat_add_op_sym(pasmstat, dest_id);
     pasmstat_add_op_sym(pasmstat, id);
@@ -1229,6 +1231,8 @@ static void inssel2_call_cleanup(
     Register reg = reg_get(loc_a, symbol_bytes(dest_sym));
     SymbolId src_id = symtab_add_temporaryr(p, reg);
 
+    /* This pasm had liveness analysis performed which needs to be freed */
+    pasmstat_destruct(pasmstat);
     pasmstat_construct(pasmstat, pasmins_mov_ss);
     pasmstat_add_op_sym(pasmstat, dest_id);
     pasmstat_add_op_sym(pasmstat, src_id);

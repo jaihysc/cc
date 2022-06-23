@@ -135,6 +135,8 @@ static int block_insert_pasmstat(Block* blk, PasmStatement stat, int i) {
    filling index with statements after index */
 static void block_remove_pasmstat(Block* blk, int i) {
     ASSERT(blk != NULL, "Block is null");
+    PasmStatement* stat = &vec_at(&blk->pasm_stats, i);
+    pasmstat_destruct(stat);
     vec_splice(&blk->pasm_stats, i, 1);
 }
 

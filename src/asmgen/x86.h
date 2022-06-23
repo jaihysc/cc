@@ -359,6 +359,8 @@ static const char* asm_size_directive(int bytes) {
 #define MAX_ASM_OP 2 /* Maximum operands for assembly instruction */
 #define MAX_ASMINS_REG 3 /* Maximum registers used per assembly instruction */
 #define ASMINSS                   \
+    ASMINS(none)                  \
+                                  \
     ASMINS(add)                   \
     ASMINS(call)                  \
     ASMINS(cmp)                   \
@@ -509,13 +511,50 @@ static int asmins_copy_dest_index(void) {
         ADDRESS_MODE(RM, R, NONE)           \
         ADDRESS_MODE(R, RM, NONE))
 
+/* Special PASMINSS (Used by instruction selector 2) */
+#define SPASMINSS                                        \
+    /* Put parameter in appropriate location for call */ \
+    SPASMINS(call_param)                                 \
+    /* Handle caller save registers, return value */     \
+    SPASMINS(call_cleanup)
+
+typedef enum {
 #define PASMINS(name__, pasm_mode__, mode__) \
     pasmins_ ## name__ ## _ ## pasm_mode__,
-typedef enum {PASMINSS} PasmIns;
+#define SPASMINS(name__) pasmins_ ## name__,
+    PASMINSS
+    SPASMINSS
+    /* Number of normal PasmIns, used to identify when the special PasmIns
+       is used where it should not */
+    pasmins_ncount = pasmins_call_param
+#undef SPASMINS
 #undef PASMINS
+} PasmIns;
+
+/* Converts PasmIns to a string */
+static const char* pasmins_str(PasmIns pins) {
+#define PASMINS(name__, pasm_mode__, mode__) #name__ "_" #pasm_mode__,
+#define SPASMINS(name__) #name__,
+    const char* strings[] = {PASMINSS SPASMINSS};
+#undef SPASMINS
+#undef PASMINS
+
+    ASSERT(pins >= 0, "Invalid pseudo-assembly instruction");
+    return strings[pins];
+}
 
 /* Converts PasmIns to a AsmIns */
 static AsmIns pasmins_asm(PasmIns pins) {
+    ASSERT(pins >= 0, "Invalid pseudo-assembly instruction");
+
+    /* Having to check and separately handle special pseudo-assembly
+       instructions is annoying in uses such as:
+       pasmins_asm(pins) == asmins_lea
+       Thus return none so the call still succeeds */
+    if (pins >= pasmins_ncount) {
+        return asmins_none;
+    }
+
 #define PASMINS(name__, pasm_mode__, mode__) asmins_ ## name__,
     const int asmins[] = {PASMINSS};
 #undef PASMINS
@@ -524,6 +563,8 @@ static AsmIns pasmins_asm(PasmIns pins) {
 
 /* Returns the number of addressing modes for PasmIns */
 static int pasmins_mode_count(PasmIns pins) {
+    ASSERT(pins >= 0, "Invalid pseudo-assembly instruction");
+    ASSERT(pins < pasmins_ncount, "Invalid pseudo-assembly instruction");
     /* Expands out into an expression 0 + 1 + 1 ... */
 #define PASMINS(name__, pasm_mode__, mode__) 0 mode__,
 #define ADDRESS_MODE(m1__, m2__, m3__) + 1
@@ -540,6 +581,8 @@ typedef struct {
 
 /* Returns ith addressing mode for PasmIns */
 static AddressMode asmins_mode(PasmIns pins, int i) {
+    ASSERT(pins >= 0, "Invalid pseudo-assembly instruction");
+    ASSERT(pins < pasmins_ncount, "Invalid pseudo-assembly instruction");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < pasmins_mode_count(pins), "Index out of range");
 #define NONE 0

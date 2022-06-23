@@ -266,67 +266,77 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
         }
     }
 
-    /* Access symbols, e.g., rax, [rbp-5], where rax, [rbp-5] is the
-       register/location of some symbol */
-    switch (pasmstat_ins(stat)) {
-        /* Uses 1, def 1 */
-        case asmins_lea:
-        case asmins_mov:
-        case asmins_movsx:
-        case asmins_movzx:
-            pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, 1));
-            break;
-
-        /* Uses 1 */
-        case asmins_idiv:
-        case asmins_push:
+    switch (pasmstat_pins(stat)) {
+        case pasmins_call_param:
             pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, 0));
             break;
 
-        /* Uses 2, def 1 */
-        case asmins_add:
-        case asmins_imul:
-        case asmins_sub:
-        /* Uses 2 */
-        case asmins_cmp:
-        case asmins_test:
-            for (int i = 0; i < 2; ++i) {
-                pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, i));
-            }
+        case pasmins_call_cleanup:
             break;
-        /* xor uses nothing if both operands are the same, i.e., xor reg, reg.
-           xor mem, mem is not possible, so do not need to handle that case */
-        case asmins_xor:
-            if (!pasmstat_address_memory(stat, 0) &&
-                !pasmstat_address_memory(stat, 1) &&
-                pasmstat_op(stat, 0) == pasmstat_op(stat, 1)) {
-                return 0;
-            }
-            for (int i = 0; i < 2; ++i) {
-                pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, i));
-            }
-            break;
-
-        /* Uses none */
-        case asmins_call:
-        case asmins_jmp:
-        case asmins_jnz:
-        case asmins_jz:
-        case asmins_leave:
-        case asmins_pop:
-        case asmins_ret:
-        case asmins_setb:
-        case asmins_setbe:
-        case asmins_sete:
-        case asmins_setl:
-        case asmins_setle:
-        case asmins_setne:
-        case asmins_setz:
-            return 0;
 
         default:
-            ASSERT(0, "Unimplemented");
-            return 0;
+        /* Access symbols, e.g., rax, [rbp-5], where rax, [rbp-5] is the
+           register/location of some symbol */
+        switch (pasmstat_ins(stat)) {
+            /* Uses 1, def 1 */
+            case asmins_lea:
+            case asmins_mov:
+            case asmins_movsx:
+            case asmins_movzx:
+                pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, 1));
+                break;
+
+            /* Uses 1 */
+            case asmins_idiv:
+            case asmins_push:
+                pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, 0));
+                break;
+
+            /* Uses 2, def 1 */
+            case asmins_add:
+            case asmins_imul:
+            case asmins_sub:
+            /* Uses 2 */
+            case asmins_cmp:
+            case asmins_test:
+                for (int i = 0; i < 2; ++i) {
+                    pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, i));
+                }
+                break;
+            /* xor uses nothing if both operands are the same, i.e., xor reg, reg.
+               xor mem, mem is not possible, so do not need to handle that case */
+            case asmins_xor:
+                if (!pasmstat_address_memory(stat, 0) &&
+                    !pasmstat_address_memory(stat, 1) &&
+                    pasmstat_op(stat, 0) == pasmstat_op(stat, 1)) {
+                    return 0;
+                }
+                for (int i = 0; i < 2; ++i) {
+                    pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, i));
+                }
+                break;
+
+            /* Uses none */
+            case asmins_call:
+            case asmins_jmp:
+            case asmins_jnz:
+            case asmins_jz:
+            case asmins_leave:
+            case asmins_pop:
+            case asmins_ret:
+            case asmins_setb:
+            case asmins_setbe:
+            case asmins_sete:
+            case asmins_setl:
+            case asmins_setle:
+            case asmins_setne:
+            case asmins_setz:
+                return 0;
+
+            default:
+                ASSERT(0, "Unimplemented");
+                return 0;
+        }
     }
 
     ASSERT(used <= MAX_ASMINS_REG,
@@ -342,50 +352,58 @@ static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
     /* No def if addressing memory, e.g.,
        mov DWORD [%a], 5
        does not def the symbol a */
-    switch (pasmstat_ins(stat)) {
-        /* Uses 1, def 1 */
-        case asmins_add:
-        case asmins_imul:
-        case asmins_mov:
-        case asmins_movsx:
-        case asmins_movzx:
-        case asmins_sub:
-        case asmins_xor:
-        /* Def 1 */
-        case asmins_lea:
-        case asmins_pop:
-        case asmins_setb:
-        case asmins_setbe:
-        case asmins_sete:
-        case asmins_setl:
-        case asmins_setle:
-        case asmins_setne:
-        case asmins_setz:
-            if (!pasmstat_address_memory(stat, 0)) {
-                out_sym_id[0] = pasmstat_op(stat, 0);
-                return 1;
-            }
+    switch (pasmstat_pins(stat)) {
+        case pasmins_call_param:
             return 0;
-
-        /* Def none */
-        /* FIXME Liveness for call is wrong, the registers could change after
-           the call */
-        case asmins_call:
-        case asmins_cmp:
-        case asmins_idiv:
-        case asmins_jmp:
-        case asmins_jnz:
-        case asmins_jz:
-        case asmins_leave:
-        case asmins_push:
-        case asmins_ret:
-        case asmins_test:
-            return 0;
+        case pasmins_call_cleanup:
+            out_sym_id[0] = pasmstat_op(stat, 0);
+            return 1;
 
         default:
-            ASSERT(0, "Unimplemented");
-            return 0;
+        switch (pasmstat_ins(stat)) {
+            /* Uses 1, def 1 */
+            case asmins_add:
+            case asmins_imul:
+            case asmins_mov:
+            case asmins_movsx:
+            case asmins_movzx:
+            case asmins_sub:
+            case asmins_xor:
+            /* Def 1 */
+            case asmins_lea:
+            case asmins_pop:
+            case asmins_setb:
+            case asmins_setbe:
+            case asmins_sete:
+            case asmins_setl:
+            case asmins_setle:
+            case asmins_setne:
+            case asmins_setz:
+                if (!pasmstat_address_memory(stat, 0)) {
+                    out_sym_id[0] = pasmstat_op(stat, 0);
+                    return 1;
+                }
+                return 0;
+
+            /* Def none */
+            case asmins_call:
+            case asmins_cmp:
+            case asmins_idiv:
+            case asmins_jmp:
+            case asmins_jnz:
+            case asmins_jz:
+            case asmins_leave:
+            case asmins_push:
+            case asmins_ret:
+            case asmins_test:
+                return 0;
+
+            default:
+                ASSERT(0, "Unimplemented");
+                return 0;
+        }
     }
+
 }
 
 #endif

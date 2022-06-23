@@ -19,6 +19,7 @@
 #include "PasmStatement.h"
 #include "Block.h"
 #include "IGNode.h"
+#include "sysv.h"
 
 /* ============================================================ */
 /* Parser global configuration */
@@ -1887,7 +1888,7 @@ static void debug_print_cfg(Parser* p) {
             PasmStatement* stat = block_pasmstat(blk, j);
 
             /* Pseudo-assembly */
-            LOGF("    %d %s", j, asmins_str(pasmstat_ins(stat)));
+            LOGF("    %d %s", j, pasmins_str(pasmstat_pins(stat)));
             for (int k = 0; k < pasmstat_op_count(stat); ++k) {
                 if (k == 0) {
                     LOG(" ");
@@ -2075,11 +2076,8 @@ static INSTRUCTION_PROC(func) {
     symtab_add(p, func_type, pparg[0]);
     symtab_func_start(p);
 
-    /* TODO calculations of stack locations
-       The locations integers are passed in, in order */
-    Location int_loc[] = {loc_di, loc_si, loc_d, loc_c, loc_8, loc_9};
-    int i_int_loc = 0; /* Next location for passing integer */
-
+    CallData dat;
+    call_construct(&dat);
 
     /* Add the function parameteres to the symbol table */
     for (int i = 2; i < arg_count; ++i) {
@@ -2089,10 +2087,8 @@ static INSTRUCTION_PROC(func) {
         SymbolId id = symtab_add(p, type_from_str(type), name);
         if (parser_has_error(p)) return;
 
-        ASSERT(i_int_loc < ARRAY_SIZE(int_loc),
-                "No registers left to pass argument");
-        symbol_set_location(symtab_get(p, id), int_loc[i_int_loc]);
-        ++i_int_loc;
+        Symbol* sym = symtab_get(p, id);
+        symbol_set_location(sym, call_arg_loc(&dat, sym));
     }
 
     strcopy(pparg[0], p->func_name);
@@ -2228,7 +2224,7 @@ static INSTRUCTION_PROC(sub) {
 /* ============================================================ */
 /* Instruction selector */
 
-#include "x86_inssel_macro.h"
+#include "x86_inssel.h"
 
 /* Finds and returns the lowest cost macro case for the provided
    IL statement
@@ -2339,22 +2335,6 @@ disqualify_case:
     return NULL;
 }
 
-/* Special handling for call to calculate where to place
-   arguments, and registers which must be saved and restored
-   Returns 1 if succeeded, 0 if error */
-static int cfg_compute_pasm_call(
-        Parser* p, Block* blk, const ILStatement* ilstat) {
-    PasmStatement pasmstat;
-
-    /* TODO Calculate the registers to put args, regs to save */
-
-    pasmstat_construct(&pasmstat, pasmins_call_);
-    pasmstat_add_op_sym(&pasmstat, ilstat_arg(ilstat, 1));
-    if (!block_add_pasmstat(blk, pasmstat)) return 0;
-
-    return 1;
-}
-
 /* Computes pseudo-assembly for statements in blocks
    Requires statements in blocks
    Returns 1 if successful, 0 if error */
@@ -2368,7 +2348,7 @@ static int cfg_compute_pasm(Parser* p) {
                special behaviour */
 
             if (ilstat_ins(ilstat) == il_call) {
-                if (!cfg_compute_pasm_call(p, blk, ilstat)) goto newerr;
+                if (!inssel_call(p, blk, ilstat)) goto newerr;
                 continue;
             }
 
@@ -2468,6 +2448,35 @@ static int cfg_compute_pasm(Parser* p) {
 newerr:
     parser_set_error(p, ec_outofmemory);
     return 0;
+}
+
+/* Replaces special pseudo-assembly instructions in blocks---left by instruction
+   selection to be filled in when register allocations are available---with
+   the appropriate pseudo-assembly
+   Requires statements in blocks
+   Requires register allocations
+   Returns 1 if successful, 0 if error */
+static int cfg_compute_pasm2(Parser* p) {
+    InsSel2Data dat;
+    inssel2data_construct(&dat);
+
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            PasmStatement* pasmstat = block_pasmstat(blk, j);
+            switch (pasmstat_pins(pasmstat)) {
+                case pasmins_call_param:
+                    inssel2_call_param(&dat, p, blk, j);
+                    break;
+                case pasmins_call_cleanup:
+                    inssel2_call_cleanup(&dat, p, blk, j);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    return 1;
 }
 
 /* Extracts the type and the name from str into name and type
@@ -2593,6 +2602,9 @@ static int compute_asm(Parser* p) {
 
     /* Register allocation */
     if (!compute_register(p)) goto error;
+
+    /* Instruction seletion 2 */
+    if (!cfg_compute_pasm2(p)) goto error;
     cfg_pasm_po(p);
 
     /* Code generation */

@@ -17,19 +17,19 @@ static int name_isconstant(const char* name) {
 }
 
 /* Returns type for given symbol */
-static Type symbol_type(Symbol* sym) {
+static Type symbol_type(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->type;
 }
 
 /* Returns name for given symbol */
-static const char* symbol_name(Symbol* sym) {
+static const char* symbol_name(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->name;
 }
 
 /* Returns where symbol is stored */
-static Location symbol_location(Symbol* sym) {
+static Location symbol_location(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->loc;
 }
@@ -41,19 +41,19 @@ static void symbol_set_location(Symbol* sym, Location loc) {
 }
 
 /* Returns register where symbol is */
-static Register symbol_register(Symbol* sym) {
+static Register symbol_register(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return reg_get(sym->loc, type_bytes(sym->type));
 }
 
 /* Returns 1 if symbol is located in a register, 0 otherwise */
-static int symbol_in_register(Symbol* sym) {
+static int symbol_in_register(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->loc >= 0;
 }
 
 /* Returns 1 if symbol is located on the stack, 0 otherwise */
-static int symbol_on_stack(Symbol* sym) {
+static int symbol_on_stack(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->loc == loc_stack;
 }

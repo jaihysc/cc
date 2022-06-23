@@ -1,6 +1,6 @@
-/* Assembly generator, x86 instruction selector macros */
-#ifndef ASMGEN_X86_INSSEL_MACRO_H
-#define ASMGEN_X86_INSSEL_MACRO_H
+/* Assembly generator, x86 instruction selectors 1 and 2 */
+#ifndef ASMGEN_X86_INSSEL_H
+#define ASMGEN_X86_INSSEL_H
 
 /* Defines the macros used for expanding IL instructions to pseudo-assembly
 
@@ -1093,4 +1093,150 @@ static void inssel_macro_destruct(vec_InsSelMacro* macros) {
 
 #undef SIZE_OVERRIDE
 #undef DEREFERENCE
+
+
+/* Instruction selector special handling */
+
+
+/* Special handling for call to calculate where to place
+   arguments, and registers which must be saved and restored
+   Returns 1 if succeeded, 0 if error */
+static int inssel_call(Parser* p, Block* blk, const ILStatement* ilstat) {
+    PasmStatement pasmstat;
+
+    /* Arguments for call */
+    for (int i = 2; i < ilstat_argc(ilstat); ++i) {
+        SymbolId id = ilstat_arg(ilstat, i);
+
+        /* We spill variables which get passed as arguments as it is much
+           easier to generate the code to load arguments into the correct
+           registers for the function call.
+           Otherwise we have to be careful about the order which the arguments
+           get loaded to avoid overwriting live values, e.g.,:
+           mov edi, eax <-- Overwriting live value edi
+           mov esi, edi <-- edi has the wrong value */
+        symbol_set_location(symtab_get(p, id), loc_stack);
+
+        pasmstat_construct(&pasmstat, pasmins_call_param);
+        pasmstat_add_op_sym(&pasmstat, id);
+        if (!block_add_pasmstat(blk, pasmstat)) return 0;
+    }
+
+    /* Call */
+    pasmstat_construct(&pasmstat, pasmins_call_);
+    pasmstat_add_op_sym(&pasmstat, ilstat_arg(ilstat, 1));
+    if (!block_add_pasmstat(blk, pasmstat)) return 0;
+
+    /* Handle return value for call */
+    pasmstat_construct(&pasmstat, pasmins_call_cleanup);
+    pasmstat_add_op_sym(&pasmstat, ilstat_arg(ilstat, 0));
+    if (!block_add_pasmstat(blk, pasmstat)) return 0;
+
+    return 1;
+}
+
+
+/* Instruction selector 2 */
+
+
+typedef struct {
+    CallData call_dat;
+    int i_push; /* Index to insert pushes to caller save */
+} InsSel2Data;
+
+static void inssel2data_construct(InsSel2Data* dat) {
+    call_construct(&dat->call_dat);
+    dat->i_push = -1;
+}
+
+/* Handles pseudo-assembly instruction selection for call_param
+   dat: Used to store information for instruction selection, pass the
+        same object for the duration of the instruction selection process
+   idx: Index of current pseudo-assembly statement within block */
+static void inssel2_call_param(
+        InsSel2Data* dat, Parser* p, Block* blk, int idx) {
+    /* If is -1, means this is the first parameter of a function call */
+    if (dat->i_push == -1) {
+        dat->i_push = idx;
+    }
+
+    PasmStatement* pasmstat = block_pasmstat(blk, idx);
+
+    /* Setup arguments for calling convention */
+    SymbolId id = pasmstat_op(pasmstat, 0);
+    Symbol* sym = symtab_get(p, id);
+
+    /* mov reg, sym */
+    Location loc = call_arg_loc(&dat->call_dat, sym);
+    SymbolId dest_id = symtab_add_temporaryr(
+            p, reg_get(loc, symbol_bytes(sym)));
+
+    pasmstat_construct(pasmstat, pasmins_mov_ss);
+    pasmstat_add_op_sym(pasmstat, dest_id);
+    pasmstat_add_op_sym(pasmstat, id);
+}
+
+/* Handles pseudo-assembly instruction selection for call_clenaup
+   dat: Used to store information for instruction selection, pass the
+        same object for the duration of the instruction selection process
+   idx: Index of current pseudo-assembly statement within block */
+static void inssel2_call_cleanup(
+        InsSel2Data* dat, Parser* p, Block* blk, int idx) {
+    PasmStatement* pasmstat = block_pasmstat(blk, idx);
+    /* Save restore live values in caller save registers */
+    for (int i = 0; i < pasmstat_live_out_count(pasmstat); ++i) {
+        SymbolId id = pasmstat_live_out(pasmstat, i);
+        Location loc = symbol_location(symtab_get(p, id));
+        if (!call_caller_save(loc)) {
+            continue;
+        }
+
+        PasmStatement stat;
+
+        ISMRFlag flag = 0;
+        ismr_set_size_override(&flag, 8);
+
+        /* push */
+        pasmstat_construct(&stat, pasmins_push_s);
+        pasmstat_add_op_sym(&stat, id);
+        pasmstat_set_flag(&stat, 0, flag);
+        block_insert_pasmstat(blk, stat, dat->i_push);
+
+         /* Move insertion point so pushes are arranged in order of from first
+            to last, e.g., (push a, push b, push c, ...)*/
+        dat->i_push += 1;
+        idx += 1; /* Realign index to current statement */
+
+        /* pop */
+        pasmstat_construct(&stat, pasmins_pop_s);
+        pasmstat_add_op_sym(&stat, id);
+        pasmstat_set_flag(&stat, 0, flag);
+        /* idx + 1 so is after this statement, this statement is used
+           to copy the return value */
+        block_insert_pasmstat(blk, stat, idx + 1);
+
+        /* Reload pasmstat as it may have changed */
+        pasmstat = block_pasmstat(blk, idx);
+    }
+
+    /* Copy the return value to its symbol's location
+       after inserting push/pop, as liveness information is
+       required and is lost if the memory location is
+       reconstructed */
+    SymbolId dest_id = pasmstat_op(pasmstat, 0);
+    const Symbol* dest_sym = symtab_get(p, dest_id);
+
+    Register reg = reg_get(loc_a, symbol_bytes(dest_sym));
+    SymbolId src_id = symtab_add_temporaryr(p, reg);
+
+    pasmstat_construct(pasmstat, pasmins_mov_ss);
+    pasmstat_add_op_sym(pasmstat, dest_id);
+    pasmstat_add_op_sym(pasmstat, src_id);
+
+    /* Reset index to insert push as now done handling instruction selection
+       for this function call */
+    dat->i_push = -1;
+
+}
+
 #endif

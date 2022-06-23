@@ -20,6 +20,11 @@ static int ismr_size_override(ISMRFlag flag) {
     return flag & 0x0F;
 }
 
+/* Sets flag size override */
+static void ismr_set_size_override(ISMRFlag* flag, int size_override) {
+    *flag |= size_override & 0x0F;
+}
+
 /* Returns flag dereference */
 static int ismr_dereference(ISMRFlag flag) {
     return (flag & 0x10) / 16;

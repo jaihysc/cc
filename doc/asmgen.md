@@ -3,17 +3,21 @@
 The assembly generator converts the intermediate language (IL) into x86 assembly, the various stages are listed below:
 
 ```
-                                          -------------
-                    Register preferences  | Register  |
-                ------------------------> | Allocator |
-                |                         -------------
-                |                           |
-                |                           | Register allocations
-                |                           v
-    ---------------                       -------------
-IL  | Instruction | Pseudo-assembly       | Code      | Assembly
---> | Selector    | --------------------> | Generator | -------->
-    ---------------                       -------------
+                          ---------------
+    Register preferences  | Register    |
+           -------------> | Allocator   |
+           |              ---------------
+           |                     |
+           |                     | Register allocations
+           |                     v
+    ---------------       ---------------       -------------
+IL  | Instruction | PAsm  | Instruction | PAsm  | Code      | Asm
+--> | Selector    | ----> | Selector 2  | ----> | Generator | --->
+    ---------------       ---------------       -------------
+
+IL: Intermediate Language
+PAsm: Pseudo-assembly
+Asm: Assembly
 ```
 
 Planned
@@ -150,6 +154,46 @@ mov  %t0, 2
 cmp  %t0, %a  ; cmp instruction requires a register for operand 1
 setl %b
 ```
+
+## Instruction Selector 2
+
+Certain instructions require register allocations to be converted to assembly, an example is the IL `call` instruction, which requires certain registers be caller saved, and arguments copied into appropriate registers as required by the calling convention. Instruction selector 2 runs after register allocations are complete, replacing special pseudo-assembly instructions with the appropriate pseudo-assembly. For example:
+
+```
+Intermediate language
+
+call z,f,a,b,c,d
+     ~ ~ ~~~~~~~
+     ^ ^ Arguments
+     ^ Function name
+     Returned value
+```
+
+```asm
+Pseudo-assembly after instruction selector
+
+call_param %a   | Special instructions recognized by instruction selector 2
+call_param %b   |
+call_param %c   |
+call_param %d   |
+call %f
+call_cleanup %z |
+```
+
+```asm
+Pseudo-assembly after instruction selector 2
+
+mov %rdi, %a
+mov %rsi, %b
+mov %rdx, %c
+mov %rcx, %d
+call %f
+mov %z, %rax
+
+Where %rdi, %rsi, %rdx, %rcx, %rax are symbols assigned the register as indicated in its name.
+```
+
+The special pseudo-assembly instructions is used for liveness analysis when preparing for register allocations, looking only at call %f, it cannot determine what the arguments are which must be kept alive, or the definition of the function call's result which may allow a %z defined earlier to have its lifetime terminated.
 
 ## Register Allocator
 

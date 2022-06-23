@@ -1257,21 +1257,35 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int* i) {
     }
 }
 
+/* Prints out an assembly instruction string with the appropriate indent, and
+   appropriate trailing spaces so operand is aligned when it is printed */
+static void output_asm_ins(Parser* p, const char* ins) {
+    for (int i = 0; i < ASM_INS_INDENT; ++i) {
+        parser_output_asm(p, " ");
+    }
+    int inslen = strlength(ins);
+    /* Need at least 1 space to separate instruction from operand */
+    parser_output_asm(p, "%s ", ins);
+    for (int i = 1; i < ASM_OP_INDENT - ASM_INS_INDENT - inslen; ++i) {
+        parser_output_asm(p, " ");
+    }
+}
+
 /* Traverses the blocks in the control flow graph and emits assembly
    Requires register allocation decision */
 static void cfg_output_asm(Parser* p) {
-    parser_output_asm(p,
-        "%s:\n"
-        /* Function prologue */
-        "push rbp\n"
-        "mov rbp,rsp\n",
-        p->func_name
-    );
+    parser_output_asm(p, "%s:\n", p->func_name);
+    /* Function prologue */
+    output_asm_ins(p, "push");
+    parser_output_asm(p, "rbp\n");
+    output_asm_ins(p, "mov");
+    parser_output_asm(p, "rbp, rsp\n");
 
     /* Reserve stack space */
     int stack_bytes = symtab_stack_bytes(p);
     if (stack_bytes != 0) {
-        parser_output_asm(p, "sub rsp,%d\n",stack_bytes);
+        output_asm_ins(p, "sub");
+        parser_output_asm(p, "rsp, %d\n", stack_bytes);
     }
 
     /* 1 if register must be saved, 0 if not */
@@ -1300,7 +1314,8 @@ static void cfg_output_asm(Parser* p) {
     /* Save callee saved registers which were used */
     for (int i = 0; i < X86_REGISTER_COUNT; ++i) {
         if (callee_saved[i]) {
-            parser_output_asm(p, "push %s\n", reg_get_str((Location)i, 8));
+            output_asm_ins(p, "push");
+            parser_output_asm(p, "%s\n", reg_get_str((Location)i, 8));
         }
     }
 
@@ -1317,21 +1332,11 @@ static void cfg_output_asm(Parser* p) {
         /* Convert PasmStatement to assembly */
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             /* Instruction */
-            for (int k = 0; k < ASM_INS_INDENT; ++k) {
-                parser_output_asm(p, " ");
-            }
             PasmStatement* stat = block_pasmstat(blk, j);
             const char* ins = asmins_str(pasmstat_ins(stat));
-            int ins_len = strlength(ins);
-            parser_output_asm(p, "%s", ins);
+            output_asm_ins(p, ins);
 
             /* Operands */
-
-            /* Need at least 1 space to separate instruction from operand */
-            parser_output_asm(p, " ");
-            for (int k = 1; k < ASM_OP_INDENT - ASM_INS_INDENT - ins_len; ++k) {
-                parser_output_asm(p, " ");
-            }
             for (int k = 0; k < pasmstat_op_count(stat); ++k) {
                 if (k != 0) {
                     parser_output_asm(p, ", ");
@@ -1347,12 +1352,15 @@ static void cfg_output_asm(Parser* p) {
     /* Restore callee saved registers */
     for (int i = X86_REGISTER_COUNT - 1; i >= 0; --i) {
         if (callee_saved[i]) {
-            parser_output_asm(p, "pop %s\n", reg_get_str((Location)i, 8));
+            output_asm_ins(p, "pop");
+            parser_output_asm(p, "%s\n", reg_get_str((Location)i, 8));
         }
     }
-    parser_output_asm(p,
-        "leave\n"
-        "ret\n");
+
+    output_asm_ins(p, "leave");
+    parser_output_asm(p, "\n");
+    output_asm_ins(p, "ret");
+    parser_output_asm(p, "\n");
 }
 
 /* Pseudo-assembly peephole optimizer */

@@ -30,6 +30,22 @@ static int call_caller_save(Location loc) {
     }
 }
 
+/* Returns 1 if the provided location must be saved by the callee, 0 if does
+   not */
+static int call_callee_save(Location loc) {
+    switch (loc) {
+        case loc_bp:
+        case loc_b:
+        case loc_12:
+        case loc_13:
+        case loc_14:
+        case loc_15:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 /* Call this function with the arguments of a function, left to right
    Returns the location which the provided argument should be stored / is
    stored for a function call */
@@ -39,6 +55,17 @@ static Location call_arg_loc(CallData* dat, const Symbol* sym) {
             "No registers left to pass argument");
 
     return int_loc[dat->i_int_loc++];
+}
+
+/* Returns where the provided symbol should be placed to return it from a
+   function */
+static Location call_ret_loc(const Symbol* sym) {
+    if (reg_has_size(symbol_bytes(sym))) {
+        return loc_a;
+    }
+    else {
+        ASSERT(0, "Unimplemented");
+    }
 }
 
 #endif

@@ -933,24 +933,6 @@
             )                                                     \
         )                                                         \
     )                                                             \
-    INSSEL_MACRO(ret,                                             \
-        INSSEL_MACRO_CASE(s,                                      \
-            INSSEL_MACRO_REPLACE2(mov_ss,                         \
-                LOCATION(loc_a),,                                 \
-                VIRTUAL(0),                                       \
-            )                                                     \
-            INSSEL_MACRO_REPLACE0(leave_)                         \
-            INSSEL_MACRO_REPLACE0(ret_)                           \
-        )                                                         \
-        INSSEL_MACRO_CASE(i,                                      \
-            INSSEL_MACRO_REPLACE2(mov_ss,                         \
-                LOCATION(loc_a),,                                 \
-                VIRTUAL(0),                                       \
-            )                                                     \
-            INSSEL_MACRO_REPLACE0(leave_)                         \
-            INSSEL_MACRO_REPLACE0(ret_)                           \
-        )                                                         \
-    )                                                             \
     INSSEL_MACRO(sub,                                             \
         INSSEL_MACRO_CASE(sss,                                    \
             INSSEL_MACRO_REPLACE2(mov_ss,                         \
@@ -1130,6 +1112,39 @@ static int inssel_call(Parser* p, Block* blk, const ILStatement* ilstat) {
     /* Handle return value for call */
     pasmstat_construct(&pasmstat, pasmins_call_cleanup);
     pasmstat_add_op_sym(&pasmstat, ilstat_arg(ilstat, 0));
+    if (!block_add_pasmstat(blk, pasmstat)) return 0;
+
+    return 1;
+}
+
+/* Special handling for ret to calculate where to place
+   return value
+   Returns 1 if succeeded, 0 if error */
+static int inssel_ret(Parser* p, Block* blk, const ILStatement* ilstat) {
+    PasmStatement pasmstat;
+
+    /* Return the value */
+    SymbolId src_id = ilstat_arg(ilstat, 0);
+    const Symbol* src_sym = symtab_get(p, src_id);
+
+    Location ret_loc = call_ret_loc(src_sym);
+    SymbolId dest_id;
+    if (loc_is_register(ret_loc)) {
+        dest_id =
+            symtab_add_temporaryr(p, reg_get(ret_loc, symbol_bytes(src_sym)));
+    }
+    else {
+        ASSERT(0, "Handling of return value unimplemented");
+    }
+
+    pasmstat_construct(&pasmstat, pasmins_mov_ss);
+    pasmstat_add_op_sym(&pasmstat, dest_id);
+    pasmstat_add_op_sym(&pasmstat, src_id);
+    if (!block_add_pasmstat(blk, pasmstat)) return 0;
+
+    /* Jump to epilogue */
+    pasmstat_construct(&pasmstat, pasmins_jmp_);
+    pasmstat_add_op_sym(&pasmstat, p->func_lab_epilogue);
     if (!block_add_pasmstat(blk, pasmstat)) return 0;
 
     return 1;

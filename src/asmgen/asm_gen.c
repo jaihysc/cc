@@ -162,6 +162,7 @@ struct Parser {
     int symtab_temp_num; /* Temporaries */
 
     char func_name[MAX_ARG_LEN]; /* Name of current function */
+    SymbolId func_lab_epilogue; /* Label for function's epilogue */
 
     /* Instruction selection */
     vec_InsSelMacro inssel_macro;
@@ -200,6 +201,7 @@ static int parser_construct(Parser* p) {
     vec_construct(&p->symbol);
     p->symtab_temp_num = 0;
     p->func_name[0] = '\0';
+    p->func_lab_epilogue = -1;
     if (!inssel_macro_construct(&p->inssel_macro)) goto newerr;
     vec_construct(&p->cfg);
     vec_construct(&p->cfg_live_buf);
@@ -1258,7 +1260,6 @@ static void cfg_output_asm_op(Parser* p, const PasmStatement* stat, int* i) {
 /* Traverses the blocks in the control flow graph and emits assembly
    Requires register allocation decision */
 static void cfg_output_asm(Parser* p) {
-    /* Function labels always with prefix f@ */
     parser_output_asm(p,
         "%s:\n"
         /* Function prologue */
@@ -1271,6 +1272,36 @@ static void cfg_output_asm(Parser* p) {
     int stack_bytes = symtab_stack_bytes(p);
     if (stack_bytes != 0) {
         parser_output_asm(p, "sub rsp,%d\n",stack_bytes);
+    }
+
+    /* 1 if register must be saved, 0 if not */
+    char callee_saved[X86_REGISTER_COUNT];
+    for (int i = 0; i < X86_REGISTER_COUNT; ++i) {
+        callee_saved[i] = 0;
+    }
+    /* Determine statements which def values, if it uses a callee saved
+       register, the register must be saved */
+    for (int i = 0; i < vec_size(&p->cfg); ++i) {
+        Block* blk = &vec_at(&p->cfg, i);
+        for (int j = 0; j < block_pasmstat_count(blk); ++j) {
+            const PasmStatement* stat = block_pasmstat(blk, j);
+
+            SymbolId syms[MAX_ASMINS_REG];
+            int def_count = pasmstat_def(stat, syms);
+            for (int k = 0; k < def_count; ++k) {
+                const Symbol* sym = symtab_get(p, syms[k]);
+                Location loc = symbol_location(sym);
+                if (call_callee_save(loc)) {
+                    callee_saved[loc] = 1;
+                }
+            }
+        }
+    }
+    /* Save callee saved registers which were used */
+    for (int i = 0; i < X86_REGISTER_COUNT; ++i) {
+        if (callee_saved[i]) {
+            parser_output_asm(p, "push %s\n", reg_get_str((Location)i, 8));
+        }
     }
 
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
@@ -1310,6 +1341,18 @@ static void cfg_output_asm(Parser* p) {
             parser_output_asm(p, "\n");
         }
     }
+
+    /* Function epilogue */
+    parser_output_asm(p, "%s@ep:\n", p->func_name);
+    /* Restore callee saved registers */
+    for (int i = X86_REGISTER_COUNT - 1; i >= 0; --i) {
+        if (callee_saved[i]) {
+            parser_output_asm(p, "pop %s\n", reg_get_str((Location)i, 8));
+        }
+    }
+    parser_output_asm(p,
+        "leave\n"
+        "ret\n");
 }
 
 /* Pseudo-assembly peephole optimizer */
@@ -2092,6 +2135,8 @@ static INSTRUCTION_PROC(func) {
     }
 
     strcopy(pparg[0], p->func_name);
+    AAPPENDA(buf, p->func_name, "@ep");
+    p->func_lab_epilogue = symtab_add(p, type_label, buf);
 
     /* Generate a _start function which calls main */
     if (strequ(pparg[0], "main")) {
@@ -2349,6 +2394,10 @@ static int cfg_compute_pasm(Parser* p) {
 
             if (ilstat_ins(ilstat) == il_call) {
                 if (!inssel_call(p, blk, ilstat)) goto newerr;
+                continue;
+            }
+            if (ilstat_ins(ilstat) == il_ret) {
+                if (!inssel_ret(p, blk, ilstat)) goto newerr;
                 continue;
             }
 

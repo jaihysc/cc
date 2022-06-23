@@ -240,6 +240,16 @@ static inline int strtoi2(const char* str, int len) {
     itostr(num__, name__ + (int)sizeof(prefix__) - 1);   \
     name__[(int)sizeof(prefix__) - 1 + numlen__] = '\0'
 
+/* Creates a c sring on the stack with name__
+   with str1__ and str2__ appended */
+#define AAPPENDA(name__, str1__, str2__)      \
+    int str1len__ = strlength(str1__);        \
+    int str2len__ = strlength(str2__);        \
+    int buflen__ = str1len__ + str2len__ + 1; \
+    char buf[buflen__];                       \
+    strcopy(str1__, buf);                     \
+    strcopy(str2__, buf + str1len__)
+
 /* Raises integer base to positive integer exponent */
 static inline int64_t powip(int base, unsigned exponent) {
     int64_t result = 1;

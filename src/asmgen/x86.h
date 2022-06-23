@@ -333,6 +333,19 @@ static const char* loc_str(Location loc) {
     return loc_strings[loc];
 }
 
+/* Returns 1 if location is a register, 0 otherwise */
+static int loc_is_register(Location loc) {
+    switch (loc) {
+        case loc_a: case loc_b: case loc_c: case loc_d:
+        case loc_bp: case loc_sp: case loc_si: case loc_di:
+        case loc_8: case loc_9: case loc_10: case loc_11:
+        case loc_12: case loc_13: case loc_14: case loc_15:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 /* Returns the cstr of the register corresponding to the provided
    location with the indicated size */
 static const char* reg_get_str(Location loc, int bytes) {

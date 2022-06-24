@@ -140,6 +140,14 @@ static void block_remove_pasmstat(Block* blk, int i) {
     vec_splice(&blk->pasm_stats, i, 1);
 }
 
+/* Swaps PasmStatement at index i and index j */
+static void block_pasmstat_swap(Block* blk, int i, int j) {
+    ASSERT(blk != NULL, "Block is null");
+    PasmStatement tmp = vec_at(&blk->pasm_stats, i);
+    vec_at(&blk->pasm_stats, i) = vec_at(&blk->pasm_stats, j);
+    vec_at(&blk->pasm_stats, j) = tmp;
+}
+
 /* Adds provided SymbolId to liveness 'def'ed symbols for this block
    if it does not exist. Does nothing if does exist, returns 1
    Returns 1 if successful, 0 if not */

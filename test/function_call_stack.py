@@ -1,0 +1,5 @@
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 50))
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 100), ['a'])
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 150), ['a', 'a'])
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 200), ['a', 'a', 'a'])
+_prog.run(lambda r,v: v.expecteq(r.exitcode, 250), ['a', 'a', 'a', 'a'])

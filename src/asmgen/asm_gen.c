@@ -371,11 +371,17 @@ static Symbol* symtab_get(Parser* p, SymbolId sym_id) {
 static int symtab_get_offset(Parser* p, SymbolId sym_id) {
     ASSERT(sym_id >= 0, "Symbol not found");
 
+    /* Symbol may have custom offset specified */
+    Symbol* sym = &vec_at(&p->symbol, sym_id);
+    if (symbol_offset_overridden(sym)) {
+        return symbol_offset_override(sym);
+    }
+
     int offset = 0;
     for (int i = 0; i <= sym_id; ++i) {
-        Symbol* sym = &vec_at(&p->symbol, i);
-        if (symbol_on_stack(sym)) {
-            offset -= symbol_bytes(sym);
+        Symbol* s = &vec_at(&p->symbol, i);
+        if (symbol_on_stack(s)) {
+            offset -= symbol_bytes(s);
         }
     }
     return offset;
@@ -391,9 +397,7 @@ static SymbolId symtab_add(Parser* p, Type type, const char* name) {
         return -1;
     }
     Symbol* sym = &vec_back(&p->symbol);
-    sym->type = type;
-    strcopy(name, sym->name);
-    sym->loc = loc_none;
+    symbol_construct(sym, &type, name, loc_none);
     return vec_size(&p->symbol) - 1;
 }
 
@@ -2131,6 +2135,9 @@ static INSTRUCTION_PROC(func) {
     call_construct(&dat);
 
     /* Add the function parameteres to the symbol table */
+
+    /* Offset from base pointer to read argument on stack */
+    int offset = 16; /* Skip rbp and return address (16 bytes) */
     for (int i = 2; i < arg_count; ++i) {
         char type[MAX_ARG_LEN];
         char name[MAX_ARG_LEN];
@@ -2139,7 +2146,15 @@ static INSTRUCTION_PROC(func) {
         if (parser_has_error(p)) return;
 
         Symbol* sym = symtab_get(p, id);
-        symbol_set_location(sym, call_arg_loc(&dat, sym));
+        Location loc = call_arg_loc(&dat, sym);
+        symbol_set_location(sym, loc);
+
+        /* Calculate the address to read the argument on stack */
+        ASSERT(call_push_rtol(), "Only args pushed right to left supported");
+        if (!loc_is_register(loc)) {
+            symbol_override_offset(sym, offset);
+            offset += 8;
+        }
     }
 
     strcopy(pparg[0], p->func_name);

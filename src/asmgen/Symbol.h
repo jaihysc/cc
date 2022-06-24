@@ -8,7 +8,20 @@ typedef struct {
     char name[MAX_ARG_LEN + 1]; /* +1 for null terminator */
     /* Location this variable is assigned to */
     Location loc;
+
+    /* Offset from stack pointer */
+    int offset_override; /* Value offset overridden to */
+    int override_offset; /* 1 to override offset, 0 to not */
 } Symbol;
+
+/* Constructs a symbol at the give memory location */
+static void symbol_construct(
+        Symbol* sym, const Type* type, const char* name, Location loc) {
+    sym->type = *type;
+    strcopy(name, sym->name);
+    sym->loc = loc;
+    sym->override_offset = 0;
+}
 
 /* Returns 1 if symbol name is considered a constant, 0 otherwise */
 static int name_isconstant(const char* name) {
@@ -88,6 +101,27 @@ static int symbol_is_var(const Symbol* sym) {
 static int symbol_bytes(const Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return type_bytes(sym->type);
+}
+
+/* Returns 1 if the offset to reach this symbol in stack is overridden,
+   0 otherwise */
+static int symbol_offset_overridden(const Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    return sym->override_offset;
+}
+
+/* Returns the value the offset of this symbol in stack is overridden to */
+static int symbol_offset_override(const Symbol* sym) {
+    ASSERT(sym != NULL, "Symbol is null");
+    ASSERT(sym->override_offset, "Offset is not overridden");
+    return sym->offset_override;
+}
+
+/* Overrides the offset of this symbol in stack */
+static void symbol_override_offset(Symbol* sym, int offset) {
+    ASSERT(sym != NULL, "Symbol is null");
+    sym->offset_override = offset;
+    sym->override_offset = 1;
 }
 
 #endif

@@ -51,9 +51,9 @@ static int call_callee_save(Location loc) {
    stored for a function call */
 static Location call_arg_loc(CallData* dat, const Symbol* sym) {
     const Location int_loc[] = {loc_di, loc_si, loc_d, loc_c, loc_8, loc_9};
-    ASSERT(dat->i_int_loc < ARRAY_SIZE(int_loc),
-            "No registers left to pass argument");
-
+    if (dat->i_int_loc >= ARRAY_SIZE(int_loc)) {
+        return loc_stack;
+    }
     return int_loc[dat->i_int_loc++];
 }
 
@@ -66,6 +66,15 @@ static Location call_ret_loc(const Symbol* sym) {
     else {
         ASSERT(0, "Unimplemented");
     }
+}
+
+/* 1 if the calling convention requires pushed args be pushed right to left,
+   0 for left to right
+   f(a, b, c, d, e)
+     <------------ Right to left (e pushed first)
+     ------------> Left to right (a pushed first) */
+static int call_push_rtol(void) {
+    return 1;
 }
 
 #endif

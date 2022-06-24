@@ -1157,11 +1157,16 @@ static int inssel_ret(Parser* p, Block* blk, const ILStatement* ilstat) {
 typedef struct {
     CallData call_dat;
     int i_push; /* Index to insert pushes to caller save */
+
+    /* Index of the first/ last arg which must be pushed on stack */
+    int arg_push_begin;
+    int arg_push_end;
 } InsSel2Data;
 
 static void inssel2data_construct(InsSel2Data* dat) {
     call_construct(&dat->call_dat);
     dat->i_push = -1;
+    dat->arg_push_begin = -1;
 }
 
 /* Handles pseudo-assembly instruction selection for call_param
@@ -1176,21 +1181,46 @@ static void inssel2_call_param(
     }
 
     PasmStatement* pasmstat = block_pasmstat(blk, idx);
-
-    /* Setup arguments for calling convention */
-    SymbolId id = pasmstat_op(pasmstat, 0);
-    Symbol* sym = symtab_get(p, id);
-
-    /* mov reg, sym */
-    Location loc = call_arg_loc(&dat->call_dat, sym);
-    SymbolId dest_id = symtab_add_temporaryr(
-            p, reg_get(loc, symbol_bytes(sym)));
-
     /* This pasm had liveness analysis performed which needs to be freed */
     pasmstat_destruct(pasmstat);
-    pasmstat_construct(pasmstat, pasmins_mov_ss);
-    pasmstat_add_op_sym(pasmstat, dest_id);
-    pasmstat_add_op_sym(pasmstat, id);
+
+    /* Setup arguments for calling convention */
+    SymbolId src_id = pasmstat_op(pasmstat, 0);
+    Symbol* src_sym = symtab_get(p, src_id);
+
+    Location loc = call_arg_loc(&dat->call_dat, src_sym);
+    if (loc_is_register(loc)) {
+        /* mov reg, sym */
+        Register reg = reg_get(loc, symbol_bytes(src_sym));
+        SymbolId dest_id = symtab_add_temporaryr(p, reg);
+
+        pasmstat_construct(pasmstat, pasmins_mov_ss);
+        pasmstat_add_op_sym(pasmstat, dest_id);
+        pasmstat_add_op_sym(pasmstat, src_id);
+    }
+    else {
+        /* push sym */
+
+        /* Mark where the pushes begin and end so they can be reversed */
+        if (dat->arg_push_begin == -1) {
+            dat->arg_push_begin = idx;
+            /* If function is 1 parameter, this statement is the end */
+            dat->arg_push_end = idx;
+        }
+        else {
+            /* arg_push_end keeps getting moved forwards for each parameter,
+               ultimately ending up on the last one */
+            dat->arg_push_end = idx;
+        }
+
+        ISMRFlag flag = 0;
+        ismr_set_size_override(&flag, 8);
+
+        pasmstat_construct(pasmstat, pasmins_push_s);
+        pasmstat_set_flag(pasmstat, 0, flag);
+        pasmstat_add_op_sym(pasmstat, src_id);
+    }
+
 }
 
 /* Handles pseudo-assembly instruction selection for call_clenaup
@@ -1199,6 +1229,19 @@ static void inssel2_call_param(
    idx: Index of current pseudo-assembly statement within block */
 static void inssel2_call_cleanup(
         InsSel2Data* dat, Parser* p, Block* blk, int idx) {
+
+    /* If the calling convention requires that pushed arguments
+       be right to left reverse the pushes so last arg pushed first */
+    if (dat->arg_push_begin != -1 && call_push_rtol()) {
+        int loops = (dat->arg_push_end - dat->arg_push_begin) / 2;
+        for (int i = 0; i < loops; ++i) {
+            block_pasmstat_swap(
+                    blk,
+                    dat->arg_push_begin + i,
+                    dat->arg_push_end - i);
+        }
+    }
+
     /* Statement is the call instruction (prior to this instruction) */
     PasmStatement* pasmstat = block_pasmstat(blk, idx - 1);
 
@@ -1258,10 +1301,10 @@ static void inssel2_call_cleanup(
     pasmstat_add_op_sym(pasmstat, dest_id);
     pasmstat_add_op_sym(pasmstat, src_id);
 
-    /* Reset index to insert push as now done handling instruction selection
-       for this function call */
+    /* Reset indices as now done handling instruction selection for this
+       function call */
     dat->i_push = -1;
-
+    dat->arg_push_begin = -1;
 }
 
 #endif

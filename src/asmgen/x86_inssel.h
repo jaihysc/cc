@@ -1199,9 +1199,12 @@ static void inssel2_call_param(
    idx: Index of current pseudo-assembly statement within block */
 static void inssel2_call_cleanup(
         InsSel2Data* dat, Parser* p, Block* blk, int idx) {
-    PasmStatement* pasmstat = block_pasmstat(blk, idx);
+    /* Statement is the call instruction (prior to this instruction) */
+    PasmStatement* pasmstat = block_pasmstat(blk, idx - 1);
+
     /* Save restore live values in caller save registers */
     for (int i = 0; i < pasmstat_live_out_count(pasmstat); ++i) {
+
         SymbolId id = pasmstat_live_out(pasmstat, i);
         Location loc = symbol_location(symtab_get(p, id));
         if (!call_caller_save(loc)) {
@@ -1232,9 +1235,12 @@ static void inssel2_call_cleanup(
            to copy the return value */
         block_insert_pasmstat(blk, stat, idx + 1);
 
-        /* Reload pasmstat as it may have changed */
-        pasmstat = block_pasmstat(blk, idx);
+        /* Reload pasmstat each iteration as it may changed if vec resize */
+        pasmstat = block_pasmstat(blk, idx - 1);
     }
+
+    /* Statement is the cleanup instruction */
+    pasmstat = block_pasmstat(blk, idx);
 
     /* Copy the return value to its symbol's location
        after inserting push/pop, as liveness information is

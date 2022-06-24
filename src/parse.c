@@ -2963,20 +2963,31 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
                Dereference old result_id to get new result_id */
         }
         else if (parse_node_type(n) == st_argument_expression_list) {
-            /* Function call result */
-            SymbolId temp_id = cg_make_temporary(p, type_return(&type));
-            parser_output_il(p, "call $s,$s", temp_id, result_id);
-
             /* Function arguments */
+            vec_t(SymbolId) arg_id;
+            vec_construct(&arg_id);
             do {
                 SymbolId id =
                     cg_assignment_expression(p, parse_node_child(n, 0));
-                parser_output_il(p, ",$s", id);
+                vec_push_back(&arg_id, id);
                 n = parse_node_child(n, 1);
             }
             while (n != NULL);
+
+            /* Emit the IL for call AFTER cg for all the arguments,
+               as the arguments may emit additional IL since they are
+               expressions */
+
+            /* Function call result */
+            SymbolId temp_id = cg_make_temporary(p, type_return(&type));
+
+            parser_output_il(p, "call $s,$s", temp_id, result_id);
+            for (int i = 0; i < vec_size(&arg_id); ++i) {
+                parser_output_il(p, ",$s", vec_at(&arg_id, i));
+            }
             parser_output_il(p, "\n");
 
+            vec_destruct(&arg_id);
             result_id = temp_id;
         }
         else {

@@ -1517,37 +1517,66 @@ newerr:
    instruction set / operations to be performed
    (e.g., taking address requires variable to be in memory) */
 static void ig_precolor(Parser* p) {
+    if (vec_size(&p->cfg) < 1) {
+        return;
+    }
+    /* Insert instructions to spill parameters to memory at the beginning,
+       otherwise, it may be used before it is loaded into memory */
+    Block* first_blk = &vec_at(&p->cfg, 0);
+
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* stat = block_pasmstat(blk, j);
+            SymbolId spill_id = -1;
             if (pasmstat_ins(stat) == asmins_lea) {
                 /* Must be a symbol, instruction cannot have register for
                    operand 2 */
-                SymbolId id = pasmstat_op(stat, 1);
-                Symbol* sym = symtab_get(p, id);
+                spill_id = pasmstat_op(stat, 1);
+            }
+            if (pasmstat_pins(stat) == pasmins_call_param) {
+                /* We spill variables which get passed as arguments as it is
+                   much easier to generate the code to load arguments into the
+                   correct registers for the function call.  Otherwise we have
+                   to be careful about the order which the arguments get loaded
+                   to avoid overwriting live values, e.g.,:
+                   mov edi, eax <-- Overwriting live value edi
+                   mov esi, edi <-- edi has the wrong value
 
+                   No need to spill constants, it does not have the problems
+                   of getting its lifetime overwritten */
+                SymbolId id = pasmstat_op(stat, 0);
+                Symbol* sym = symtab_get(p, id);
+                if (symbol_is_var(sym)) {
+                    spill_id = id;
+                }
+
+            }
+
+            if (spill_id >= 0) {
+                Symbol* spill_sym = symtab_get(p, spill_id);
                 /* If the symbol is in a register because it is a function
                    parameter, it has to be copied over to the stack.
                    Assembly generated is:
                    mov %param, <param-register>
                    param is now on the stack, so it moves from its former
                    register to its location on the stack */
-                if (symbol_in_register(sym)) {
+                if (symbol_in_register(spill_sym)) {
                     PasmStatement mov;
-                    pasmstat_construct(&mov, pasmins_mov_ss);
-                    pasmstat_add_op_sym(&mov, id);
-                    pasmstat_add_op_sym(
-                            &mov,
-                            symtab_add_temporaryr(p, symbol_register(sym)));
 
-                    block_insert_pasmstat(blk, mov, j);
-                    /* Skip the inserted statement
-                       j moved to index of inserted statement, on reloop it
-                       moves to statement after */
-                    j += 1;
+                    Register orig_reg =
+                        symtab_add_temporaryr(p, symbol_register(spill_sym));
+                    pasmstat_construct(&mov, pasmins_mov_ss);
+                    pasmstat_add_op_sym(&mov, spill_id);
+                    pasmstat_add_op_sym(&mov, orig_reg);
+
+                    block_insert_pasmstat(first_blk, mov, 0);
+
+                    /* Note: It will read the same statement twice if the
+                       new statement was added to the same block because
+                       of the index */
                 }
-                symbol_set_location(sym, loc_stack);
+                symbol_set_location(spill_sym, loc_stack);
             }
         }
     }

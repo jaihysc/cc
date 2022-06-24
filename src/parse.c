@@ -1447,7 +1447,6 @@ static Type cg_type_name_extract(Parser*, ParseNode*);
 static SymbolId cg_extract_symbol(Parser* p,
         ParseNode* declaration_specifiers_node, ParseNode* declarator_node);
 /* Code generation helpers */
-static void cg_function_signature(Parser* p, ParseNode* node);
 static SymbolId cg_make_temporary(Parser* p, Type type);
 static SymbolId cg_make_label(Parser* p);
 static SymbolId cg_expression_op2(
@@ -2800,13 +2799,51 @@ static int parse_function_definition(Parser* p, ParseNode* parent) {
     if (!parse_declarator(p, PARSE_CURRENT_NODE) ||
             parser_has_error(p)) goto exit;
 
-    cg_function_signature(p, PARSE_CURRENT_NODE);
+
+    ParseNode* declspec = parse_node_child(PARSE_CURRENT_NODE, 0);
+    ParseNode* declarator = parse_node_child(PARSE_CURRENT_NODE, 1);
+
+    /* name is function name, type is return type */
+    SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
+    Symbol* sym = symtab_get(p, func_id);
+
+    Type func_type;
+    Type ret_type = symbol_type(sym);
+    type_constructf(&func_type, &ret_type);
+    symbol_set_type(sym, &func_type);
+    parser_output_il(p, "func $s,$t,", func_id, func_id);
+
+    ParseNode* dirdeclarator = parse_node_child(declarator, -1);
+    ParseNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
+
+    const char* tok = parse_node_token(p, parse_node_child(dirdeclarator2, 0));
+    if (!strequ( "(", tok)) {
+        ERRMSG("Expected (' to begin parameter-type-list");
+        goto exit;
+    }
+
+    /* FIXME The compound statement creates another scope, meaning that the
+       function parameters are inside its own scope, which is non standard
+       compliant. Doing so accepts all well formed programs, however fails to
+       reject some mal-formed programs so think of another method in the future
+       to handle scoping */
+    /* symtab_pop_scope is in cg_function_declaration */
+    symtab_push_scope(p);
+
+    ParseNode* paramtypelist = parse_node_child(dirdeclarator2, 1);
+    ParseNode* paramlist = parse_node_child(paramtypelist, 0);
+    cg_parameter_list(p, paramlist);
+    parser_output_il(p, "\n");
     PARSE_TRIM_TREE();
 
+
     if (!parse_compound_statement(p, PARSE_CURRENT_NODE) ||
-            parser_has_error(p)) goto exit;
+            parser_has_error(p)) goto exit2;
+
 
     PARSE_MATCHED();
+exit2:
+    symtab_pop_scope(p);
 exit:
     PARSE_FUNC_END();
 }
@@ -3893,39 +3930,6 @@ loop:
     return symtab_add(p, tok_id, type, vc_lval);
 }
 
-/* Generates il for function-definition excluding compound-statement */
-static void cg_function_signature(Parser* p, ParseNode* node) {
-    DEBUG_CG_FUNC_START(function_definition);
-
-    ParseNode* declspec = parse_node_child(node, 0);
-    ParseNode* declarator = parse_node_child(node, 1);
-
-    /* name is function name, type is return type */
-    SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
-    Symbol* sym = symtab_get(p, func_id);
-
-    Type func_type;
-    Type ret_type = symbol_type(sym);
-    type_constructf(&func_type, &ret_type);
-    symbol_set_type(sym, &func_type);
-    parser_output_il(p, "func $s,$t,", func_id, func_id);
-
-    ParseNode* dirdeclarator = parse_node_child(declarator, -1);
-    ParseNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
-
-    const char* tok = parse_node_token(p, parse_node_child(dirdeclarator2, 0));
-    if (!strequ( "(", tok)) {
-        ERRMSG("Expected (' to begin parameter-type-list");
-        return;
-    }
-    ParseNode* paramtypelist = parse_node_child(dirdeclarator2, 1);
-    ParseNode* paramlist = parse_node_child(paramtypelist, 0);
-    cg_parameter_list(p, paramlist);
-    parser_output_il(p, "\n");
-
-    DEBUG_CG_FUNC_END();
-}
-
 /* Creates temporary in symbol table and
    generates the necessary il to create a temporary */
 static SymbolId cg_make_temporary(Parser* p, Type type) {
@@ -4303,6 +4307,7 @@ int main(int argc, char** argv) {
         if (*read_token(&p) == '\0') {
             break;
         }
+        tree_detach_node_child(&p, &p.parse_node_root);
     }
 
     symtab_pop_scope(&p);

@@ -1089,16 +1089,6 @@ static int inssel_call(Parser* p, Block* blk, const ILStatement* ilstat) {
     /* Arguments for call */
     for (int i = 2; i < ilstat_argc(ilstat); ++i) {
         SymbolId id = ilstat_arg(ilstat, i);
-
-        /* We spill variables which get passed as arguments as it is much
-           easier to generate the code to load arguments into the correct
-           registers for the function call.
-           Otherwise we have to be careful about the order which the arguments
-           get loaded to avoid overwriting live values, e.g.,:
-           mov edi, eax <-- Overwriting live value edi
-           mov esi, edi <-- edi has the wrong value */
-        symbol_set_location(symtab_get(p, id), loc_stack);
-
         pasmstat_construct(&pasmstat, pasmins_call_param);
         pasmstat_add_op_sym(&pasmstat, id);
         if (!block_add_pasmstat(blk, pasmstat)) return 0;
@@ -1301,8 +1291,8 @@ static void inssel2_call_cleanup(
     pasmstat_add_op_sym(pasmstat, dest_id);
     pasmstat_add_op_sym(pasmstat, src_id);
 
-    /* Reset indices as now done handling instruction selection for this
-       function call */
+    /* Reset data used for function calls to prepare for next function call */
+    call_construct(&dat->call_dat);
     dat->i_push = -1;
     dat->arg_push_begin = -1;
 }

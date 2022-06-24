@@ -71,6 +71,7 @@ static void symbol_construct(
         Type type,
         ValueCategory valcat,
         int scope_num) {
+    sym->class = sl_normal;
     sym->tok_id = tok_id;
     sym->type = type;
     sym->valcat = valcat;
@@ -2969,7 +2970,7 @@ static SymbolId cg_postfix_expression(Parser* p, ParseNode* node) {
             do {
                 SymbolId id =
                     cg_assignment_expression(p, parse_node_child(n, 0));
-                vec_push_back(&arg_id, id);
+                vec_push_back(&arg_id, cg_nlval(p, id));
                 n = parse_node_child(n, 1);
             }
             while (n != NULL);

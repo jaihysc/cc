@@ -2436,6 +2436,19 @@ disqualify_case:
    Requires statements in blocks
    Returns 1 if successful, 0 if error */
 static int cfg_compute_pasm(Parser* p) {
+    /* Use the same symbol when referencing the same register to aid liveness
+       analysis in determining they are the same symbol */
+
+    /* Index by bytes -> location -> cached symbol
+       -1 if uncached
+       Note: This wastes some space as bytes 3, 5, 6, 7 are unused */
+    SymbolId cache[X86_REGISTER_COUNT][8];
+    for (int i = 0; i < 8; ++i) {
+        for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
+            cache[i][j] = -1;
+        }
+    }
+
     for (int i = 0; i < vec_size(&p->cfg); ++i) {
         Block* blk = &vec_at(&p->cfg, i);
         for (int j = 0; j < block_ilstat_count(blk); ++j) {
@@ -2522,13 +2535,31 @@ static int cfg_compute_pasm(Parser* p) {
                         ASSERT(bytes != 0,
                                 "Failed to calculate size for register");
 
-                        SymbolId id =
-                            symtab_add_temporaryr(p, reg_get(param1, bytes));
+                        Location loc = param1;
+                        SymbolId cached_id = cache[bytes][loc];
+                        SymbolId id;
+                        if (cached_id != -1) {
+                            id = cached_id;
+                        }
+                        else {
+                            id = symtab_add_temporaryr(p, reg_get(loc, bytes));
+                            cache[bytes][loc] = id;
+                        }
                         pasmstat_add_op_sym(&pasmstat, id);
                     }
                     else if (mode == 3) {
-                        SymbolId id =
-                            symtab_add_temporaryr(p, param1);
+                        Register reg = param1;
+
+                        SymbolId cached_id =
+                            cache[reg_bytes(reg)][reg_loc(reg)];
+                        SymbolId id;
+                        if (cached_id != -1) {
+                            id = cached_id;
+                        }
+                        else {
+                            id = symtab_add_temporaryr(p, param1);
+                            cache[reg_bytes(reg)][reg_loc(reg)] = id;
+                        }
                         pasmstat_add_op_sym(&pasmstat, id);
                     }
                     else if (mode == 4) {

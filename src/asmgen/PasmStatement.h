@@ -268,10 +268,12 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
 
     switch (pasmstat_pins(stat)) {
         case pasmins_call_param:
+        case pasmins_divide:
             pasmstat_add_(out_sym_id, &used, pasmstat_op(stat, 0));
             break;
-
         case pasmins_call_cleanup:
+        case pasmins_div_cleanupq:
+        case pasmins_div_cleanupr:
             break;
 
         default:
@@ -318,6 +320,9 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
 
             /* Uses none */
             case asmins_call:
+            case asmins_cdq:
+            case asmins_cqo:
+            case asmins_cwd:
             case asmins_jmp:
             case asmins_jnz:
             case asmins_jz:
@@ -347,15 +352,19 @@ static int pasmstat_use(const PasmStatement* stat, SymbolId* out_sym_id) {
 /* Sets out_sym_id with Symbols which are defined by the provided
    pseudo-assembly statement
    Returns the number of symbols
-   At most 1 */
+   At most MAX_ASMINS_REG */
 static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
     /* No def if addressing memory, e.g.,
        mov DWORD [%a], 5
        does not def the symbol a */
     switch (pasmstat_pins(stat)) {
         case pasmins_call_param:
+        case pasmins_divide:
             return 0;
+
         case pasmins_call_cleanup:
+        case pasmins_div_cleanupq:
+        case pasmins_div_cleanupr:
             out_sym_id[0] = pasmstat_op(stat, 0);
             return 1;
 
@@ -384,10 +393,19 @@ static int pasmstat_def(const PasmStatement* stat, SymbolId* out_sym_id) {
                     return 1;
                 }
                 return 0;
+            /* Def 2 */
+            case asmins_xchg:
+                out_sym_id[0] = pasmstat_op(stat, 0);
+                out_sym_id[1] = pasmstat_op(stat, 1);
+                return 2;
 
             /* Def none */
             case asmins_call:
+            case asmins_cdq:
             case asmins_cmp:
+            case asmins_cqo:
+            case asmins_cwd:
+            case asmins_div:
             case asmins_idiv:
             case asmins_jmp:
             case asmins_jnz:

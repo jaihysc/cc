@@ -562,7 +562,6 @@ static int cfg_compute_use_def(Parser* p) {
             }
 
             /* Add 'use'd symbols from statement to 'use' for block */
-            ASSERT(MAX_ASMINS_REG >= 1, "Need at least 1 to hold def");
             int use_count = pasmstat_use(stat, syms);
             for (int k = 0; k < use_count; ++k) {
                 if (!symtab_is_var(p, syms[k])) {
@@ -755,7 +754,6 @@ stable:
                         vec_data(&p->cfg_live_buf),
                         vec_size(&p->cfg_live_buf))) goto newerr;
 
-            ASSERT(MAX_ASMINS_REG >= 1, "Need at least 1 to hold def");
             if (pasmstat_def(stat, syms) == 1) {
                 ASSERT(symtab_is_var(p, syms[0]),
                         "Assigned symbol should be variable");
@@ -2597,12 +2595,12 @@ static int cfg_compute_pasm2(Parser* p) {
         for (int j = 0; j < block_pasmstat_count(blk); ++j) {
             PasmStatement* pasmstat = block_pasmstat(blk, j);
             switch (pasmstat_pins(pasmstat)) {
-                case pasmins_call_param:
-                    inssel2_call_param(&dat, p, blk, j);
-                    break;
-                case pasmins_call_cleanup:
-                    inssel2_call_cleanup(&dat, p, blk, j);
-                    break;
+#define SPASMINS(name__)                  \
+    case pasmins_ ## name__:              \
+    inssel2_ ## name__ (&dat, p, blk, j); \
+    break;
+                SPASMINSS
+#undef SPASMINS
                 default:
                     break;
             }

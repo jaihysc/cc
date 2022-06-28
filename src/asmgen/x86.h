@@ -376,7 +376,11 @@ static const char* asm_size_directive(int bytes) {
                                   \
     ASMINS(add)                   \
     ASMINS(call)                  \
+    ASMINS(cdq)                   \
     ASMINS(cmp)                   \
+    ASMINS(cqo)                   \
+    ASMINS(cwd)                   \
+    ASMINS(div)                   \
     ASMINS(idiv)                  \
     ASMINS(imul)                  \
     ASMINS(jmp)                   \
@@ -399,6 +403,7 @@ static const char* asm_size_directive(int bytes) {
     ASMINS(setz)                  \
     ASMINS(sub)                   \
     ASMINS(test)                  \
+    ASMINS(xchg)                  \
     ASMINS(xor)
 
 #define ASMINS(name__) asmins_ ## name__,
@@ -460,10 +465,18 @@ static int asmins_copy_dest_index(void) {
         ADDRESS_MODE(R, RM, NONE))          \
     PASMINS(call,,                          \
         ADDRESS_MODE(NONE, NONE, NONE))     \
+    PASMINS(cdq,,                           \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
     PASMINS(cmp, ss,                        \
         ADDRESS_MODE(RM, IMM, NONE)         \
         ADDRESS_MODE(RM, R, NONE)           \
         ADDRESS_MODE(R, RM, NONE))          \
+    PASMINS(cqo,,                           \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
+    PASMINS(cwd,,                           \
+        ADDRESS_MODE(NONE, NONE, NONE))     \
+    PASMINS(div, s,                         \
+        ADDRESS_MODE(RM, NONE, NONE))       \
     PASMINS(idiv, s,                        \
         ADDRESS_MODE(RM, NONE, NONE))       \
     PASMINS(imul, ss,                       \
@@ -519,6 +532,9 @@ static int asmins_copy_dest_index(void) {
     PASMINS(test, ss,                       \
         ADDRESS_MODE(RM, IMM, NONE)         \
         ADDRESS_MODE(RM, R, NONE))          \
+    PASMINS(xchg, ss,                       \
+        ADDRESS_MODE(R, RM, NONE)           \
+        ADDRESS_MODE(M, R, NONE))           \
     PASMINS(xor, ss,                        \
         ADDRESS_MODE(RM, IMM, NONE)         \
         ADDRESS_MODE(RM, R, NONE)           \
@@ -529,7 +545,19 @@ static int asmins_copy_dest_index(void) {
     /* Put parameter in appropriate location for call */ \
     SPASMINS(call_param)                                 \
     /* Handle caller save registers, return value */     \
-    SPASMINS(call_cleanup)
+    SPASMINS(call_cleanup)                               \
+                                                         \
+    /* Divides divident, divisor */                      \
+    /* Usage: divide <divident>, <divisor> */            \
+    /* A div_cleanupq or div_cleanupr must follow to */  \
+    /* output the quotient or the remainder */           \
+    SPASMINS(divide)                                     \
+    /* For the two below: Outputs quotient/remainder */  \
+    /* into destination */                               \
+    /* Usage: div_cleanupq <dest> */                     \
+    /*        div_cleanupr <dest> */                     \
+    SPASMINS(div_cleanupq) /* Load quotient */           \
+    SPASMINS(div_cleanupr) /* Load remainder */
 
 typedef enum {
 #define PASMINS(name__, pasm_mode__, mode__) \
@@ -644,5 +672,4 @@ static int addressmode_imm(const AddressMode* mode, int i) {
 #undef IMM
 #undef NONE
 
-#undef PASMINSS
 #endif

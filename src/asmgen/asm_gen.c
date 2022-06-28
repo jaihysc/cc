@@ -2440,7 +2440,7 @@ static int cfg_compute_pasm(Parser* p) {
     /* Index by bytes -> location -> cached symbol
        -1 if uncached
        Note: This wastes some space as bytes 3, 5, 6, 7 are unused */
-    SymbolId cache[X86_REGISTER_COUNT][8];
+    SymbolId cache[8][X86_REGISTER_COUNT];
     for (int i = 0; i < 8; ++i) {
         for (int j = 0; j < X86_REGISTER_COUNT; ++j) {
             cache[i][j] = -1;

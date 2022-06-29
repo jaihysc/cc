@@ -9,7 +9,7 @@ typedef struct {
     /* Labels at the entry of this block */
     vec_t(SymbolId) labels;
     vec_t(ILStatement) il_stats;
-    vec_t(PasmStatement) pasm_stats;
+    hvec_t(PasmStatement) pasm_stats;
 
     /* Symbols used, defined by this bock */
     vec_t(SymbolId) use;
@@ -36,7 +36,7 @@ static void block_construct(Block* blk) {
     ASSERT(blk != NULL, "Block is null");
     vec_construct(&blk->labels);
     vec_construct(&blk->il_stats);
-    vec_construct(&blk->pasm_stats);
+    hvec_construct(&blk->pasm_stats);
     vec_construct(&blk->use);
     vec_construct(&blk->def);
     vec_construct(&blk->in);
@@ -52,10 +52,10 @@ static void block_destruct(Block* blk) {
     vec_destruct(&blk->in);
     vec_destruct(&blk->def);
     vec_destruct(&blk->use);
-    for (int i = 0; i < vec_size(&blk->pasm_stats); ++i) {
-        pasmstat_destruct(&vec_at(&blk->pasm_stats, i));
+    for (int i = 0; i < hvec_size(&blk->pasm_stats); ++i) {
+        pasmstat_destruct(&hvec_at(&blk->pasm_stats, i));
     }
-    vec_destruct(&blk->pasm_stats);
+    hvec_destruct(&blk->pasm_stats);
     vec_destruct(&blk->il_stats);
     vec_destruct(&blk->labels);
 }
@@ -105,7 +105,7 @@ static int block_add_ilstat(Block* blk, ILStatement stat) {
 /* Returns number of pseudo-assembly statements in block */
 static int block_pasmstat_count(Block* blk) {
     ASSERT(blk != NULL, "Block is null");
-    return vec_size(&blk->pasm_stats);
+    return hvec_size(&blk->pasm_stats);
 }
 
 /* Returns pseudo-assembly statement at index in block */
@@ -113,14 +113,14 @@ static PasmStatement* block_pasmstat(Block* blk, int i) {
     ASSERT(blk != NULL, "Block is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < block_pasmstat_count(blk), "Index out of range");
-    return &vec_at(&blk->pasm_stats, i);
+    return &hvec_at(&blk->pasm_stats, i);
 }
 
 /* Adds pseudo-assembly statement to block
    Returns 1 if successful, 0 if not */
 static int block_add_pasmstat(Block* blk, PasmStatement stat) {
     ASSERT(blk != NULL, "Block is null");
-    return vec_push_back(&blk->pasm_stats, stat);
+    return hvec_push_back(&blk->pasm_stats, stat);
 }
 
 /* Adds pseudo-assembly statement to block at index, shifting
@@ -128,24 +128,24 @@ static int block_add_pasmstat(Block* blk, PasmStatement stat) {
    Returns 1 if successful, 0 if not */
 static int block_insert_pasmstat(Block* blk, PasmStatement stat, int i) {
     ASSERT(blk != NULL, "Block is null");
-    return vec_insert(&blk->pasm_stats, stat, i);
+    return hvec_insert(&blk->pasm_stats, stat, i);
 }
 
 /* Removes pseudo-assembly statement from block at index,
    filling index with statements after index */
 static void block_remove_pasmstat(Block* blk, int i) {
     ASSERT(blk != NULL, "Block is null");
-    PasmStatement* stat = &vec_at(&blk->pasm_stats, i);
+    PasmStatement* stat = &hvec_at(&blk->pasm_stats, i);
     pasmstat_destruct(stat);
-    vec_splice(&blk->pasm_stats, i, 1);
+    hvec_splice(&blk->pasm_stats, i, 1);
 }
 
 /* Swaps PasmStatement at index i and index j */
 static void block_pasmstat_swap(Block* blk, int i, int j) {
     ASSERT(blk != NULL, "Block is null");
-    PasmStatement tmp = vec_at(&blk->pasm_stats, i);
-    vec_at(&blk->pasm_stats, i) = vec_at(&blk->pasm_stats, j);
-    vec_at(&blk->pasm_stats, j) = tmp;
+    PasmStatement tmp = hvec_at(&blk->pasm_stats, i);
+    hvec_at(&blk->pasm_stats, i) = hvec_at(&blk->pasm_stats, j);
+    hvec_at(&blk->pasm_stats, j) = tmp;
 }
 
 /* Adds provided SymbolId to liveness 'def'ed symbols for this block

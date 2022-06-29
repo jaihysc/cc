@@ -30,6 +30,9 @@
 
 #define ARRAY_SIZE(array__) (int)(sizeof(array__) / sizeof(array__[0]))
 
+/* ============================================================ */
+/* Utility */
+
 /* Checks that the given strings is sorted correctly to
    perform a binary search via strbinfind */
 static inline void strbinfind_validate(const char** strs, int str_count) {
@@ -269,6 +272,21 @@ static inline void quicksort(
 }
 
 /* ============================================================ */
+/* Memory */
+
+/* The c prefix stands for Compiler */
+
+/* Allocates given bytes of uninitialized storage, returns NULL if error */
+static inline void* cmalloc(size_t bytes) {
+    return malloc(bytes);
+}
+
+/* Deallocates space allocated by cmalloc */
+static inline void cfree(void* ptr) {
+    free(ptr);
+}
+
+/* ============================================================ */
 /* Dynamic array, similar to the one in C++,
    adapted from https://github.com/rxi/vec */
 
@@ -433,6 +451,190 @@ static inline void vec_splice_(
         dest[i] = src[i];
     }
     *length -= count;
+}
+
+/* ============================================================ */
+/* Stores T via a handle, allows resizing without invaliding pointers.
+   Behaves the same as a vec to be a drop in replacement
+   _ _
+   - - Elements
+   ^ ^
+   | |
+   __________
+   ---------- Handles
+   ^
+   | Index
+
+   On resize, this container allocates memory for all the elements, i.e.,
+   memory for the handles and memory for the element itself. It only frees
+   memory when it is destructed. As a result, insert moves the element 1 past
+   the last to the index where the insertion will take place (as the last
+   element will be overwritten). Splice moves the elements to be discarded to
+   the end of the hvec (after the last element) to be used later. */
+
+/* Creates a hvector containing values of type T
+   The members have a h_ prefix to prevent accidently using vec_ */
+#define hvec_t(T__) \
+    struct { vec_t(T__*) h_vec; }
+
+/* Initializes the hvector, must be called before hvector is used */
+#define hvec_construct(v__) \
+    vec_construct(&(v__)->h_vec)
+
+/* Frees memory allocated by bvector, call when finished using */
+#define hvec_destruct(v__) \
+    hvec_destruct_(hvec_unpack_(v__))
+
+/* Access specified element withOUT bounds checking */
+#define hvec_at(v__, idx__) \
+    *vec_at(&(v__)->h_vec, (idx__))
+
+/* Returns the first value in the hvector, do not use on empty hvector */
+#define hvec_front(v__) \
+    *vec_front(&(v__)->h_vec)
+
+/* Returns the last value in the hvector, do not use on empty hvector */
+#define hvec_back(v__) \
+    *vec_back(&(v__)->h_vec)
+
+/* Returns number of elements in hvector */
+#define hvec_size(v__) \
+    vec_size(&(v__)->h_vec)
+
+/* Returns 1 if hvector is empty, 0 if not */
+#define hvec_empty(v__) \
+    vec_empty((&(v__)->h_vec)
+
+/* Reserves capacity for at least n elements in hvector
+   Returns 1 if successful, 0 if error */
+#define hvec_reserve(v__, n__) \
+    hvec_reserve_(hvec_unpack_(v__), (n__), hvec_value_size_(v__))
+
+/* Clears all values from the hvector, new length is 0 */
+#define hvec_clear(v__) \
+    vec_clear(&(v__)->h_vec)
+
+/* Pushes uninitialized value to end of hvector
+   Returns 1 if successful, 0 if error */
+#define hvec_push_backu(v__)                                  \
+    (hvec_expand_(hvec_unpack_(v__), hvec_value_size_(v__)) ? \
+    ((v__)->h_vec.length++, 1) : 0)
+
+/* Pushes a value to the end of the hvector
+   Returns 1 if successful, 0 if error */
+#define hvec_push_back(v__, val__)                            \
+    (hvec_expand_(hvec_unpack_(v__), hvec_value_size_(v__)) ? \
+    ((v__)->h_vec.length++, hvec_back(v__) = (val__), 1) : 0)
+
+/* Removes and returns the value at the end of the vector */
+#define hvec_pop_back(v__) \
+    *vec_pop((v__)->h_vec)
+
+/* Removes count values starting at index start */
+#define hvec_splice(v__, start__, count__) \
+    hvec_splice_(hvec_unpack_(v__), (start__), (count__))
+
+/* Inserts val at index shifting the elements after the index to make room
+   1 if successful, 0 if error */
+#define hvec_insert(v__, val__, idx__)                                 \
+    (hvec_insert_(hvec_unpack_(v__), hvec_value_size_(v__), (idx__)) ? \
+    (hvec_at((v__), (idx__)) = (val__), (v__)->h_vec.length++, 1) : 0)
+
+#define hvec_unpack_(v__) \
+    (char*)&(v__)->h_vec
+
+/* vec holds T__**, 1 pointer added by hvec, 1 by vec */
+#define hvec_value_size_(v__) \
+    sizeof(**(v__)->h_vec.data)
+
+/* The type to treat the vec as when accessing it via a function */
+typedef vec_t(void*) hvec_vec_;
+
+static inline void hvec_destruct_(char* vec_) {
+    hvec_vec_* vec = (hvec_vec_*)vec_;
+    for (int i = 0; i < vec->capacity; ++i) {
+        cfree(vec_at(vec, i));
+    }
+    vec_destruct(vec);
+}
+
+/* Allocates storage for an n elements
+   Each vec element (T__*) up to capacity is a valid pointer to memory to store
+   hvec elements
+   Does not change length */
+static inline int hvec_reserve_(char* vec_, int n, int elem_bytes) {
+    hvec_vec_* vec = (hvec_vec_*)vec_;
+    if (n > vec->capacity) {
+        int old_capacity = vec->capacity;
+        vec_reserve(vec, n);
+        for (int i = old_capacity; i < vec->capacity; ++i) {
+            void* elem = cmalloc((unsigned)elem_bytes);
+            if (elem == NULL) return 0;
+            vec->data[i] = elem;
+        }
+    }
+    return 1;
+}
+
+/* Allocates storage if necessary so an additional element can be stored */
+static inline int hvec_expand_(char* vec_, int elem_bytes) {
+    hvec_vec_* vec = (hvec_vec_*)vec_;
+    if (vec->length == vec->capacity) {
+        /* + 1 to guarantee new space is always reserved */
+        return hvec_reserve_(vec_, vec->capacity * 2 + 1, elem_bytes);
+    }
+    return 1;
+}
+
+/* Moves elements at and after index backwards */
+static inline int hvec_insert_(char* vec_, int elem_bytes, int idx) {
+    hvec_vec_* vec = (hvec_vec_*)vec_;
+    /* Since each vec element is a pointer to heap, take the last pointer and
+       move it to idx (as it is still usable)
+
+       Remember that vec_size (length) is the old length, not the
+       length after insertion
+       |     |     |     | idx |     |     | length |
+                          ^ Put here        ^ Take this pointer
+                                              (Will be overwritten)  */
+    if (!hvec_expand_(vec_, elem_bytes)) return 0;
+    void* elem = vec_at(vec, vec_size(vec));
+    for (int i = vec_size(vec); i > idx; --i) {
+        vec_at(vec, i) = vec_at(vec, i - 1);
+    }
+    vec_at(vec, idx) = elem;
+    return 1;
+}
+
+/* Deletes count elements starting at index start */
+static inline void hvec_splice_(char* vec_, int start, int count) {
+    hvec_vec_* vec = (hvec_vec_*)vec_;
+    /* Cannot allocate memory to temporarily hold the pointers which will be
+       put at the end, thus we swap the pointers up to the end
+
+       Since each vec element is a pointer to heap, take the overwritten
+       pointers and put it at the end (as it is still usable)
+
+       It doesn't matter what order we put the pointers which were
+       overwritten as they contain no values
+                         --------------- count
+       |     |     |     | start |     |     |     | length
+                          ^ Take        ^ Put */
+
+    int i = start;
+    while (1) {
+        for (int j = 0; j < count; ++j) {
+            if (i + count + j >= vec_size(vec)) {
+                goto loop_exit;
+            }
+            void* temp = vec_at(vec, i + j);
+            vec_at(vec, i + j) = vec_at(vec, i + count + j);
+            vec_at(vec, i + count + j) = temp;
+        }
+        i += count;
+    }
+loop_exit:
+    vec->length -= count;
 }
 
 /* ============================================================ */

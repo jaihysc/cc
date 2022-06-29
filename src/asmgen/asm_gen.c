@@ -154,7 +154,7 @@ struct Parser {
     /* For one function only for now */
 
     /* First symbol element is earliest in occurrence */
-    vec_t(Symbol) symbol;
+    hvec_t(Symbol) symbol;
     /* Index in symbol table after which, including this index the symbols are
        function scope */
     int i_func_symbol;
@@ -198,7 +198,7 @@ static int parser_construct(Parser* p) {
     p->ecode = ec_noerr;
     p->rf = NULL;
     p->of = NULL;
-    vec_construct(&p->symbol);
+    hvec_construct(&p->symbol);
     p->symtab_temp_num = 0;
     p->func_name[0] = '\0';
     p->func_lab_epilogue = -1;
@@ -251,7 +251,7 @@ static void parser_destruct(Parser* p) {
     }
     vec_destruct(&p->cfg);
     inssel_macro_destruct(&p->inssel_macro);
-    vec_destruct(&p->symbol);
+    hvec_destruct(&p->symbol);
 }
 
 /* Return 1 if error is set, else 0 */
@@ -296,16 +296,16 @@ static Symbol* symtab_get(Parser* p, SymbolId sym_id);
 
 /* Indicates that symbols after this function call are part of a function */
 static void symtab_func_start(Parser* p) {
-    p->i_func_symbol = vec_size(&p->symbol);
+    p->i_func_symbol = hvec_size(&p->symbol);
 }
 
 /* Clears symbols which are part of the function, make sure to call
    symtab_func_start prior to this */
 static void symtab_func_end(Parser* p) {
-    vec_splice(
+    hvec_splice(
             &p->symbol,
             p->i_func_symbol,
-            vec_size(&p->symbol) - p->i_func_symbol);
+            hvec_size(&p->symbol) - p->i_func_symbol);
 }
 
 /* Returns 1 if symbol is a constant, 0 otherwise */
@@ -325,8 +325,8 @@ static int symtab_is_var(Parser* p, SymbolId sym_id) {
 
 /* Returns 1 if name is within symbol table, 0 otherwise */
 static int symtab_contains(Parser* p, const char* name) {
-    for (int i = 0; i < vec_size(&p->symbol); ++i) {
-        Symbol* symbol = &vec_at(&p->symbol, i);
+    for (int i = 0; i < hvec_size(&p->symbol); ++i) {
+        Symbol* symbol = &hvec_at(&p->symbol, i);
         if (strequ(symbol->name, name)) {
             return 1;
         }
@@ -337,8 +337,8 @@ static int symtab_contains(Parser* p, const char* name) {
 /* Retrieves symbol with given name from symbol table
    Null if not found */
 static SymbolId symtab_find(Parser* p, const char* name) {
-    for (int i = 0; i < vec_size(&p->symbol); ++i) {
-        Symbol* symbol = &vec_at(&p->symbol, i);
+    for (int i = 0; i < hvec_size(&p->symbol); ++i) {
+        Symbol* symbol = &hvec_at(&p->symbol, i);
         if (strequ(symbol->name, name)) {
             return i;
         }
@@ -363,8 +363,8 @@ static SymbolId symtab_find(Parser* p, const char* name) {
 
 static Symbol* symtab_get(Parser* p, SymbolId sym_id) {
     ASSERT(sym_id >= 0, "Invalid symbol id");
-    ASSERT(sym_id < vec_size(&p->symbol), "Symbol id out of range");
-    return &vec_at(&p->symbol, sym_id);
+    ASSERT(sym_id < hvec_size(&p->symbol), "Symbol id out of range");
+    return &hvec_at(&p->symbol, sym_id);
 }
 
 /* Returns offset from base pointer to access symbol on the stack */
@@ -372,14 +372,14 @@ static int symtab_get_offset(Parser* p, SymbolId sym_id) {
     ASSERT(sym_id >= 0, "Symbol not found");
 
     /* Symbol may have custom offset specified */
-    Symbol* sym = &vec_at(&p->symbol, sym_id);
+    Symbol* sym = &hvec_at(&p->symbol, sym_id);
     if (symbol_offset_overridden(sym)) {
         return symbol_offset_override(sym);
     }
 
     int offset = 0;
     for (int i = 0; i <= sym_id; ++i) {
-        Symbol* s = &vec_at(&p->symbol, i);
+        Symbol* s = &hvec_at(&p->symbol, i);
         if (symbol_on_stack(s)) {
             offset -= symbol_bytes(s);
         }
@@ -392,13 +392,13 @@ static int symtab_get_offset(Parser* p, SymbolId sym_id) {
 static SymbolId symtab_add(Parser* p, Type type, const char* name) {
     ASSERTF(!symtab_contains(p, name), "Duplicate symbol %s", name);
 
-    if (!vec_push_backu(&p->symbol)) {
+    if (!hvec_push_backu(&p->symbol)) {
         parser_set_error(p, ec_scopelenexceed);
         return -1;
     }
-    Symbol* sym = &vec_back(&p->symbol);
+    Symbol* sym = &hvec_back(&p->symbol);
     symbol_construct(sym, &type, name, loc_none);
-    return vec_size(&p->symbol) - 1;
+    return hvec_size(&p->symbol) - 1;
 }
 
 /* Creates a new compiler generated Symbol of given type */
@@ -444,8 +444,8 @@ static SymbolId symtab_add_temporaryr(Parser* p, Register reg) {
 /* Returns the size of the stack for the current function */
 static int symtab_stack_bytes(Parser* p) {
     int size = 0;
-    for (int i = 0; i < vec_size(&p->symbol); ++i) {
-        Symbol* sym = &vec_at(&p->symbol, i);
+    for (int i = 0; i < hvec_size(&p->symbol); ++i) {
+        Symbol* sym = &hvec_at(&p->symbol, i);
         if (symbol_location(sym) == loc_stack) {
             size += symbol_bytes(sym);
         }
@@ -1159,9 +1159,6 @@ static int cfg_compute_spill_code(Parser* p) {
                     j += 2;
                     j_last_stat += 3;
                 }
-
-                /* Reload stat as the vec holding them may have resized */
-                stat = block_pasmstat(blk, j);
             }
             j = j_last_stat;
         }
@@ -1420,7 +1417,7 @@ static IGNode* ig_node(Parser* p, SymbolId id) {
 
     /* As an optimization to reduce compilation times, cache the lookup
        from SymbolId -> ig_node */
-    vec_reserve(&p->ig_symid_node, vec_size(&p->symbol));
+    vec_reserve(&p->ig_symid_node, hvec_size(&p->symbol));
     if (g_ignode_rebuild_symid_node_table) {
         for (int i = 0; i < vec_size(&p->ig); ++i) {
             IGNode* node = &vec_at(&p->ig, i);
@@ -1444,8 +1441,8 @@ static IGNode* ig_node(Parser* p, SymbolId id) {
 static int ig_create_nodes(Parser* p) {
     ASSERT(vec_size(&p->ig) == 0, "Interference graph nodes already exist");
 
-    if (!vec_reserve(&p->ig, vec_size(&p->symbol))) goto newerr;
-    for (int i = 0; i < vec_size(&p->symbol); ++i) {
+    if (!vec_reserve(&p->ig, hvec_size(&p->symbol))) goto newerr;
+    for (int i = 0; i < hvec_size(&p->symbol); ++i) {
         Symbol* sym = symtab_get(p, i);
         if (!symbol_is_var(sym)) {
             continue;
@@ -1580,8 +1577,8 @@ static void ig_precolor(Parser* p) {
     }
 
     /* Arrays go on the stack */
-    for (int i = 0; i < vec_size(&p->symbol); ++i) {
-        Symbol* sym = &vec_at(&p->symbol, i);
+    for (int i = 0; i < hvec_size(&p->symbol); ++i) {
+        Symbol* sym = &hvec_at(&p->symbol, i);
         Type type = symbol_type(sym);
         if (type_array(&type)) {
             symbol_set_location(sym, loc_stack);
@@ -1883,9 +1880,9 @@ static void parser_clear_func(Parser* p) {
 /* Dumps contents stored in parser */
 
 static void debug_print_symtab(Parser* p) {
-    LOGF("Symbol table: [%d]\n", vec_size(&p->symbol));
-    for (int i = 0; i < vec_size(&p->symbol); ++i) {
-        Symbol* sym = &vec_at(&p->symbol, i);
+    LOGF("Symbol table: [%d]\n", hvec_size(&p->symbol));
+    for (int i = 0; i < hvec_size(&p->symbol); ++i) {
+        Symbol* sym = &hvec_at(&p->symbol, i);
         Type type = symbol_type(sym);
         LOGF("  %s", type_specifiers_str(type.typespec));
         for (int j = 0; j < type.pointers; ++j) {

@@ -1036,9 +1036,6 @@ static void inssel2_call_cleanup(
         /* idx + 1 so is after this statement, this statement is used
            to copy the return value */
         block_insert_pasmstat(blk, stat, idx + 1);
-
-        /* Reload pasmstat each iteration as it may changed if vec resize */
-        pasmstat = block_pasmstat(blk, idx - 1);
     }
 
     /* Statement is the cleanup instruction */
@@ -1121,15 +1118,14 @@ static void inssel2_divide(
         pasmstat_add_op_sym(&stat, id);
         pasmstat_set_flag(&stat, 0, flag);
         block_insert_pasmstat(blk, stat, idx + 2);
-
-        /* Reload pasmstat each iteration as it may changed if vec resize */
-        pasmstat = block_pasmstat(blk, idx);
     }
 
 
     /* Setup the dividend and divisor into the right registers */
     SymbolId dividend_id = pasmstat_op(pasmstat, 0);
+    SymbolId divisor_id = pasmstat_op(pasmstat, 1);
     Symbol* dividend_sym = symtab_get(p, dividend_id);
+    Symbol* divisor_sym = symtab_get(p, divisor_id);
 
     Type type = symbol_type(dividend_sym);
     int bytes = symbol_bytes(dividend_sym);
@@ -1137,11 +1133,6 @@ static void inssel2_divide(
     SymbolId a_id = symtab_add_temporaryr(p, reg_get(loc_a, bytes));
     SymbolId b_id = symtab_add_temporaryr(p, reg_get(loc_b, bytes));
     SymbolId d_id = symtab_add_temporaryr(p, reg_get(loc_d, bytes));
-
-    /* Reload symbol as adding temporaries may have resized vec */
-    dividend_sym = symtab_get(p, dividend_id);
-    SymbolId divisor_id = pasmstat_op(pasmstat, 1);
-    Symbol* divisor_sym = symtab_get(p, divisor_id);
 
     SymbolId new_divisor_id;
     if (symbol_location(divisor_sym) == loc_a ||
@@ -1167,8 +1158,6 @@ static void inssel2_divide(
                 pasmstat_add_op_sym(&stat, id);
                 pasmstat_set_flag(&stat, 0, flag);
                 block_insert_pasmstat(blk, stat, idx + 1);
-
-                pasmstat = block_pasmstat(blk, idx);
                 break;
             }
         }
@@ -1262,8 +1251,6 @@ static void inssel2_divide(
         idx += 1;
     }
 
-    /* Reload pasmstat as it may changed if vec resized */
-    pasmstat = block_pasmstat(blk, idx);
     /* Change the special pseudo-assembly divide instruction to the
        pseudo-assembly div instruction so it can be mapped to x86 div / idiv */
     pasmstat_destruct(pasmstat);

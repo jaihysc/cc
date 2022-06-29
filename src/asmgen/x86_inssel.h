@@ -921,12 +921,16 @@ typedef struct {
     /* Index of the first/ last arg which must be pushed on stack */
     int arg_push_begin;
     int arg_push_end;
+
+    /* Bytes pushed onto the stack for function call, so it can be popped */
+    int pushed_bytes;
 } InsSel2Data;
 
 static void inssel2data_construct(InsSel2Data* dat) {
     call_construct(&dat->call_dat);
     dat->i_push = -1;
     dat->arg_push_begin = -1;
+    dat->pushed_bytes = 0;
 }
 
 /* For the functions below:
@@ -976,6 +980,7 @@ static void inssel2_call_param(
             dat->arg_push_end = idx;
         }
 
+        dat->pushed_bytes += 8;
         ISMRFlag flag = 0;
         ismr_set_size_override(&flag, 8);
 
@@ -1038,6 +1043,22 @@ static void inssel2_call_cleanup(
         block_insert_pasmstat(blk, stat, idx + 1);
     }
 
+    /* Remove arguments pushed onto the stack */
+    if (dat->pushed_bytes > 0) {
+        SymbolId rsp_id = symtab_add_temporaryr(p, reg_rsp);
+        char buf[20];
+        itostr(dat->pushed_bytes, buf);
+        SymbolId bytes_id = symtab_find(p, buf);
+
+        PasmStatement stat;
+        pasmstat_construct(&stat, pasmins_sub_ss);
+        pasmstat_add_op_sym(&stat, rsp_id);
+        pasmstat_add_op_sym(&stat, bytes_id);
+        block_insert_pasmstat(blk, stat, idx);
+        idx += 1;
+    }
+
+
     /* Statement is the cleanup instruction */
     pasmstat = block_pasmstat(blk, idx);
 
@@ -1058,9 +1079,7 @@ static void inssel2_call_cleanup(
     pasmstat_add_op_sym(pasmstat, src_id);
 
     /* Reset data used for function calls to prepare for next function call */
-    call_construct(&dat->call_dat);
-    dat->i_push = -1;
-    dat->arg_push_begin = -1;
+    inssel2data_construct(dat);
 }
 
 /* Implements division (div) and unsigned division (idiv) */

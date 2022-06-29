@@ -176,6 +176,7 @@ static inline int ichar(int i) {
    Assumes buf has sufficient space */
 static inline void itostr(int i, char* buf) {
     int len = ichar(i);
+    buf[len] = '\0';
     if (i < 0) {
         buf[0] = '-';
         i = -i;

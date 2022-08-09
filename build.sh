@@ -31,8 +31,8 @@ else
     help_menu
     exit 10
 fi
-
-cc $cc_flags src/parse.c          -o out/parse
+# Output uses old name for now to avoid breaking scripts
+cc $cc_flags src/main.c           -o out/parse
 cc $cc_flags src/asmgen/asm_gen.c -o out/asm_gen
 
 cp "src/cc.sh" out/ || exit 3

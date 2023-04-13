@@ -7,6 +7,8 @@
 
 #include <stdio.h>
 
+#include "errorcode.h"
+
 #define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
 
 typedef struct {
@@ -30,15 +32,16 @@ typedef struct {
 
 /* Initializes lexer lexer object at memory
    Returns zero if success, non-zero if error */
-int lexer_construct(Lexer* lex, const char* filepath);
+ErrorCode lexer_construct(Lexer* lex, const char* filepath);
 
 /* Destructs lexer object at memory */
 void lexer_destruct(Lexer* lex);
 
 /* Reads a token (c = char*)
-   Returns pointer to the token, the token is blank (just a null terminator)
+   The pointer to token is stored the the provided pointer
+   The token is blank (just a null terminator)
    if end of file is reached or error happened */
-const char* lexer_getc(Lexer* lex);
+ErrorCode lexer_getc(Lexer* lex, const char** tok_ptr);
 
 /* Discard the last read token, next token will be next token in stream */
 void lexer_consume(Lexer* lex);

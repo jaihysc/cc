@@ -4,27 +4,33 @@
 
 void ReadToken(CuTest* tc) {
     Lexer lex;
-    CuAssertIntEquals(tc, lexer_construct(&lex, "testu/testcode"), 0);
+    CuAssertIntEquals(tc, lexer_construct(&lex, "testu/testcode"), ec_noerr);
 
     /* Does not consume */
-    CuAssertStrEquals(tc, lexer_getc(&lex), "float");
-    CuAssertStrEquals(tc, lexer_getc(&lex), "float");
-    CuAssertStrEquals(tc, lexer_getc(&lex), "float");
+    const char* token;
+    CuAssertIntEquals(tc, lexer_getc(&lex, &token), ec_noerr);
+    CuAssertStrEquals(tc, token, "float");
+    CuAssertIntEquals(tc, lexer_getc(&lex, &token), ec_noerr);
+    CuAssertStrEquals(tc, token, "float");
 
     lexer_consume(&lex);
     /* Reads next token after consume */
-    CuAssertStrEquals(tc, lexer_getc(&lex), "z");
-    CuAssertStrEquals(tc, lexer_getc(&lex), "z");
-    CuAssertStrEquals(tc, lexer_getc(&lex), "z");
+    CuAssertIntEquals(tc, lexer_getc(&lex, &token), ec_noerr);
+    CuAssertStrEquals(tc, token, "z");
+    CuAssertIntEquals(tc, lexer_getc(&lex, &token), ec_noerr);
+    CuAssertStrEquals(tc, token, "z");
 
     lexer_consume(&lex);
-    CuAssertStrEquals(tc, lexer_getc(&lex), "=");
+    CuAssertIntEquals(tc, lexer_getc(&lex, &token), ec_noerr);
+    CuAssertStrEquals(tc, token, "=");
 
     lexer_consume(&lex);
-    CuAssertStrEquals(tc, lexer_getc(&lex), "1");
+    CuAssertIntEquals(tc, lexer_getc(&lex, &token), ec_noerr);
+    CuAssertStrEquals(tc, token, "1");
 
     lexer_consume(&lex);
-    CuAssertStrEquals(tc, lexer_getc(&lex), ";");
+    CuAssertIntEquals(tc, lexer_getc(&lex, &token), ec_noerr);
+    CuAssertStrEquals(tc, token, ";");
 
     lexer_destruct(&lex);
 }

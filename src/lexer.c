@@ -237,22 +237,28 @@ static void consume_char(Lexer* lex) {
     }
 }
 
-int lexer_construct(Lexer* lex, const char* filepath) {
+ErrorCode lexer_construct(Lexer* lex, const char* filepath) {
     lex->rf = fopen(filepath, "r");
-    return lex->rf == NULL;
+    if (lex->rf == NULL) {
+        return ec_lexer_fopenfail;
+    }
+    return ec_noerr;
 }
 
 void lexer_destruct(Lexer* lex) {
     if (lex->rf != NULL) fclose(lex->rf);
 }
 
-const char* lexer_getc(Lexer* lex) {
+ErrorCode lexer_getc(Lexer* lex, const char** tok_ptr) {
+    ErrorCode ecode = ec_noerr;
+
     /* Has cached token */
     if (lex->get_buf[0] != '\0') {
         if (g_debug_print_parse_recursion) {
             LOGF("%s ^Cached\n", lex->get_buf);
         }
-        return lex->get_buf;
+        *tok_ptr = lex->get_buf;
+        return ecode;
     }
 
     char c = read_char(lex);
@@ -311,8 +317,7 @@ const char* lexer_getc(Lexer* lex) {
         }
 
         if (i >= MAX_TOKEN_LEN) {
-            // FIXME
-            // parser_set_error(p, ec_tokbufexceed);
+            ecode = ec_lexer_tokbufexceed;
             break; /* Since MAX_TOKEN_LEN excludes null terminator, we can break and add null terminator */
         }
         lex->get_buf[i] = c;
@@ -327,7 +332,8 @@ exit:
         LOGF("%s\n", lex->get_buf);
     }
 
-    return lex->get_buf;
+    *tok_ptr = lex->get_buf;
+    return ecode;
 }
 
 /* Indicates the pointed to token is no longer in use */

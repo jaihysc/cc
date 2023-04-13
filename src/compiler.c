@@ -298,27 +298,11 @@ char* errcode_str[] = {ERROR_CODES};
 #undef ERROR_CODES
 
 struct Parser {
-    FILE* rf; /* Input file */
     FILE* of; /* Output file */
 
     /* Functions set error code only if an error occurred */
     /* By default this is set as ec_noerr */
     ErrorCode ecode;
-
-    /* Tracks position within input file for error messages */
-    int line_num;
-    int char_num;
-    /* Last position within input file where production was matched */
-    int last_line_num;
-    int last_char_num;
-
-    /* Token read buffer, used by read_token to store token read */
-    /* The read token is kept here, subsequent calls to read_token()
-       will return this.
-       When consume_token() is called, the next call to read_token()
-       will fill this buffer with a new token
-       */
-    char read_buf[MAX_TOKEN_LEN + 1];
 
     /* Ensure root above node buffer for pointer arithmetic to work
        (e.g., calculating index of node). Root treated as index -1

@@ -11,17 +11,10 @@
 #define MAX_SCOPES 32 /* Max number of scopes */
 #define MAX_SCOPE_LEN 500   /* Max symbols per scope */
 
-/* Global configuration */
-
-int g_debug_print_buffers = 0;
-int g_debug_print_cg_recursion = 0;
-int g_debug_print_parse_recursion = 0;
-int g_debug_print_parse_tree = 0;
-int g_debug_print_symtab = 0;
+#include "globals.h"
 
 /* Include the C file back in for now for compiler to work */
 #include "compiler.c"
-#include "lexer.c"
 #include "ilgen.c"
 #include "parser.c"
 

@@ -1,5 +1,10 @@
 /* Lexer / token handling */
 
+#include "globals.h"
+#include "lexer.h"
+
+#include "common.h"
+
 /* Returns 1 is considered whitespace */
 static int iswhitespace(char c) {
     switch (c) {
@@ -180,82 +185,80 @@ static int tok_isidentifier(const char* str) {
 
 /* Reads in a character from input
    Does not advance read position */
-static char read_char(Parser* p) {
+static char read_char(Lexer* lex) {
     /* Perhaps this can be a buffer in the future to reduce system calls */
-    char c = (char)getc(p->rf);
+    char c = (char)getc(lex->rf);
 
     /* Handle line marker from preprocessor*/
-    if (p->char_num == 1) {
+    if (lex->char_num == 1) {
         while (c == '#') {
-            getc(p->rf); /* Consume space */
+            getc(lex->rf); /* Consume space */
 
             /* Line number */
             int line_num = 0;
-            while ((c = (char)getc(p->rf)) != ' ') {
+            while ((c = (char)getc(lex->rf)) != ' ') {
                 line_num *= 10;
                 line_num += c - '0';
             }
-            p->line_num = line_num;
+            lex->line_num = line_num;
 
             /* Consume linemarker */
-            while ((c = (char)getc(p->rf)) != '\n');
-            c = (char)getc(p->rf); /* First char of next line */
+            while ((c = (char)getc(lex->rf)) != '\n');
+            c = (char)getc(lex->rf); /* First char of next line */
         }
     }
 
-    fseek(p->rf, -1, SEEK_CUR);
+    fseek(lex->rf, -1, SEEK_CUR);
     return c;
 }
 
 /* Reads in a character from input 1 ahead
    of character from read_char
    Does not advance read position */
-static char read_char_next(Parser* p) {
-    getc(p->rf);
-    char c = (char)getc(p->rf);
-    fseek(p->rf, -2, SEEK_CUR);
+static char read_char_next(Lexer* lex) {
+    getc(lex->rf);
+    char c = (char)getc(lex->rf);
+    fseek(lex->rf, -2, SEEK_CUR);
     return c;
 }
 
 
 /* Advances read position to next char */
-static void consume_char(Parser* p) {
+static void consume_char(Lexer* lex) {
     /* Move the file position forwards */
-    char c = (char)getc(p->rf);
+    char c = (char)getc(lex->rf);
 
     if (c == '\n') {
-        ++p->line_num;
-        p->char_num = 1;
+        ++lex->line_num;
+        lex->char_num = 1;
     }
     else {
-        ++p->char_num;
+        ++lex->char_num;
     }
 }
 
-/* Indicates the pointed to token is no longer in use */
-static void consume_token(char* token) {
-    token[0] = '\0';
-    if (g_debug_print_parse_recursion) {
-        LOG("^Consumed\n");
-    }
+int lexer_construct(Lexer* lex, const char* filepath) {
+    lex->rf = fopen(filepath, "r");
+    return lex->rf == NULL;
 }
 
-/* Reads a null terminated token
-   Returns pointer to the token, the token is blank (just a null terminator)
-   if end of file is reached or error happened */
-static char* read_token(Parser* p) {
+void lexer_destruct(Lexer* lex) {
+    if (lex->rf != NULL) fclose(lex->rf);
+}
+
+const char* lexer_getc(Lexer* lex) {
     /* Has cached token */
-    if (p->read_buf[0] != '\0') {
+    if (lex->get_buf[0] != '\0') {
         if (g_debug_print_parse_recursion) {
-            LOGF("%s ^Cached\n", p->read_buf);
+            LOGF("%s ^Cached\n", lex->get_buf);
         }
-        return p->read_buf;
+        return lex->get_buf;
     }
 
-    char c = read_char(p);
+    char c = read_char(lex);
     /* Skip leading whitespace */
-    while (iswhitespace(c = read_char(p))) {
-        consume_char(p);
+    while (iswhitespace(c = read_char(lex))) {
+        consume_char(lex);
     }
 
     /* Handle punctuators
@@ -263,14 +266,14 @@ static char* read_token(Parser* p) {
     ASSERT(MAX_TOKEN_LEN >= 4,
             "Max token length must be at least 4 to hold C operators");
     if (isofpunctuator(c)) {
-        char cn = read_char_next(p);
+        char cn = read_char_next(lex);
         /* <= >= == != *= /= %= += -= &= ^= |= */
         if (cn == '=') {
-            p->read_buf[0] = c;
-            p->read_buf[1] = '=';
-            p->read_buf[2] = '\0';
-            consume_char(p);
-            consume_char(p);
+            lex->get_buf[0] = c;
+            lex->get_buf[1] = '=';
+            lex->get_buf[2] = '\0';
+            consume_char(lex);
+            consume_char(lex);
             goto exit;
         }
 
@@ -279,24 +282,24 @@ static char* read_token(Parser* p) {
         char chars[] = {'+', '-', '&', '|'};
         for (int i = 0; i < ARRAY_SIZE(chars); ++i) {
             if (c == chars[i]) {
-                consume_char(p);
-                p->read_buf[0] = chars[i];
+                consume_char(lex);
+                lex->get_buf[0] = chars[i];
                 if (cn == chars[i]) {
-                    consume_char(p);
-                    p->read_buf[1] = chars[i];
-                    p->read_buf[2] = '\0';
+                    consume_char(lex);
+                    lex->get_buf[1] = chars[i];
+                    lex->get_buf[2] = '\0';
                 }
                 else {
-                    p->read_buf[1] = '\0';
+                    lex->get_buf[1] = '\0';
                 }
                 goto exit;
             }
         }
 
         /* TODO For now, treat everything else as token */
-        p->read_buf[0] = c;
-        p->read_buf[1] = '\0';
-        consume_char(p);
+        lex->get_buf[0] = c;
+        lex->get_buf[1] = '\0';
+        consume_char(lex);
         goto exit;
     }
 
@@ -308,24 +311,29 @@ static char* read_token(Parser* p) {
         }
 
         if (i >= MAX_TOKEN_LEN) {
-            parser_set_error(p, ec_tokbufexceed);
+            // FIXME
+            // parser_set_error(p, ec_tokbufexceed);
             break; /* Since MAX_TOKEN_LEN excludes null terminator, we can break and add null terminator */
         }
-        p->read_buf[i] = c;
-        consume_char(p);
-        c = read_char(p);
+        lex->get_buf[i] = c;
+        consume_char(lex);
+        c = read_char(lex);
         ++i;
     }
-    p->read_buf[i] = '\0';
+    lex->get_buf[i] = '\0';
 
 exit:
     if (g_debug_print_parse_recursion) {
-        LOGF("%s\n", p->read_buf);
+        LOGF("%s\n", lex->get_buf);
     }
 
-    return p->read_buf;
+    return lex->get_buf;
 }
 
-
-
-
+/* Indicates the pointed to token is no longer in use */
+void lexer_consume(Lexer* lex) {
+    lex->get_buf[0] = '\0';
+    if (g_debug_print_parse_recursion) {
+        LOG("^Consumed\n");
+    }
+}

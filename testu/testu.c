@@ -3,6 +3,7 @@
 #include "CuTest.h"
 
 CuSuite* LexerGetSuite(void);
+CuSuite* SymbolGetSuite(void);
 CuSuite* TypeGetSuite(void);
 
 int RunAllTests(void) {
@@ -10,6 +11,7 @@ int RunAllTests(void) {
 	CuSuite* suite = CuSuiteNew();
 
 	CuSuiteAddSuite(suite, LexerGetSuite());
+	CuSuiteAddSuite(suite, SymbolGetSuite());
 	CuSuiteAddSuite(suite, TypeGetSuite());
 
 	CuSuiteRun(suite);

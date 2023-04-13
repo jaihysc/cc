@@ -2,7 +2,7 @@
 
 #include "lexer.h"
 
-void ReadToken(CuTest* tc) {
+static void ReadToken(CuTest* tc) {
     Lexer lex;
     CuAssertIntEquals(tc, lexer_construct(&lex, "testu/testcode"), ec_noerr);
 

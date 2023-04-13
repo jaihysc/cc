@@ -2,9 +2,11 @@
 #ifndef SYMBOL_H
 #define SYMBOL_H
 
+#include "errorcode.h"
 #include "type.h"
 
-typedef int TokenId;
+#define MAX_SYMBOL_LEN 255 /* Max characters symbol name (exclude null terminator) */
+
 typedef struct {
     int scope; /* Index of scope */
     int index; /* Index of symbol in scope */
@@ -15,6 +17,9 @@ extern SymbolId symid_invalid;
 
 /* Return 1 if the SymbolId is valid, 0 otherwise */
 int symid_valid(SymbolId sym_id);
+
+/* Returns 1 if both symid are equal, 0 otherwise */
+int symid_equal(SymbolId a, SymbolId b);
 
 typedef enum {
     sl_normal = 0,
@@ -28,7 +33,7 @@ typedef enum {
 
 typedef struct {
     SymbolClass class;
-    TokenId tok_id;
+    char token[MAX_SYMBOL_LEN + 1];
     Type type;
     ValueCategory valcat;
     int scope_num; /* Guaranteed to be unique for each scope */
@@ -39,9 +44,9 @@ typedef struct {
 } Symbol;
 
 /* Creates symbol at given memory location */
-void symbol_construct(
+ErrorCode symbol_construct(
         Symbol* sym,
-        TokenId tok_id,
+        const char* token,
         Type type,
         ValueCategory valcat,
         int scope_num);
@@ -151,11 +156,5 @@ SymbolId symbol_ptr_index(Symbol* sym);
    as negative values indicate a token is stored */
 typedef enum { st_= -1, SYMBOL_TYPES} SymbolType;
 #undef SYMBOL_TYPE
-
-/* Convert from an index into token buffer to symbol type */
-SymbolType st_from_token_id(int index);
-
-/* Convert from a symbol type to an index into token buffer */
-TokenId st_to_token_id(SymbolType type);
 
 #endif

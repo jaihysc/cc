@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #define LOG(msg__) printf("%s", msg__);
 #define LOGF(...) printf(__VA_ARGS__);
@@ -286,6 +287,11 @@ static inline void* cmalloc(size_t bytes) {
 /* Deallocates space allocated by cmalloc */
 static inline void cfree(void* ptr) {
     free(ptr);
+}
+
+/* Zeros ptr with num bytes */
+static inline void cmemzero(void* ptr, size_t num) {
+    memset(ptr, 0, num);
 }
 
 /* ============================================================ */

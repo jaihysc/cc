@@ -10,6 +10,10 @@
     ERROR_CODE(lexer_tokbufexceed)   \
     ERROR_CODE(lexer_fopenfail)      \
                                      \
+    ERROR_CODE(symbol_nametoolong)   \
+                                     \
+    ERROR_CODE(symtab_dupname)       \
+                                     \
     ERROR_CODE(pbufexceed)           \
     ERROR_CODE(pnodechildexceed)     \
     ERROR_CODE(ptokbufexceed)        \

@@ -15,17 +15,33 @@ int symid_valid(SymbolId sym_id) {
     return sym_id.index != -1;
 }
 
-void symbol_construct(
+int symid_equal(SymbolId a, SymbolId b) {
+    return a.index == b.index && a.scope == b.scope;
+}
+
+ErrorCode symbol_construct(
         Symbol* sym,
-        TokenId tok_id,
+        const char* token,
         Type type,
         ValueCategory valcat,
         int scope_num) {
     sym->class = sl_normal;
-    sym->tok_id = tok_id;
+
+    // Copy token into symbol
+    int i = 0;
+    while (token[i] != '\0') {
+        if (i >= MAX_SYMBOL_LEN) {
+            sym->token[0] = '\0';
+            return ec_symbol_nametoolong;
+        }
+        sym->token[i] = token[i];
+        ++i;
+    }
+
     sym->type = type;
     sym->valcat = valcat;
     sym->scope_num = scope_num;
+    return ec_noerr;
 }
 
 void symbol_sl_access(Symbol* sym, SymbolId ptr, SymbolId idx) {
@@ -41,10 +57,7 @@ SymbolClass symbol_class(Symbol* sym) {
 
 char* symbol_token(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    // FIXME
-    //return parser_get_token(p, sym->tok_id);
-    ASSERT(0, "Unimplemented");
-    return NULL;
+    return sym->token;
 }
 
 Type symbol_type(Symbol* sym) {
@@ -76,10 +89,3 @@ SymbolId symbol_ptr_index(Symbol* sym) {
     return sym->ptr_idx;
 }
 
-SymbolType st_from_token_id(int index) {
-    return -(index + 1);
-}
-
-TokenId st_to_token_id(SymbolType type) {
-    return -type - 1;
-}

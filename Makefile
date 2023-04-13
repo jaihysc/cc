@@ -8,13 +8,13 @@ CFLAGS=-g -Wall -Wextra -I $(SRCDIR) -I $(TESTDIR)
 SRCDEPS=$(SRCDIR)/*.h
 TESTDEPS=$(TESTDIR)/*.h
 
-SRCOBJ=$(addprefix $(OBJDIR)/$(SRCDIR)/, lexer.o globals.o)
-TESTOBJ=$(addprefix $(OBJDIR)/$(TESTDIR)/, testu.o CuTest.o lexer_test.o)
+SRCOBJ=$(addprefix $(OBJDIR)/$(SRCDIR)/, globals.o lexer.o type.o)
+TESTOBJ=$(addprefix $(OBJDIR)/$(TESTDIR)/, testu.o CuTest.o lexer_test.o type_test.o)
 
 $(OBJDIR)/$(SRCDIR)/%.o: $(SRCDIR)/%.c $(SRCDEPS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(OBJDIR)/$(TESTDIR)/%.o: $(TESTDIR)/%.c $(TESTDEPS)
+$(OBJDIR)/$(TESTDIR)/%.o: $(TESTDIR)/%.c $(SRCDEPS) $(TESTDEPS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 unittest: $(SRCOBJ) $(TESTOBJ)

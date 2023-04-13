@@ -14,9 +14,9 @@
                                      \
     ERROR_CODE(symtab_dupname)       \
                                      \
-    ERROR_CODE(pbufexceed)           \
-    ERROR_CODE(pnodechildexceed)     \
-    ERROR_CODE(ptokbufexceed)        \
+    ERROR_CODE(tnode_exceed)         \
+    ERROR_CODE(tnode_childexceed)    \
+                                     \
     ERROR_CODE(scopedepexceed)       \
     ERROR_CODE(scopelenexceed)       \
     ERROR_CODE(syntaxerr)            \

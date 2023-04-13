@@ -5,6 +5,7 @@
 CuSuite* LexerGetSuite(void);
 CuSuite* SymbolGetSuite(void);
 CuSuite* SymtabGetSuite(void);
+CuSuite* TreeGetSuite(void);
 CuSuite* TypeGetSuite(void);
 
 int RunAllTests(void) {
@@ -14,6 +15,7 @@ int RunAllTests(void) {
 	CuSuiteAddSuite(suite, LexerGetSuite());
 	CuSuiteAddSuite(suite, SymbolGetSuite());
 	CuSuiteAddSuite(suite, SymtabGetSuite());
+	CuSuiteAddSuite(suite, TreeGetSuite());
 	CuSuiteAddSuite(suite, TypeGetSuite());
 
 	CuSuiteRun(suite);

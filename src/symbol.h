@@ -157,4 +157,7 @@ SymbolId symbol_ptr_index(Symbol* sym);
 typedef enum { st_= -1, SYMBOL_TYPES} SymbolType;
 #undef SYMBOL_TYPE
 
+/* Converts SymbolType to string */
+const char* st_str(SymbolType st);
+
 #endif

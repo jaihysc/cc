@@ -89,3 +89,7 @@ SymbolId symbol_ptr_index(Symbol* sym) {
     return sym->ptr_idx;
 }
 
+const char* st_str(SymbolType st) {
+    return symbol_type_str[(int)st];
+}
+

@@ -7,7 +7,7 @@ static void AttachDetachNode(CuTest* tc) {
     CuAssertIntEquals(tc, tree_construct(&tree), ec_noerr);
 
     TNode* node;
-    tree_attach(&tree, &node, NULL);
+    tree_attach(&tree, &node, tree_root(&tree));
 
     TNode* node_1;
     tree_attach(&tree, &node_1, node);

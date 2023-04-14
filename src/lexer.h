@@ -7,9 +7,35 @@
 
 #include <stdio.h>
 
+#include "constant.h"
 #include "errorcode.h"
 
-#define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
+/* Returns 1 if character is part of a punctuator */
+int isofpunctuator(char c);
+
+/* Returns 1 if string is considered as a keyword, 0 otherwise */
+int tok_iskeyword(const char* token);
+
+/* Returns 1 if string is considered a unary operator */
+int tok_isunaryop(const char* str);
+
+/* Returns if token is considered an assignment operator */
+int tok_isassignmentop(const char* token);
+
+/* Returns 1 if token c string is a storage class keyword, 0 otherwise */
+int tok_isstoreclass(const char* str);
+
+/* Returns 1 if token c string is a type specifier keyword, 0 otherwise */
+int tok_istypespec(const char* str);
+
+/* Returns 1 if token c string is a type qualifier keyword, 0 otherwise */
+int tok_istypequal(const char* str);
+
+/* Returns 1 if token c string is a function specifier keyword, 0 otherwise */
+int tok_isfuncspec(const char* str);
+
+/* Returns 1 if token c string is an identifier */
+int tok_isidentifier(const char* str);
 
 typedef struct {
     /* Input file */

@@ -18,7 +18,7 @@ static int iswhitespace(char c) {
 }
 
 /* If character is part of a punctuator */
-static int isofpunctuator(char c) {
+int isofpunctuator(char c) {
     switch (c) {
         case '[': case ']': case '(': case ')': case '{': case '}':
         case '.': case '-': case '+': case '&': case '*': case '~':
@@ -34,7 +34,7 @@ static int isofpunctuator(char c) {
 /* C keyword handling */
 
 /* Returns 1 if string is considered as a keyword, 0 otherwise */
-static int tok_iskeyword(const char* token) {
+int tok_iskeyword(const char* token) {
     const char* token_keyword[] = {
         "_Bool", "_Complex", "_Imaginary",
         "auto", "break", "case", "char", "const", "continue", "default", "do",
@@ -51,7 +51,7 @@ static int tok_iskeyword(const char* token) {
 }
 
 /* Returns 1 if string is considered a unary operator */
-static int tok_isunaryop(const char* str) {
+int tok_isunaryop(const char* str) {
     if (strlength(str) != 1) {
         return 0;
     }
@@ -64,13 +64,12 @@ static int tok_isunaryop(const char* str) {
     }
 }
 
-/* TODO why declare these in global scope? Move them to be a part of their function */
-const char* token_assignment_operator[] = {
-    /* See strbinfind for ordering requirements */
-    "%=", "&=", "*=", "+=", "-=", "/=", "<<=", "=", ">>=", "^=", "|="
-};
 /* Returns 1 if token is considered an assignment operator */
-static int tok_isassignmentop(const char* token) {
+int tok_isassignmentop(const char* token) {
+    const char* token_assignment_operator[] = {
+        /* See strbinfind for ordering requirements */
+        "%=", "&=", "*=", "+=", "-=", "/=", "<<=", "=", ">>=", "^=", "|="
+    };
     return strbinfind(
             token,
             strlength(token),
@@ -78,16 +77,15 @@ static int tok_isassignmentop(const char* token) {
             ARRAY_SIZE(token_assignment_operator)) >= 0;
 }
 
-const char* token_storage_class_keyword[] = {
-    /* See strbinfind for ordering requirements */
-    "auto",
-    "extern",
-    "register",
-    "static",
-    "typedef"
-};
-/* Returns 1 if token c string is a storage class keyword, 0 otherwise */
-static int tok_isstoreclass(const char* str) {
+int tok_isstoreclass(const char* str) {
+    const char* token_storage_class_keyword[] = {
+        /* See strbinfind for ordering requirements */
+        "auto",
+        "extern",
+        "register",
+        "static",
+        "typedef"
+    };
     return strbinfind(
             str,
             strlength(str),
@@ -95,20 +93,19 @@ static int tok_isstoreclass(const char* str) {
             ARRAY_SIZE(token_storage_class_keyword)) >= 0;
 }
 
-const char* token_type_keyword[] = {
-    /* See strbinfind for ordering requirements */
-    "char",
-    "double",
-    "float",
-    "int",
-    "long",
-    "short",
-    "signed",
-    "unsigned",
-    "void",
-};
-/* Returns 1 if token c string is a type specifier keyword, 0 otherwise */
-static int tok_istypespec(const char* str) {
+int tok_istypespec(const char* str) {
+    const char* token_type_keyword[] = {
+        /* See strbinfind for ordering requirements */
+        "char",
+        "double",
+        "float",
+        "int",
+        "long",
+        "short",
+        "signed",
+        "unsigned",
+        "void",
+    };
     return strbinfind(
             str,
             strlength(str),
@@ -116,14 +113,13 @@ static int tok_istypespec(const char* str) {
             ARRAY_SIZE(token_type_keyword)) >= 0;
 }
 
-const char* token_type_qualifier_keyword[] = {
-    /* See strbinfind for ordering requirements */
-    "const",
-    "restrict",
-    "volatile"
-};
-/* Returns 1 if token c string is a type qualifier keyword, 0 otherwise */
-static int tok_istypequal(const char* str) {
+int tok_istypequal(const char* str) {
+    const char* token_type_qualifier_keyword[] = {
+        /* See strbinfind for ordering requirements */
+        "const",
+        "restrict",
+        "volatile"
+    };
     return strbinfind(
             str,
             strlength(str),
@@ -131,13 +127,11 @@ static int tok_istypequal(const char* str) {
             ARRAY_SIZE(token_type_qualifier_keyword)) >= 0;
 }
 
-/* Returns 1 if token c string is a function specifier keyword, 0 otherwise */
-static int tok_isfuncspec(const char* str) {
+int tok_isfuncspec(const char* str) {
     return strequ(str, "inline");
 }
 
-/* Returns 1 if token c string is an identifier */
-static int tok_isidentifier(const char* str) {
+int tok_isidentifier(const char* str) {
     if (tok_iskeyword(str)) {
         return 0;
     }
@@ -238,6 +232,8 @@ static void consume_char(Lexer* lex) {
 }
 
 ErrorCode lexer_construct(Lexer* lex, const char* filepath) {
+    cmemzero(lex, sizeof(Lexer));
+
     lex->rf = fopen(filepath, "r");
     if (lex->rf == NULL) {
         return ec_lexer_fopenfail;

@@ -2,14 +2,33 @@
 #ifndef TREE_H
 #define TREE_H
 
+#include "constant.h"
 #include "symbol.h"
 
 #define MAX_TREE_NODE 2000 /* Maximum nodes in tree */
 #define MAX_TNODE_CHILD 4 /* Maximum children tnode */
 
+/* 6.4 Lexical elements */
+typedef struct {
+    char token[MAX_TOKEN_LEN + 1];
+} TNodeIdentifier;
+
+/* 6.7 Declarators */
+typedef struct {
+} TNodeDeclarationSpecifiers;
+
+typedef union {
+    TNodeIdentifier identifier;
+    TNodeDeclarationSpecifiers declaration_specifiers;
+} TNodeData;
+
 typedef struct TNode {
     struct TNode* child[MAX_TNODE_CHILD];
     SymbolType type;
+    TNodeData data;
+    /* The rule which was matched for this node
+       Starting with 0 as first, in the order given by Annex A */
+    int variant;
 } TNode;
 
 /* Counts number of children for given node */
@@ -22,6 +41,17 @@ TNode* tnode_child(TNode* node, int i);
 /* Retrieves the symbol type for node */
 SymbolType tnode_type(TNode* node);
 
+/* Retrieves data for node
+   Cast into the appropriate type based on SymbolType */
+TNodeData* tnode_data(TNode* node);
+
+/* Retrieves the variant for node */
+int tnode_variant(TNode* node);
+
+/* Sets TNodeData data of type SymbolType for node
+   Contents of TNodeData is copied into node */
+void tnode_set(TNode* node, SymbolType st, void* data, int var);
+
 typedef struct {
     /* Ensure root above node buffer for pointer arithmetic to work
        (e.g., calculating index of node). Root treated as index -1
@@ -33,8 +63,10 @@ typedef struct {
 
 ErrorCode tree_construct(Tree* tree);
 
+/* Returns the root of the tree */
+TNode* tree_root(Tree* tree);
+
 /* Attaches a node of onto the provided parent node
-   null to attach onto root
    Stores the attached node in tree_ptr */
 ErrorCode tree_attach(
         Tree* tree, TNode** tnode_ptr, TNode* parent);

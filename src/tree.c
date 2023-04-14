@@ -33,14 +33,48 @@ SymbolType tnode_type(TNode* node) {
     return node->type;
 }
 
+TNodeData* tnode_data(TNode* node) {
+    ASSERT(node != NULL, "Node is null");
+    return &node->data;
+}
+
+int tnode_variant(TNode* node) {
+    ASSERT(node != NULL, "Node is null");
+    return node->variant;
+}
+
+void tnode_set(TNode* node, SymbolType st, void* data, int var) {
+    ASSERT(node != NULL, "Node is null");
+    node->type = st;
+    switch (st) {
+        case st_identifier:
+            node->data.identifier = *(TNodeIdentifier*)data;
+            break;
+        case st_declaration_specifiers:
+            node->data.declaration_specifiers = *(TNodeDeclarationSpecifiers*)data;
+            break;
+        default:
+            ASSERT(0, "Unimplemented");
+            break;
+    }
+    node->variant = var;
+}
+
 ErrorCode tree_construct(Tree* tree) {
+    ASSERT(tree != NULL, "Tree is null");
     cmemzero(tree, sizeof(Tree));
     return ec_noerr;
 }
 
+TNode* tree_root(Tree* tree) {
+    ASSERT(tree != NULL, "Tree is null");
+    return &tree->root;
+}
+
 ErrorCode tree_attach(
         Tree* tree, TNode** tnode_ptr, TNode* parent) {
-    if (parent == NULL) parent = &tree->root;
+    ASSERT(tree != NULL, "Tree is null");
+    ASSERT(parent != NULL, "Parent node is null");
 
     if (tree->i_buf >= MAX_TREE_NODE) {
         return ec_tnode_exceed;
@@ -72,6 +106,7 @@ ErrorCode tree_attach(
 }
 
 void tree_detach_child(Tree* tree, TNode* node) {
+    ASSERT(tree != NULL, "Tree is null");
     ASSERT(node != NULL, "Parse node is null");
 
     /* Remove children */
@@ -90,6 +125,8 @@ void tree_detach_child(Tree* tree, TNode* node) {
 static void debug_tnode_walk(
         Tree* tree, TNode* node,
         char* branch, int i_branch, const int max_branch_len) {
+    ASSERT(tree != NULL, "Tree is null");
+
     /* Is symbol type */
     LOGF("%s\n", st_str(node->type));
 
@@ -134,6 +171,8 @@ static void debug_tnode_walk(
 }
 
 void debug_print_tree(Tree* tree) {
+    ASSERT(tree != NULL, "Tree is null");
+
     LOG("Parse tree:\n");
     /* 2 characters per node */
     int max_branch = MAX_TREE_NODE * 2;

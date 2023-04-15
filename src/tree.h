@@ -23,6 +23,24 @@ typedef struct {
 /* 6.5 Expressions */
 typedef struct {
     enum {
+        TNodeUnaryExpression_none,
+        TNodeUnaryExpression_ref,
+        TNodeUnaryExpression_deref,
+        TNodeUnaryExpression_negate,
+    } type;
+} TNodeUnaryExpression;
+
+typedef struct {
+    enum {
+        TNodeMultiplicativeExpression_none,
+        TNodeMultiplicativeExpression_mul,
+        TNodeMultiplicativeExpression_div,
+        TNodeMultiplicativeExpression_mod,
+    } type;
+} TNodeMultiplicativeExpression;
+
+typedef struct {
+    enum {
         TNodeAdditiveExpression_none,
         TNodeAdditiveExpression_add,
         TNodeAdditiveExpression_sub,
@@ -31,7 +49,50 @@ typedef struct {
 
 typedef struct {
     enum {
+        TNodeRelationalExpression_none,
+        TNodeRelationalExpression_le,
+        TNodeRelationalExpression_ge,
+        TNodeRelationalExpression_leq,
+        TNodeRelationalExpression_geq,
+    } type;
+} TNodeRelationalExpression;
+
+typedef struct {
+    enum {
+        TNodeEqualityExpression_none,
+        TNodeEqualityExpression_eq,
+        TNodeEqualityExpression_neq,
+    } type;
+} TNodeEqualityExpression;
+
+typedef struct {
+    enum {
+        TNodeLogicalAndExpression_none,
+        TNodeLogicalAndExpression_and,
+    } type;
+} TNodeLogicalAndExpression;
+
+typedef struct {
+    enum {
+        TNodeLogicalOrExpression_none,
+        TNodeLogicalOrExpression_or,
+    } type;
+} TNodeLogicalOrExpression;
+
+typedef struct {
+    enum {
         TNodeAssignmentExpression_none,
+        TNodeAssignmentExpression_assign,
+        TNodeAssignmentExpression_mul,
+        TNodeAssignmentExpression_div,
+        TNodeAssignmentExpression_mod,
+        TNodeAssignmentExpression_add,
+        TNodeAssignmentExpression_sub,
+        TNodeAssignmentExpression_shl,
+        TNodeAssignmentExpression_shr,
+        TNodeAssignmentExpression_and,
+        TNodeAssignmentExpression_xor,
+        TNodeAssignmentExpression_or
     } type;
 } TNodeAssignmentExpression;
 
@@ -57,7 +118,13 @@ typedef union {
     TNodeDecimalConstant decimal_constant;
     TNodeOctalConstant octal_constant;
 
+    TNodeUnaryExpression unary_expression;
+    TNodeMultiplicativeExpression multiplicative_expression;
     TNodeAdditiveExpression additive_expression;
+    TNodeRelationalExpression relational_expression;
+    TNodeEqualityExpression equality_expression;
+    TNodeLogicalAndExpression logical_and_expression;
+    TNodeLogicalOrExpression logical_or_expression;
     TNodeAssignmentExpression assignment_expression;
 
     TNodeDeclarationSpecifiers declaration_specifiers;

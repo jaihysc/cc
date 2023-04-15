@@ -447,102 +447,160 @@ exit:
 //    PARSE_FUNC_END();
 //    return ecode;
 //}
-//
-//static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(unary_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    char* token = read_token(p);
-//    if (parser_has_error(p)) goto exit;
-//
-//    /* Prefix increment, decrement */
-//    if (strequ(token, "++")) {
-//        tree_attach_token(p, parent, token);
-//        lexer_consume(p->lex);
-//        if (!parse_unary_expression(p, parent)) goto exit;
-//    }
-//    else if (strequ(token, "--")) {
-//        tree_attach_token(p, parent, token);
-//        lexer_consume(p->lex);
-//        if (!parse_unary_expression(p, parent)) goto exit;
-//    }
-//    else if (tok_isunaryop(token)) {
-//        tree_attach_token(p, parent, token);
-//        lexer_consume(p->lex);
-//        if (!parse_cast_expression(p, parent)) goto exit;
-//    }
-//    else if (!parse_postfix_expression(p, parent)) {
-//        goto exit;
-//    }
-//
-//    /* Incomplete */
-//
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_cast_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(cast_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    /* This comes first as the below consumes ( */
-//    if (parse_unary_expression(p, parent)) {
-//        PARSE_MATCHED();
-//    }
-//    else if (parse_expect(p, "(")) {
-//        if (!parse_type_name(p, parent)) goto exit;
-//        if (!parse_expect(p, ")")) goto exit;
-//        if (!parse_cast_expression(p, parent)) goto exit;
-//
-//        PARSE_MATCHED();
-//    }
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(multiplicative_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    /* Left recursion in C standard is converted to right recursion */
-//    /* NOTE: This does affect order of operations, operations involving
-//       multiplicative_expression nodes if preorder traversal
-//       e.g., a * b / c in the order of encountering them */
-//    /* multiplicative-expression
-//       -> cast-expression * multiplicative-expression
-//        | cast-expression / multiplicative-expression
-//        | cast-expression % multiplicative-expression
-//        | cast-expression */
-//
-//    if (!parse_cast_expression(p, parent)) goto exit;
-//
-//    if (parse_expect(p, "*")) {
-//        tree_attach_token(p, parent, "mul");
-//        if (!parse_multiplicative_expression(p, parent)) goto exit;
-//    }
-//    else if (parse_expect(p, "/")) {
-//        tree_attach_token(p, parent, "div");
-//        if (!parse_multiplicative_expression(p, parent)) goto exit;
-//    }
-//    else if (parse_expect(p, "%")) {
-//        tree_attach_token(p, parent, "mod");
-//        if (!parse_multiplicative_expression(p, parent)) goto exit;
-//    }
-//
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
+
+static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(unary_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    /* Recursive as unary-operator needs a cast-expression, not a unary-expression */
+
+    TNode* node;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+
+    TNodeUnaryExpression data;
+    data.type = TNodeUnaryExpression_none;
+
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+    int has_match;
+    /* Prefix increment, decrement */
+    if (strequ(token, "++")) {
+        lexer_consume(p->lex);
+        /* Incomplete */
+    }
+    else if (strequ(token, "--")) {
+        lexer_consume(p->lex);
+        /* Incomplete */
+    }
+    else if (strequ(token, "&")) {
+        data.type = TNodeUnaryExpression_ref;
+        lexer_consume(p->lex);
+        if ((ecode = parse_cast_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected cast-expression\n");
+            goto exit;
+        }
+        *matched = 1;
+    }
+    else if (strequ(token, "*")) {
+        data.type = TNodeUnaryExpression_deref;
+        lexer_consume(p->lex);
+        if ((ecode = parse_cast_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected cast-expression\n");
+            goto exit;
+        }
+        *matched = 1;
+    }
+    else if (strequ(token, "!")) {
+        data.type = TNodeUnaryExpression_negate;
+        lexer_consume(p->lex);
+        if ((ecode = parse_cast_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected cast-expression\n");
+            goto exit;
+        }
+        *matched = 1;
+    }
+    else {
+        if ((ecode = parse_primary_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (has_match) *matched = 1;
+    }
+
+    /* Incomplete */
+
+exit:
+    if (*matched) {
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) tnode_destruct(node);
+        else tnode_set(node, st_unary_expression, &data, 0);
+    }
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_cast_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(cast_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    /* This comes first as the below consumes ( */
+    if ((ecode = parse_unary_expression(p, parent, matched)) != ec_noerr) goto exit;
+
+    /*
+    if (parse_expect(p, "(")) {
+        if (!parse_type_name(p, parent)) goto exit;
+        if (!parse_expect(p, ")")) goto exit;
+        if (!parse_cast_expression(p, parent)) goto exit;
+
+        PARSE_MATCHED();
+    }
+    */
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(multiplicative_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    /* Left recursion in C standard is converted to right recursion */
+    /* NOTE: This does affect order of operations, operations involving
+       multiplicative_expression nodes if preorder traversal
+       e.g., a * b / c in the order of encountering them */
+    /* multiplicative-expression
+       -> cast-expression * multiplicative-expression
+        | cast-expression / multiplicative-expression
+        | cast-expression % multiplicative-expression
+        | cast-expression */
+
+    int attached_node = 0;
+    TNode* node;
+
+    while (1) {
+        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+        attached_node = 0;
+
+        TNodeMultiplicativeExpression data;
+        data.type = TNodeMultiplicativeExpression_none;
+
+        int has_match;
+        if ((ecode = parse_cast_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) break;
+
+        const char* token;
+        if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+        if (strequ(token, "*")) {
+            data.type = TNodeMultiplicativeExpression_mul;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "/")) {
+            data.type = TNodeMultiplicativeExpression_div;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "%")) {
+            data.type = TNodeMultiplicativeExpression_mod;
+            lexer_consume(p->lex);
+        }
+
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, st_multiplicative_expression, &data, 0);
+        parent = node;
+        attached_node = 1;
+        *matched = 1;
+    }
+
+exit:
+    if (!attached_node) tnode_destruct(node);
+    PARSE_FUNC_END();
+    return ecode;
+}
 
 static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(additive_expression);
@@ -559,22 +617,17 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
     int attached_node = 0;
     TNode* node;
 
-    int has_match;
     while (1) {
-        int made_match = 0;
-
         if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
         attached_node = 0;
 
         TNodeAdditiveExpression data;
         data.type = TNodeAdditiveExpression_none;
 
-        /* FIXME should be multiplicative-expression */
-        /* if (!parse_multiplicative_expression(p, parent)) goto exit; */
-        if ((ecode = parse_primary_expression(
+        int has_match;
+        if ((ecode = parse_multiplicative_expression(
                         p, node, &has_match)) != ec_noerr) goto exit;
         if (!has_match) break;
-        made_match = 1;
 
         const char* token;
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
@@ -582,22 +635,17 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
         if (strequ(token, "+")) {
             data.type = TNodeAdditiveExpression_add;
             lexer_consume(p->lex);
-            made_match = 1;
         }
         else if (strequ(token, "-")) {
             data.type = TNodeAdditiveExpression_sub;
             lexer_consume(p->lex);
-            made_match = 1;
         }
 
-        if (made_match) {
-            if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-            tnode_set(node, st_additive_expression, &data, 0);
-            parent = node;
-            attached_node = 1;
-            *matched = 1;
-        }
-        else break;
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, st_additive_expression, &data, 0);
+        parent = node;
+        attached_node = 1;
+        *matched = 1;
     }
 
 exit:
@@ -606,198 +654,273 @@ exit:
     return ecode;
 }
 
-//static ErrorCode parse_shift_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(shift_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    if (parse_additive_expression(p, parent)) goto matched;
-//
-//    /* Incomplete */
-//
-//    goto exit;
-//
-//matched:
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(relational_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    /* Left recursion in C standard is converted to right recursion */
-//    /* relational-expression
-//        -> shift-expression
-//         | shift-expression < relational-expression
-//         | shift-expression > relational-expression
-//         | shift-expression <= relational-expression
-//         | shift-expression >= relational-expression*/
-//
-//    if (!parse_shift_expression(p, parent)) goto exit;
-//
-//    if (parse_expect(p, "<")) {
-//        tree_attach_token(p, parent, "<");
-//        if (!parse_relational_expression(p, parent)) goto exit;
-//    }
-//    else if (parse_expect(p, ">")) {
-//        tree_attach_token(p, parent, ">");
-//        if (!parse_relational_expression(p, parent)) goto exit;
-//    }
-//    else if (parse_expect(p, "<=")) {
-//        tree_attach_token(p, parent, "<=");
-//        if (!parse_relational_expression(p, parent)) goto exit;
-//    }
-//    else if (parse_expect(p, ">=")) {
-//        tree_attach_token(p, parent, ">=");
-//        if (!parse_relational_expression(p, parent)) goto exit;
-//    }
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(equality_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    /* Left recursion in C standard is converted to right recursion */
-//    /* equality-expression
-//        -> relational-expression
-//         | relational-expression == equality-expression
-//         | relational-expression != equality-expression */
-//
-//    if (!parse_relational_expression(p, parent)) goto exit;
-//
-//    if (parse_expect(p, "==")) {
-//        tree_attach_token(p, parent, "ce");
-//        if (!parse_equality_expression(p, parent)) goto exit;
-//    }
-//    else if (parse_expect(p, "!=")) {
-//        tree_attach_token(p, parent, "cne");
-//        if (!parse_equality_expression(p, parent)) goto exit;
-//    }
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_and_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(and_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    if (parse_equality_expression(p, parent)) goto matched;
-//
-//    /* Incomplete */
-//
-//    goto exit;
-//
-//matched:
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_exclusive_or_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(exclusive_or_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    if (parse_and_expression(p, parent)) goto matched;
-//
-//    /* Incomplete */
-//
-//    goto exit;
-//
-//matched:
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_inclusive_or_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(inclusive_or_expression);
-//
-//    if (parse_exclusive_or_expression(p, parent)) goto matched;
-//
-//    /* Incomplete */
-//
-//    goto exit;
-//
-//matched:
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_logical_and_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(logical_and_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    /* Left recursion in C standard is converted to right recursion */
-//    /* logical-and-expression
-//        -> inclusive-or-expression
-//         | inclusive-or-expression && logical-and-expression */
-//
-//    if (!parse_inclusive_or_expression(p, parent)) goto exit;
-//
-//    if (parse_expect(p, "&&")) {
-//        if (!parse_logical_and_expression(p, parent)) goto exit;
-//    }
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_logical_or_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(logical_or_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    /* Left recursion in C standard is converted to right recursion */
-//    /* logical-or-expression
-//        -> logical-and-expression
-//         | logical-and-expression || logical-or-expression */
-//
-//    if (!parse_logical_and_expression(p, parent)) goto exit;
-//
-//    if (parse_expect(p, "||")) {
-//        if (!parse_logical_or_expression(p, parent)) goto exit;
-//    }
-//    PARSE_MATCHED();
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
+static ErrorCode parse_shift_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(shift_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    if ((ecode = parse_additive_expression(
+                    p, parent, matched)) != ec_noerr) goto exit;
+
+    /* Incomplete */
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(relational_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    /* Left recursion in C standard is converted to right recursion */
+    /* relational-expression
+        -> shift-expression
+         | shift-expression < relational-expression
+         | shift-expression > relational-expression
+         | shift-expression <= relational-expression
+         | shift-expression >= relational-expression*/
+
+    int attached_node = 0;
+    TNode* node;
+
+    while (1) {
+        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+        attached_node = 0;
+
+        TNodeRelationalExpression data;
+        data.type = TNodeRelationalExpression_none;
+
+        int has_match;
+        if ((ecode = parse_shift_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) break;
+
+        const char* token;
+        if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+        if (strequ(token, "<")) {
+            data.type = TNodeRelationalExpression_le;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, ">")) {
+            data.type = TNodeRelationalExpression_ge;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "<=")) {
+            data.type = TNodeRelationalExpression_leq;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, ">=")) {
+            data.type = TNodeRelationalExpression_geq;
+            lexer_consume(p->lex);
+        }
+
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, st_relational_expression, &data, 0);
+        parent = node;
+        attached_node = 1;
+        *matched = 1;
+    }
+
+exit:
+    if (!attached_node) tnode_destruct(node);
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(equality_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    /* Left recursion in C standard is converted to right recursion */
+    /* equality-expression
+        -> relational-expression
+         | relational-expression == equality-expression
+         | relational-expression != equality-expression */
+
+    int attached_node = 0;
+    TNode* node;
+
+    while (1) {
+        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+        attached_node = 0;
+
+        TNodeEqualityExpression data;
+        data.type = TNodeEqualityExpression_none;
+
+        int has_match;
+        if ((ecode = parse_relational_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) break;
+
+        const char* token;
+        if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+        if (strequ(token, "==")) {
+            data.type = TNodeEqualityExpression_eq;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "!=")) {
+            data.type = TNodeEqualityExpression_neq;
+            lexer_consume(p->lex);
+        }
+
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, st_equality_expression, &data, 0);
+        parent = node;
+        attached_node = 1;
+        *matched = 1;
+    }
+
+exit:
+    if (!attached_node) tnode_destruct(node);
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_and_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(and_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    if ((ecode = parse_equality_expression(p, parent, matched)) != ec_noerr) goto exit;
+
+    /* Incomplete */
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_exclusive_or_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(exclusive_or_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    if ((ecode = parse_and_expression(p, parent, matched)) != ec_noerr) goto exit;
+
+    /* Incomplete */
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_inclusive_or_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(inclusive_or_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    if ((ecode = parse_exclusive_or_expression(p, parent, matched)) != ec_noerr) goto exit;
+
+    /* Incomplete */
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_logical_and_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(logical_and_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    /* Left recursion in C standard is converted to right recursion */
+    /* logical-and-expression
+        -> inclusive-or-expression
+         | inclusive-or-expression && logical-and-expression */
+
+    int attached_node = 0;
+    TNode* node;
+
+    while (1) {
+        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+        attached_node = 0;
+
+        TNodeLogicalAndExpression data;
+        data.type = TNodeLogicalAndExpression_none;
+
+        int has_match;
+        if ((ecode = parse_inclusive_or_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) break;
+
+        const char* token;
+        if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+        if (strequ(token, "&&")) {
+            data.type = TNodeLogicalAndExpression_and;
+            lexer_consume(p->lex);
+        }
+
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, st_logical_and_expression, &data, 0);
+        parent = node;
+        attached_node = 1;
+        *matched = 1;
+    }
+
+exit:
+    if (!attached_node) tnode_destruct(node);
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_logical_or_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(logical_or_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    /* Left recursion in C standard is converted to right recursion */
+    /* logical-or-expression
+        -> logical-and-expression
+         | logical-and-expression || logical-or-expression */
+
+    int attached_node = 0;
+    TNode* node;
+
+    while (1) {
+        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+        attached_node = 0;
+
+        TNodeLogicalOrExpression data;
+        data.type = TNodeLogicalOrExpression_none;
+
+        int has_match;
+        if ((ecode = parse_logical_and_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) break;
+
+        const char* token;
+        if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+        if (strequ(token, "||")) {
+            data.type = TNodeLogicalOrExpression_or;
+            lexer_consume(p->lex);
+        }
+
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, st_logical_or_expression, &data, 0);
+        parent = node;
+        attached_node = 1;
+        *matched = 1;
+    }
+
+exit:
+    if (!attached_node) tnode_destruct(node);
+    PARSE_FUNC_END();
+    return ecode;
+}
 
 static ErrorCode parse_conditional_expression(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(conditional_expression);
     ErrorCode ecode;
     *matched = 0;
 
-    /* FIXME should be logical-or-expression */
-    /* if (parse_logical_or_expression(p, parent)) goto matched; */
-    if ((ecode = parse_additive_expression(p, parent, matched)) != ec_noerr) goto exit;
+    if ((ecode = parse_logical_or_expression(p, parent, matched)) != ec_noerr) goto exit;
 
     /* Incomplete */
 
@@ -839,9 +962,49 @@ static ErrorCode parse_assignment_expression(Parser* p, TNode* parent, int* matc
 
         const char* token;
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
-        if (tok_isassignmentop(token)) {
-            /* TODO */
-            /* tree_attach_token(p, parent, token); */
+
+        if (strequ(token, "=")) {
+            data.type = TNodeAssignmentExpression_assign;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "*=")) {
+            data.type = TNodeAssignmentExpression_mul;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "/=")) {
+            data.type = TNodeAssignmentExpression_div;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "%=")) {
+            data.type = TNodeAssignmentExpression_mod;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "+=")) {
+            data.type = TNodeAssignmentExpression_add;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "-=")) {
+            data.type = TNodeAssignmentExpression_sub;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "<<=")) {
+            data.type = TNodeAssignmentExpression_shl;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, ">>=")) {
+            data.type = TNodeAssignmentExpression_shr;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "&=")) {
+            data.type = TNodeAssignmentExpression_and;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "^=")) {
+            data.type = TNodeAssignmentExpression_xor;
+            lexer_consume(p->lex);
+        }
+        else if (strequ(token, "|=")) {
+            data.type = TNodeAssignmentExpression_or;
             lexer_consume(p->lex);
         }
 

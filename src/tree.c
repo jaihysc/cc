@@ -113,8 +113,26 @@ void tnode_set(TNode* node, SymbolType st, void* data, int var) {
             break;
 
         /* 6.5 Expressions */
+        case st_unary_expression:
+            node->data.unary_expression = *(TNodeUnaryExpression*)data;
+            break;
+        case st_multiplicative_expression:
+            node->data.multiplicative_expression = *(TNodeMultiplicativeExpression*)data;
+            break;
         case st_additive_expression:
             node->data.additive_expression = *(TNodeAdditiveExpression*)data;
+            break;
+        case st_relational_expression:
+            node->data.relational_expression = *(TNodeRelationalExpression*)data;
+            break;
+        case st_equality_expression:
+            node->data.equality_expression = *(TNodeEqualityExpression*)data;
+            break;
+        case st_logical_and_expression:
+            node->data.logical_and_expression = *(TNodeLogicalAndExpression*)data;
+            break;
+        case st_logical_or_expression:
+            node->data.logical_or_expression = *(TNodeLogicalOrExpression*)data;
             break;
         case st_assignment_expression:
             node->data.assignment_expression = *(TNodeAssignmentExpression*)data;
@@ -177,6 +195,7 @@ static void debug_tnode_walk(
     /* Is symbol type */
     LOGF("%s", st_str(node->type));
     switch (node->type) {
+        /* 6.4 Lexical elements */
         case st_identifier:
             {
                 TNodeIdentifier* data = (TNodeIdentifier*)&node->data;
@@ -195,17 +214,138 @@ static void debug_tnode_walk(
                 LOGF("(%s)", data->token);
             }
             break;
+
+        /* 6.5 Expressions */
+        case st_unary_expression:
+            {
+                TNodeUnaryExpression* data = (TNodeUnaryExpression*)&node->data;
+                if (data->type == TNodeUnaryExpression_ref) {
+                    LOG("(& ref)");
+                }
+                else if (data->type == TNodeUnaryExpression_deref) {
+                    LOG("(* deref)");
+                }
+                else if (data->type == TNodeUnaryExpression_negate) {
+                    LOG("(!)");
+                }
+            }
+            break;
+        case st_multiplicative_expression:
+            {
+                TNodeMultiplicativeExpression* data = (TNodeMultiplicativeExpression*)&node->data;
+                if (data->type == TNodeMultiplicativeExpression_mul) {
+                    LOG("(*)");
+                }
+                else if (data->type == TNodeMultiplicativeExpression_div) {
+                    LOG("(/)");
+                }
+                else if (data->type == TNodeMultiplicativeExpression_mod) {
+                    LOG("(%)");
+                }
+            }
+            break;
         case st_additive_expression:
             {
                 TNodeAdditiveExpression* data = (TNodeAdditiveExpression*)&node->data;
                 if (data->type == TNodeAdditiveExpression_add) {
-                    LOGF("(add)");
+                    LOG("(+)");
                 }
                 else if (data->type == TNodeAdditiveExpression_sub) {
-                    LOGF("(sub)");
+                    LOG("(-)");
                 }
             }
             break;
+        case st_relational_expression:
+            {
+                TNodeRelationalExpression* data = (TNodeRelationalExpression*)&node->data;
+                if (data->type == TNodeRelationalExpression_le) {
+                    LOG("(<)");
+                }
+                else if (data->type == TNodeRelationalExpression_ge) {
+                    LOG("(>)");
+                }
+                else if (data->type == TNodeRelationalExpression_leq) {
+                    LOG("(<=)");
+                }
+                else if (data->type == TNodeRelationalExpression_geq) {
+                    LOG("(>=)");
+                }
+            }
+            break;
+        case st_equality_expression:
+            {
+                TNodeEqualityExpression* data = (TNodeEqualityExpression*)&node->data;
+                if (data->type == TNodeEqualityExpression_eq) {
+                    LOG("(==)");
+                }
+                else if (data->type == TNodeEqualityExpression_neq) {
+                    LOG("(!=)");
+                }
+            }
+            break;
+        case st_logical_and_expression:
+            {
+                TNodeLogicalAndExpression* data = (TNodeLogicalAndExpression*)&node->data;
+                if (data->type == TNodeLogicalAndExpression_and) {
+                    LOG("(&&)");
+                }
+            }
+            break;
+        case st_logical_or_expression:
+            {
+                TNodeLogicalOrExpression* data = (TNodeLogicalOrExpression*)&node->data;
+                if (data->type == TNodeLogicalOrExpression_or) {
+                    LOG("(||)");
+                }
+            }
+            break;
+        case st_assignment_expression:
+            {
+                TNodeAssignmentExpression* data = (TNodeAssignmentExpression*)&node->data;
+                switch (data->type) {
+                    case TNodeAssignmentExpression_none:
+                        break;
+                    case TNodeAssignmentExpression_assign:
+                        LOG("(=)");
+                        break;
+                    case TNodeAssignmentExpression_mul:
+                        LOG("(*=)");
+                        break;
+                    case TNodeAssignmentExpression_div:
+                        LOG("(/=)");
+                        break;
+                    case TNodeAssignmentExpression_mod:
+                        LOG("(%=)");
+                        break;
+                    case TNodeAssignmentExpression_add:
+                        LOG("(+=)");
+                        break;
+                    case TNodeAssignmentExpression_sub:
+                        LOG("(-=)");
+                        break;
+                    case TNodeAssignmentExpression_shl:
+                        LOG("(<<=)");
+                        break;
+                    case TNodeAssignmentExpression_shr:
+                        LOG("(>>=)");
+                        break;
+                    case TNodeAssignmentExpression_and:
+                        LOG("(&=)");
+                        break;
+                    case TNodeAssignmentExpression_xor:
+                        LOG("(^=)");
+                        break;
+                    case TNodeAssignmentExpression_or:
+                        LOG("(or)");
+                        break;
+                    default:
+                        ASSERT(0, "Unimplemented");
+                    break;
+                }
+            }
+            break;
+
+        /* 6.7 Declarators */
         case st_declaration_specifiers:
             {
                 //TNodeDeclarationSpecifiers* data = (TNodeDeclarationSpecifiers*)&node->data;
@@ -218,6 +358,8 @@ static void debug_tnode_walk(
                 LOGF("(%d)", data->pointers);
             }
             break;
+
+        /* 6.8 Statements and blocks */
         case st_jump_statement:
             {
                 TNodeJumpStatement* data = (TNodeJumpStatement*)&node->data;

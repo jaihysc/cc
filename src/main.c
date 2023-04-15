@@ -1,25 +1,26 @@
 /* Entry point of compiler */
 
-#include <stdio.h>
-#include <stdarg.h>
 #include "common.h"
 
-#define MAX_TOKEN_LEN 255 /* Excluding null terminator, Tokens is string with no whitespace */
-#define MAX_PARSE_TREE_NODE 2000 /* Maximum nodes in parser parse tree */
-#define MAX_PARSE_NODE_CHILD 4 /* Maximum children nodes for a parse tree node */
-#define MAX_TOKEN_BUFFER_CHAR 8192 /* Max characters in token buffer */
-#define MAX_SCOPES 32 /* Max number of scopes */
-#define MAX_SCOPE_LEN 500   /* Max symbols per scope */
-
 #include "globals.h"
+#include "parser.h"
 
-/* Include the C file back in for now for compiler to work */
-#include "compiler.c"
-#include "ilgen.c"
-#include "parser.c"
+typedef struct {
+    /* Heap allocated paths for files */
+    char* input_path;
+    char* output_path;
+} Flags;
 
-/* ============================================================ */
-/* Initialization and configuration */
+ErrorCode flags_construct(Flags* f) {
+    cmemzero(f, sizeof(Flags));
+    return ec_noerr;
+}
+
+ErrorCode flags_destruct(Flags* f) {
+    if (f->input_path != NULL) cfree(f->input_path);
+    if (f->output_path != NULL) cfree(f->output_path);
+    return ec_noerr;
+}
 
 /* The index of the option's string in the string array
    is the index of the pointer for the variable corresponding to the option
@@ -41,10 +42,9 @@ int* option_switch_value[] = {SWITCH_OPTIONS};
 #undef SWITCH_OPTION
 
 /* Parses cli args and processes them */
-/* NOTE: will not clean up file handles at exit */
-/* Returns non zero if error */
-static int handle_cli_arg(Parser* p, int argc, char** argv) {
-    int rt_code = 0;
+static ErrorCode handle_cli_arg(Flags* f, int argc, char** argv) {
+    ErrorCode ecode = ec_noerr;
+
     /* Skip first argv since it is path */
     for (int i = 1; i < argc; ++i) {
         /* Handle switch options */
@@ -59,108 +59,117 @@ static int handle_cli_arg(Parser* p, int argc, char** argv) {
         }
 
         if (strequ(argv[i], "-o")) {
-            if (p->of != NULL) {
+            /* Output path */
+            if (f->output_path != NULL) {
                 ERRMSG("Only one output file can be specified\n");
-                rt_code = 1;
+                ecode = ec_badclioption;
                 break;
             }
 
             ++i;
             if (i >= argc) {
                 ERRMSG("Expected output file path after -o\n");
-                rt_code = 1;
+                ecode = ec_badclioption;
                 break;
             }
-            p->of = fopen(argv[i], "w");
-            if (p->of == NULL) {
-                ERRMSGF("Failed to open output file" TOKEN_COLOR " %s\n", argv[i]);
-                rt_code = 1;
+            f->output_path = cmalloc((strlength(argv[i]) + 1) * sizeof(char));
+            if (f->output_path == NULL) {
+                ecode = ec_badalloc;
                 break;
             }
+            strcopy(argv[i], f->output_path);
         }
         else {
-            if (p->rf != NULL) {
+            /* Input path */
+            if (f->input_path != NULL) {
                 /* Incorrect flag */
                 ERRMSGF("Unrecognized argument" TOKEN_COLOR " %s\n", argv[i]);
-                rt_code = 1;
+                ecode = ec_badclioption;
                 break;
             }
-            p->rf = fopen(argv[i], "r");
-            if (p->rf == NULL) {
-                ERRMSGF("Failed to open input file" TOKEN_COLOR " %s\n", argv[i]);
-                rt_code = 1;
+            f->input_path = cmalloc((strlength(argv[i]) + 1) * sizeof(char));
+            if (f->input_path == NULL) {
+                ecode = ec_badalloc;
                 break;
             }
+            strcopy(argv[i], f->input_path);
         }
     }
 
-    return rt_code;
+    return ecode;
 }
 
 int main(int argc, char** argv) {
-    int rt_code = 0;
-    Parser p = {.rf = NULL, .of = NULL, .line_num = 1, .char_num = 1};
-    p.ecode = ec_noerr;
+    ErrorCode ecode;
 
-    rt_code = handle_cli_arg(&p, argc, argv);
-    if (rt_code != 0) {
-        goto cleanup;
-    }
-    if (p.rf == NULL) {
+    Flags flags;
+    if ((ecode = flags_construct(&flags)) != ec_noerr) goto exit;
+
+    if ((ecode = handle_cli_arg(&flags, argc, argv)) != ec_noerr) goto exit1;
+
+    if (flags.input_path == NULL) {
         ERRMSG("No input file\n");
-        goto cleanup;
+        goto exit1;
     }
-    if (p.of == NULL) {
+    if (flags.output_path == NULL) {
         /* Default to opening imm2 */
+        /* FIXME
         p.of = fopen("imm2", "w");
         if (p.of == NULL) {
             ERRMSG("Failed to open output file\n");
             rt_code = 1;
             goto cleanup;
         }
+        */
     }
 
-    symtab_push_scope(&p);
-
-    while (1) {
-        if (!parse_function_definition(&p, &p.parse_node_root)) {
-            parser_set_error(&p, ec_syntaxerr);
-            ERRMSGF("Failed to build parse tree. Line %d, around char %d\n",
-                    p.last_line_num, p.last_char_num);
-            break;
-        }
-        if (*read_token(&p) == '\0') {
-            break;
-        }
-        tree_detach_node_child(&p, &p.parse_node_root);
+    Lexer lex;
+    if ((ecode = lexer_construct(&lex, flags.input_path)) != ec_noerr) {
+        ERRMSGF("Failed to open input file" TOKEN_COLOR " %s\n", flags.input_path);
+        goto exit1;
     }
 
-    symtab_pop_scope(&p);
-    ASSERT(p.i_scope == 0, "Scopes not empty on parse end");
+    Symtab symtab;
+    if ((ecode = symtab_construct(&symtab)) != ec_noerr) goto exit2;
+
+    Tree tree;
+    if ((ecode = tree_construct(&tree)) != ec_noerr) goto exit2;
+
+    Parser p;
+    if ((ecode = parser_construct(&p, &lex, &symtab, &tree)) != ec_noerr) goto exit2;
+
+    if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit2;
+
+    ecode = parse_translation_unit(&p);
+    if (ecode == ec_syntaxerr) {
+        ERRMSG("Failed to build parse tree\n");
+        goto exit2;
+    }
+    else if (ecode != ec_noerr) goto exit2;
+
+    symtab_pop_scope(&symtab);
+    ASSERT(symtab.i_scope == 0, "Scopes not empty on parse end");
     for (int i = 0; i < sc_count; ++i) {
-        ASSERTF(p.i_symtab_cat[i] == 0,
+        ASSERTF(symtab.i_cat[i] == 0,
                 "Symbol category stack %d not empty on parse end", i);
     }
 
     /* Debug options */
     if (g_debug_print_parse_tree) {
         LOG("Remaining ");
-        debug_print_parse_tree(&p);
+        debug_print_tree(&tree);
     }
 
-    if (parser_has_error(&p)) {
-        ErrorCode ecode = parser_get_error(&p);
-        ERRMSGF("Error during parsing: %d %s\n", ecode, errcode_str[ecode]);
-        rt_code = ecode;
-    }
+exit2:
+    lexer_destruct(&lex);
 
-cleanup:
-    if (p.rf != NULL) {
-        fclose(p.rf);
+exit1:
+    flags_destruct(&flags);
+
+exit:
+    if (ecode != ec_noerr) {
+        ERRMSGF("Error during parsing: %d %s\n", ecode, ec_str(ecode));
     }
-    if (p.of != NULL) {
-        fclose(p.of);
-    }
-    return rt_code;
+    return ecode;
 }
 

@@ -17,6 +17,8 @@
     ERROR_CODE(tnode_exceed)         \
     ERROR_CODE(tnode_childexceed)    \
                                      \
+    ERROR_CODE(badalloc)             \
+    ERROR_CODE(badclioption)         \
     ERROR_CODE(scopedepexceed)       \
     ERROR_CODE(scopelenexceed)       \
     ERROR_CODE(syntaxerr)            \
@@ -29,9 +31,7 @@
 typedef enum {ERROR_CODES} ErrorCode;
 #undef ERROR_CODE
 
-//#define ERROR_CODE(name__) #name__,
-//char* errcode_str[] = {ERROR_CODES};
-//#undef ERROR_CODE
-//#undef ERROR_CODES
+/* Returns error code name as string */
+const char* ec_str(ErrorCode ecode);
 
 #endif

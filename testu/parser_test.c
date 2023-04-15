@@ -17,6 +17,7 @@ static void ParserConstruct(CuTest* tc, Parser* p) {
 }
 
 static void ParserDestruct(CuTest* /*tc*/, Parser* p) {
+    tree_destruct(p->tree);
     cfree(p->tree);
 
     cfree(p->symtab);

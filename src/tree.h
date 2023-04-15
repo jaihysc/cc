@@ -5,7 +5,6 @@
 #include "constant.h"
 #include "symbol.h"
 
-#define MAX_TREE_NODE 2000 /* Maximum nodes in tree */
 #define MAX_TNODE_CHILD 256 /* Maximum children tnode */
 
 /* 6.4 Lexical elements */
@@ -75,6 +74,20 @@ typedef struct TNode {
     int variant;
 } TNode;
 
+/* Allocates a new TNode, stored at node_ptr */
+ErrorCode tnode_alloc(TNode** node_ptr);
+
+/* Allocates a new TNode, stored at node_ptr
+   attached to parent */
+ErrorCode tnode_alloca(TNode** node_ptr, TNode* parent);
+
+/* Frees TNode and children */
+void tnode_destruct(TNode* node);
+
+/* Attaches TNode new_node onto TNode node
+   node takes ownership of new_node */
+ErrorCode tnode_attach(TNode* node, TNode* new_node);
+
 /* Counts number of children for given node */
 int tnode_count_child(TNode* node);
 
@@ -97,12 +110,7 @@ int tnode_variant(TNode* node);
 void tnode_set(TNode* node, SymbolType st, void* data, int var);
 
 typedef struct {
-    /* Ensure root above node buffer for pointer arithmetic to work
-       (e.g., calculating index of node). Root treated as index -1
-       | root | node1 | node 2 | ... */
-    TNode root;
-    TNode* buf;
-    int i_buf; /* Index one past last element */
+    TNode* root;
 } Tree;
 
 ErrorCode tree_construct(Tree* tree);
@@ -110,14 +118,6 @@ void tree_destruct(Tree* tree);
 
 /* Returns the root of the tree */
 TNode* tree_root(Tree* tree);
-
-/* Attaches a node of onto the provided parent node
-   Stores the attached node in tree_ptr */
-ErrorCode tree_attach(
-        Tree* tree, TNode** tnode_ptr, TNode* parent);
-
-/* Removes the children of node from the parse tree */
-void tree_detach_child(Tree* tree, TNode* node);
 
 void debug_print_tree(Tree* tree);
 

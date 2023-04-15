@@ -2,6 +2,60 @@
 
 #include "common.h"
 
+ErrorCode tnode_alloc(TNode** node_ptr) {
+    ASSERT(node_ptr != NULL, "Node pointer is null");
+
+    *node_ptr = ccalloc(1, sizeof(TNode));
+    if (*node_ptr == NULL) return ec_badalloc;
+    return ec_noerr;
+}
+
+void tnode_destruct(TNode* node) {
+    if (node == NULL) return;
+
+    for (int i = 0; i < MAX_TNODE_CHILD; ++i) {
+        if (node->child[i] != NULL) {
+            tnode_destruct(node->child[i]);
+        }
+    }
+    cfree(node);
+}
+
+ErrorCode tnode_attach(TNode* node, TNode* new_node) {
+    ASSERT(node != NULL, "Node is null");
+    ASSERT(new_node != NULL, "New node is null");
+
+    /* First first available spot */
+    int i = 0;
+    while (1) {
+        if (i >= MAX_TNODE_CHILD) {
+            return ec_tnode_childexceed;
+        }
+        if (node->child[i] == NULL) {
+            node->child[i] = new_node;
+            break;
+        }
+        ++i;
+    }
+    return ec_noerr;
+}
+
+ErrorCode tnode_alloca(TNode** node_ptr, TNode* parent) {
+    ASSERT(node_ptr != NULL, "Node is null");
+    ASSERT(parent != NULL, "Parent is null");
+    ErrorCode ecode;
+
+    ecode = tnode_alloc(node_ptr);
+    if (ecode == ec_noerr) {
+        ecode = tnode_attach(parent, *node_ptr);
+        if (ecode == ec_noerr) return ec_noerr;
+
+        tnode_destruct(*node_ptr);
+        return ecode;
+    }
+    return ecode;
+}
+
 int tnode_count_child(TNode* node) {
     ASSERT(node != NULL, "Node is null");
 
@@ -95,68 +149,20 @@ void tnode_set(TNode* node, SymbolType st, void* data, int var) {
 
 ErrorCode tree_construct(Tree* tree) {
     ASSERT(tree != NULL, "Tree is null");
-    cmemzero(tree, sizeof(Tree));
+    ErrorCode ecode;
 
-    tree->buf = cmalloc(sizeof(TNode) * MAX_TREE_NODE);
-    if (tree->buf == NULL) return ec_badalloc;
-
+    if ((ecode = tnode_alloc(&tree->root)) != ec_noerr) return ecode;
+    tree->root->type = st_root;
     return ec_noerr;
 }
 
 void tree_destruct(Tree* tree) {
-    cfree(tree->buf);
+    tnode_destruct(tree->root);
 }
 
 TNode* tree_root(Tree* tree) {
     ASSERT(tree != NULL, "Tree is null");
-    return &tree->root;
-}
-
-ErrorCode tree_attach(
-        Tree* tree, TNode** tnode_ptr, TNode* parent) {
-    ASSERT(tree != NULL, "Tree is null");
-    ASSERT(parent != NULL, "Parent node is null");
-
-    if (tree->i_buf >= MAX_TREE_NODE) {
-        return ec_tnode_exceed;
-    }
-
-    TNode* node = tree->buf + tree->i_buf;
-    ++tree->i_buf;
-
-    /* Zero out children (may have previous values) */
-    for (int i = 0; i < MAX_TNODE_CHILD; ++i) {
-        node->child[i] = NULL;
-    }
-
-    /* Link parent node to child */
-    int i = 0;
-    while (1) {
-        if (i >= MAX_TNODE_CHILD) {
-            return ec_tnode_childexceed;
-        }
-        if (parent->child[i] == NULL) {
-            parent->child[i] = node;
-            break;
-        }
-        ++i;
-    }
-
-    *tnode_ptr = node;
-    return ec_noerr;
-}
-
-void tree_detach_child(Tree* tree, TNode* node) {
-    ASSERT(tree != NULL, "Tree is null");
-    ASSERT(node != NULL, "Parse node is null");
-
-    /* Remove children */
-    for (int i = 0; i < MAX_TNODE_CHILD; ++i) {
-        node->child[i] = NULL;
-    }
-    /* Free memory of children */
-    int i_node = (int)(node - tree->buf); /* Index current node */
-    tree->i_buf = i_node + 1;
+    return tree->root;
 }
 
 /* Prints out the parse tree
@@ -275,10 +281,10 @@ void debug_print_tree(Tree* tree) {
     ASSERT(tree != NULL, "Tree is null");
 
     LOG("Parse tree:\n");
-    /* 2 characters per node */
-    int max_branch = MAX_TREE_NODE * 2;
+    /* 2 characters per node, 200 nodes max */
+    int max_branch = 200 * 2;
 
     char branch[max_branch];
     branch[0] = '\0';
-    debug_tnode_walk(tree, &tree->root, branch, 0, max_branch);
+    debug_tnode_walk(tree, tree->root, branch, 0, max_branch);
 }

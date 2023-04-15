@@ -113,7 +113,7 @@ static ErrorCode parse_identifier(Parser* p, TNode* parent, int* matched) {
 
     if (tok_isidentifier(token)) {
         TNode* node;
-        if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+        if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
 
         TNodeIdentifier data;
         strcopy(token, data.token);
@@ -209,7 +209,7 @@ static ErrorCode parse_decimal_constant(Parser* p, TNode* parent, int* matched) 
     strcopy(token, data.token);
 
     TNode* node;
-    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
     tnode_set(node, st_decimal_constant, &data, 0);
 
     lexer_consume(p->lex);
@@ -253,7 +253,7 @@ static ErrorCode parse_octal_constant(Parser* p, TNode* parent, int* matched) {
     strcopy(token, data.token);
 
     TNode* node;
-    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
     tnode_set(node, st_octal_constant, &data, 0);
 
     lexer_consume(p->lex);
@@ -556,12 +556,15 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
     /* additive-expression -> multiplicative-expression + additive-expression
                             | multiplicative-expression - additive-expression
                             | multiplicative-expression */
+    int attached_node = 0;
+    TNode* node;
+
     int has_match;
     while (1) {
-        int made_match = 0; /* Made match on this iteration */
+        int made_match = 0;
 
-        TNode* node;
-        if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+        attached_node = 0;
 
         TNodeAdditiveExpression data;
         data.type = TNodeAdditiveExpression_none;
@@ -570,31 +573,35 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
         /* if (!parse_multiplicative_expression(p, parent)) goto exit; */
         if ((ecode = parse_primary_expression(
                         p, node, &has_match)) != ec_noerr) goto exit;
-        if (has_match) made_match = 1;
-        else break;
+        if (!has_match) break;
+        made_match = 1;
 
-        if ((ecode = parse_expect(p, "+", &has_match)) != ec_noerr) goto exit;
-        if (has_match) {
+        const char* token;
+        if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+        if (strequ(token, "+")) {
             data.type = TNodeAdditiveExpression_add;
+            lexer_consume(p->lex);
             made_match = 1;
         }
-        else {
-            if ((ecode = parse_expect(p, "-", &has_match)) != ec_noerr) goto exit;
-            if (has_match) {
-                data.type = TNodeAdditiveExpression_sub;
-                made_match = 1;
-            }
+        else if (strequ(token, "-")) {
+            data.type = TNodeAdditiveExpression_sub;
+            lexer_consume(p->lex);
+            made_match = 1;
         }
 
         if (made_match) {
+            if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
             tnode_set(node, st_additive_expression, &data, 0);
             parent = node;
+            attached_node = 1;
             *matched = 1;
         }
         else break;
     }
 
 exit:
+    if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }
@@ -811,9 +818,11 @@ static ErrorCode parse_assignment_expression(Parser* p, TNode* parent, int* matc
     /* Cannot check conditional-expression first, assignment-expression may
        match, but parent productions fail to match */
 
+    int attached_node = 0;
+    TNode* node;
     while (1) {
-        TNode* node;
-        if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+        attached_node = 0;
 
         TNodeAssignmentExpression data;
         data.type = TNodeAssignmentExpression_none;
@@ -836,12 +845,15 @@ static ErrorCode parse_assignment_expression(Parser* p, TNode* parent, int* matc
             lexer_consume(p->lex);
         }
 
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
         tnode_set(node, st_assignment_expression, &data, 0);
         parent = node;
         *matched = 1;
+        attached_node = 1;
     }
 
 exit:
+    if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }
@@ -851,23 +863,24 @@ static ErrorCode parse_expression(Parser* p, TNode* parent, int* matched) {
     ErrorCode ecode;
     *matched = 0;
 
+    int attached_node = 0;
     TNode* node;
-    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
     tnode_set(node, st_expression, NULL, 0);
 
     int has_match;
     if ((ecode = parse_assignment_expression(
                     p, node, &has_match)) != ec_noerr) goto exit;
-    if (has_match) goto matched;
+    if (has_match) {
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        *matched = 1;
+        attached_node = 1;
+    }
 
     /* Incomplete */
 
-    goto exit;
-
-matched:
-    *matched = 1;
-
 exit:
+    if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }
@@ -877,8 +890,9 @@ static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched) {
     ErrorCode ecode;
     *matched = 0;
 
+    int attached_node = 0;
     TNode* node;
-    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
     tnode_set(node, st_declaration, NULL, 0);
 
     int has_match;
@@ -896,9 +910,12 @@ static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched) {
         goto exit;
     }
 
+    if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+    attached_node = 1;
     *matched = 1;
 
 exit:
+    if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }
@@ -945,7 +962,7 @@ static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* mat
 
     if (*matched) {
         TNode* node;
-        if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+        if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
         tnode_set(node, st_declaration_specifiers, &data, 0);
     }
 
@@ -1043,8 +1060,10 @@ static ErrorCode parse_declarator(Parser* p, TNode* parent, int* matched) {
         if (matched_ptr) ++pointers;
         else break;
     }
+
     TNode* node;
-    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+
     TNodePointer data;
     data.pointers = pointers;
     tnode_set(node, st_pointer, &data, 0);
@@ -1119,17 +1138,21 @@ static ErrorCode parse_parameter_type_list(Parser* p, TNode* parent, int* matche
     ErrorCode ecode = ec_noerr;
     *matched = 0;
 
+    int attached_node = 0;
     TNode* node;
-    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
     tnode_set(node, st_parameter_type_list, NULL, 0);
 
     int has_match;
     if ((ecode = parse_parameter_list(p, node, &has_match)) != ec_noerr) goto exit;
     if (has_match) {
         *matched = 1;
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        attached_node = 1;
     }
 
 exit:
+    if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }
@@ -1286,7 +1309,7 @@ static ErrorCode parse_compound_statement(Parser* p, TNode* parent, int* matched
     if (!has_match) goto exit;
 
     TNode* node;
-    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
     tnode_set(node, st_compound_statement, NULL, 0);
 
     symtab_push_scope(p->symtab);
@@ -1689,7 +1712,7 @@ static ErrorCode parse_jump_statement(Parser* p, TNode* parent, int* matched) {
 
 matched:
     TNode* node;
-    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
     tnode_set(node, st_jump_statement, &data, 0);
 
     if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;;

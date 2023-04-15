@@ -14,7 +14,6 @@
                                      \
     ERROR_CODE(symtab_dupname)       \
                                      \
-    ERROR_CODE(tnode_exceed)         \
     ERROR_CODE(tnode_childexceed)    \
                                      \
     ERROR_CODE(badalloc)             \

@@ -284,6 +284,11 @@ static inline void* cmalloc(size_t bytes) {
     return malloc(bytes);
 }
 
+/* Allocates num * bytes of zeroed storage, returns NULL if error */
+static inline void* ccalloc(size_t num, size_t bytes) {
+    return calloc(num, bytes);
+}
+
 /* Deallocates space allocated by cmalloc */
 static inline void cfree(void* ptr) {
     free(ptr);

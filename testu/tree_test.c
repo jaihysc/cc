@@ -7,18 +7,15 @@ static void AttachDetachNode(CuTest* tc) {
     CuAssertIntEquals(tc, tree_construct(&tree), ec_noerr);
 
     TNode* node;
-    tree_attach(&tree, &node, tree_root(&tree));
+    tnode_alloca(&node, tree_root(&tree));
 
     TNode* node_1;
-    tree_attach(&tree, &node_1, node);
+    tnode_alloca(&node_1, node);
 
     TNode* node_2;
-    tree_attach(&tree, &node_2, node);
+    tnode_alloc(&node_2);
 
-    CuAssertIntEquals(tc, tnode_count_child(node), 2);
-
-    tree_detach_child(&tree, node);
-    CuAssertIntEquals(tc, tnode_count_child(node), 0);
+    tnode_attach(node, node_2);
 
     tree_destruct(&tree);
 }

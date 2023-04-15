@@ -50,8 +50,25 @@ void tnode_set(TNode* node, SymbolType st, void* data, int var) {
         case st_identifier:
             node->data.identifier = *(TNodeIdentifier*)data;
             break;
+        case st_decimal_constant:
+            node->data.decimal_constant = *(TNodeDecimalConstant*)data;
+            break;
+        case st_additive_expression:
+            node->data.additive_expression = *(TNodeAdditiveExpression*)data;
+        case st_expression:
+            break;
         case st_declaration_specifiers:
             node->data.declaration_specifiers = *(TNodeDeclarationSpecifiers*)data;
+            break;
+        case st_pointer:
+            node->data.pointer = *(TNodePointer*)data;
+            break;
+        case st_parameter_type_list:
+            break;
+        case st_compound_statement:
+            break;
+        case st_jump_statement:
+            node->data.jump_statement = *(TNodeJumpStatement*)data;
             break;
         default:
             ASSERT(0, "Unimplemented");
@@ -128,7 +145,61 @@ static void debug_tnode_walk(
     ASSERT(tree != NULL, "Tree is null");
 
     /* Is symbol type */
-    LOGF("%s\n", st_str(node->type));
+    LOGF("%s", st_str(node->type));
+    switch (node->type) {
+        case st_identifier:
+            {
+                TNodeIdentifier* data = (TNodeIdentifier*)&node->data;
+                LOGF("(%s)", data->token);
+            }
+            break;
+        case st_decimal_constant:
+            {
+                TNodeDecimalConstant* data = (TNodeDecimalConstant*)&node->data;
+                LOGF("(%s)", data->token);
+            }
+            break;
+        case st_additive_expression:
+            {
+                TNodeAdditiveExpression* data = (TNodeAdditiveExpression*)&node->data;
+                if (data->type == TNodeAdditiveExpression_add) {
+                    LOGF("(add)");
+                }
+                else if (data->type == TNodeAdditiveExpression_sub) {
+                    LOGF("(sub)");
+                }
+            }
+            break;
+        case st_declaration_specifiers:
+            {
+                //TNodeDeclarationSpecifiers* data = (TNodeDeclarationSpecifiers*)&node->data;
+                //LOGF("(%s)\n", data->token);
+            }
+            break;
+        case st_pointer:
+            {
+                TNodePointer* data = (TNodePointer*)&node->data;
+                LOGF("(%d)", data->pointers);
+            }
+            break;
+        case st_jump_statement:
+            {
+                TNodeJumpStatement* data = (TNodeJumpStatement*)&node->data;
+                if (data->type == TNodeJumpStatement_continue) {
+                    LOGF("(continue)");
+                }
+                else if (data->type == TNodeJumpStatement_break) {
+                    LOGF("(break)");
+                }
+                else if (data->type == TNodeJumpStatement_return) {
+                    LOGF("(return)");
+                }
+            }
+            break;
+        default:
+            break;
+    }
+    LOGF("\n");
 
     /* iterate through children */
     int child_count = 0;

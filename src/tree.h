@@ -6,20 +6,50 @@
 #include "symbol.h"
 
 #define MAX_TREE_NODE 2000 /* Maximum nodes in tree */
-#define MAX_TNODE_CHILD 4 /* Maximum children tnode */
+#define MAX_TNODE_CHILD 20 /* Maximum children tnode */
 
 /* 6.4 Lexical elements */
 typedef struct {
     char token[MAX_TOKEN_LEN + 1];
 } TNodeIdentifier;
 
+typedef struct {
+    char token[MAX_TOKEN_LEN + 1];
+} TNodeDecimalConstant;
+
+/* 6.5 Expressions */
+typedef struct {
+    enum {
+        TNodeAdditiveExpression_none,
+        TNodeAdditiveExpression_add,
+        TNodeAdditiveExpression_sub,
+    } type;
+} TNodeAdditiveExpression;
+
 /* 6.7 Declarators */
 typedef struct {
 } TNodeDeclarationSpecifiers;
 
+typedef struct {
+    int pointers;
+} TNodePointer;
+
+/* 6.8 Statements and blocks */
+typedef struct {
+    enum {
+        TNodeJumpStatement_continue,
+        TNodeJumpStatement_break,
+        TNodeJumpStatement_return
+    } type;
+} TNodeJumpStatement;
+
 typedef union {
     TNodeIdentifier identifier;
+    TNodeDecimalConstant decimal_constant;
+    TNodeAdditiveExpression additive_expression;
     TNodeDeclarationSpecifiers declaration_specifiers;
+    TNodePointer pointer;
+    TNodeJumpStatement jump_statement;
 } TNodeData;
 
 typedef struct TNode {

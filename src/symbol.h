@@ -149,6 +149,8 @@ SymbolId symbol_ptr_index(Symbol* sym);
     SYMBOL_TYPE(iteration_statement)       \
     SYMBOL_TYPE(jump_statement)            \
                                            \
+    SYMBOL_TYPE(translation_unit)          \
+    SYMBOL_TYPE(external_declaration)      \
     SYMBOL_TYPE(function_definition)
 
 #define SYMBOL_TYPE(name__) st_ ## name__,

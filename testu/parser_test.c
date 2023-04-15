@@ -5,16 +5,21 @@
 
 static void ParserConstruct(CuTest* tc, Parser* p) {
     Lexer* lex = cmalloc(sizeof(Lexer));
-    CuAssertIntEquals(tc, lexer_construct(lex, "testu/testcode"), ec_noerr);
+    CuAssertIntEquals(tc, lexer_construct(lex, "testu/testfunc"), ec_noerr);
+
+    Symtab* symtab = cmalloc(sizeof(Symtab));
+    CuAssertIntEquals(tc, symtab_construct(symtab), ec_noerr);
 
     Tree* tree = cmalloc(sizeof(Tree));
     CuAssertIntEquals(tc, tree_construct(tree), ec_noerr);
 
-    CuAssertIntEquals(tc, parser_construct(p, lex, tree), ec_noerr);
+    CuAssertIntEquals(tc, parser_construct(p, lex, symtab, tree), ec_noerr);
 }
 
 static void ParserDestruct(CuTest* /*tc*/, Parser* p) {
     cfree(p->tree);
+
+    cfree(p->symtab);
 
     lexer_destruct(p->lex);
     cfree(p->lex);

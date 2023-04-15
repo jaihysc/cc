@@ -1,7 +1,14 @@
-/* Preprocessed c file parser */
-/* Generated output is imm2 */
+#include "parser.h"
 
-/* C source parsing functions */
+#include "common.h"
+#include "globals.h"
+
+ErrorCode parser_construct(Parser* p, Lexer* lex, Symtab* symtab, Tree* tree) {
+    p->lex = lex;
+    p->symtab = symtab;
+    p->tree = tree;
+    return ec_noerr;
+}
 
 /* 1. Shows beginning and end of each function, indented with recursion depth
       The end is green if the production rule was matched, red if not
@@ -19,12 +26,8 @@ int debug_parse_func_recursion_depth = 0;
     LOGF(">%d " #symbol_type__ "\n", debug_parse_func_recursion_depth); \
     debug_parse_func_recursion_depth++;                                 \
     }                                                                   \
-    ASSERT(parent != NULL, "Parent node is null");                      \
-    ParseLocation start_location__ =                                    \
-        parser_get_parse_location(p, parent);                           \
-    ParseNode* node__ =                                                 \
-        tree_attach_node(p, parent, st_ ## symbol_type__);              \
-    int matched__ = 0
+    ASSERT(parent != NULL, "Parent node is null");
+
 /* Call at end on function */
 #define PARSE_FUNC_END()                                                   \
     if (g_debug_print_parse_recursion) {                                   \
@@ -32,146 +35,160 @@ int debug_parse_func_recursion_depth = 0;
     for (int i__ = 0; i__ < debug_parse_func_recursion_depth; ++i__) {     \
         LOG("  ");                                                         \
     }                                                                      \
-    if (matched__) {LOG("\033[32m");} else {LOG("\033[0;1;31m");}          \
-    LOGF("<%d\033[0m\n", debug_parse_func_recursion_depth);                \
-    }                                                                      \
-    if (!matched__) {parser_set_parse_location(p, &start_location__);}     \
-    else {p->last_line_num = p->line_num; p->last_char_num = p->char_num;} \
-    return matched__
-/* Call if a match was made in production rule */
-#define PARSE_MATCHED() matched__ = 1
+    LOGF("<%d\n", debug_parse_func_recursion_depth);                       \
+    }
+
 /* Deletes child nodes of current location */
 #define PARSE_TRIM_TREE()                                           \
     if (g_debug_print_parse_recursion) {LOG("Parse tree clear\n");} \
     if (g_debug_print_parse_tree) {debug_print_parse_tree(p);}      \
     tree_detach_node_child(p, node__)
 
-/* Name for the pointer to the current node */
-#define PARSE_CURRENT_NODE node__
-
 /* Sorted by Annex A.2 in C99 standard */
 /* Return code indicates whether symbol was successfully parsed */
-/* ParseNode* is the parent node to attach additional nodes to */
+/* TNode* is the parent node to attach additional nodes to */
 
 /* 6.4 Lexical elements */
-static int parse_identifier(Parser* p, ParseNode* parent);
-static int parse_constant(Parser* p, ParseNode* parent);
-static int parse_integer_constant(Parser* p, ParseNode* parent);
-static int parse_decimal_constant(Parser* p, ParseNode* parent);
-static int parse_octal_constant(Parser* p, ParseNode* parent);
-static int parse_hexadecimal_constant(Parser*, ParseNode*);
+static ErrorCode parse_identifier(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_constant(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_integer_constant(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_decimal_constant(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_octal_constant(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_hexadecimal_constant(Parser*, TNode* parent, int* matched);
 /* 6.5 Expressions */
-static int parse_primary_expression(Parser* p, ParseNode* parent);
-static int parse_postfix_expression(Parser* p, ParseNode* parent);
-static int parse_postfix_expression_2(Parser* p, ParseNode* parent);
-static int parse_argument_expression_list(Parser*, ParseNode*);
-static int parse_unary_expression(Parser* p, ParseNode* parent);
-static int parse_cast_expression(Parser* p, ParseNode* parent);
-static int parse_multiplicative_expression(Parser* p, ParseNode* parent);
-static int parse_additive_expression(Parser* p, ParseNode* parent);
-static int parse_shift_expression(Parser* p, ParseNode* parent);
-static int parse_relational_expression(Parser* p, ParseNode* parent);
-static int parse_equality_expression(Parser* p, ParseNode* parent);
-static int parse_and_expression(Parser* p, ParseNode* parent);
-static int parse_exclusive_or_expression(Parser* p, ParseNode* parent);
-static int parse_inclusive_or_expression(Parser* p, ParseNode* parent);
-static int parse_logical_and_expression(Parser* p, ParseNode* parent);
-static int parse_logical_or_expression(Parser* p, ParseNode* parent);
-static int parse_conditional_expression(Parser* p, ParseNode* parent);
-static int parse_assignment_expression(Parser* p, ParseNode* parent);
-static int parse_assignment_expression_2(Parser* p, ParseNode* parent);
-static int parse_assignment_expression_3(Parser* p, ParseNode* parent);
-static int parse_expression(Parser* p, ParseNode* parent);
+static ErrorCode parse_primary_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_postfix_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_postfix_expression_2(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_argument_expression_list(Parser*, TNode* parent, int* matched);
+static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_cast_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_shift_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_and_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_exclusive_or_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_inclusive_or_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_logical_and_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_logical_or_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_conditional_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_assignment_expression(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_assignment_expression_2(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_assignment_expression_3(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_expression(Parser* p, TNode* parent, int* matched);
 /* 6.7 Declarators */
-static int parse_declaration(Parser* p, ParseNode* parent);
-static int parse_declaration_specifiers(Parser* p, ParseNode* parent);
-static int parse_init_declarator_list(Parser* p, ParseNode* parent);
-static int parse_init_declarator(Parser* p, ParseNode* parent);
-static int parse_storage_class_specifier(Parser* p, ParseNode* parent);
-static int parse_type_specifier(Parser* p, ParseNode* parent);
-static int parse_specifier_qualifier_list(Parser*, ParseNode*);
-static int parse_type_qualifier(Parser* p, ParseNode* parent);
-static int parse_function_specifier(Parser* p, ParseNode* parent);
-static int parse_declarator(Parser* p, ParseNode* parent);
-static int parse_direct_declarator(Parser* p, ParseNode* parent);
-static int parse_direct_declarator_2(Parser* p, ParseNode* parent);
-static int parse_pointer(Parser* p, ParseNode* parent);
-static int parse_parameter_type_list(Parser* p, ParseNode* parent);
-static int parse_parameter_list(Parser* p, ParseNode* parent);
-static int parse_parameter_declaration(Parser* p, ParseNode* parent);
-static int parse_type_name(Parser*, ParseNode*);
-static int parse_abstract_declarator(Parser*, ParseNode*);
-static int parse_initializer(Parser* p, ParseNode* parent);
+static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_init_declarator_list(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_init_declarator(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_declarator(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_direct_declarator(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_parameter_type_list(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_parameter_declaration(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_type_name(Parser*, TNode* parent, int* matched);
+static ErrorCode parse_abstract_declarator(Parser*, TNode* parent, int* matched);
+static ErrorCode parse_initializer(Parser* p, TNode* parent, int* matched);
 /* 6.8 Statements and blocks */
-static int parse_statement(Parser* p, ParseNode* parent);
-static int parse_compound_statement(Parser* p, ParseNode* parent);
-static int parse_block_item(Parser* p, ParseNode* parent);
-static int parse_expression_statement(Parser* p, ParseNode* parent);
-static int parse_selection_statement(Parser* p, ParseNode* parent);
-static int parse_iteration_statement(Parser* p, ParseNode* parent);
-static int parse_jump_statement(Parser* p, ParseNode* parent);
+static ErrorCode parse_statement(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_compound_statement(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_block_item(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_expression_statement(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_selection_statement(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_iteration_statement(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_jump_statement(Parser* p, TNode* parent, int* matched);
 /* 6.9 External definitions */
-static int parse_function_definition(Parser* p, ParseNode* parent);
+static ErrorCode parse_external_declaration(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_function_definition(Parser* p, TNode* parent, int* matched);
 /* Helpers */
-static int parse_expect(Parser* p, const char* match_token);
+static ErrorCode parse_expect(Parser* p, const char* match_token, int* matched);
 
 /* identifier */
-static int parse_identifier(Parser* p, ParseNode* parent) {
+static ErrorCode parse_identifier(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(identifier);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
 
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
     if (tok_isidentifier(token)) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
-        PARSE_MATCHED();
+        TNode* node;
+        if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+
+        TNodeIdentifier data;
+        strcopy(token, data.token);
+        tnode_set(node, st_identifier, &data, 0);
+
+        lexer_consume(p->lex);
+        *matched = 1;
         goto exit;
     }
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_constant(Parser* p, ParseNode* parent) {
+static ErrorCode parse_constant(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(constant);
+    ErrorCode ecode;
+    *matched = 0;
 
-    if (parse_integer_constant(p, PARSE_CURRENT_NODE)) goto matched;
+    int has_match;
+    if ((ecode = parse_integer_constant(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
 
     /* Incomplete */
 
     goto exit;
 
 matched:
-    PARSE_MATCHED();
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_integer_constant(Parser* p, ParseNode* parent) {
+static ErrorCode parse_integer_constant(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(integer_constant);
+    ErrorCode ecode;
+    *matched = 0;
 
-    if (parse_decimal_constant(p, PARSE_CURRENT_NODE)) goto matched;
-    if (parse_octal_constant(p, PARSE_CURRENT_NODE)) goto matched;
-    if (parse_hexadecimal_constant(p, PARSE_CURRENT_NODE)) goto matched;
+    int has_match;
+    if ((ecode = parse_decimal_constant(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
+
+    if ((ecode = parse_octal_constant(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
+
+    if ((ecode = parse_hexadecimal_constant(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
 
     /* Incomplete */
 
     goto exit;
 
 matched:
-    PARSE_MATCHED();
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_decimal_constant(Parser* p, ParseNode* parent) {
+static ErrorCode parse_decimal_constant(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(decimal_constant);
+    ErrorCode ecode;
+    *matched = 0;
 
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
     /* First character is nonzero-digit */
     char c = token[0];
@@ -190,16 +207,25 @@ static int parse_decimal_constant(Parser* p, ParseNode* parent) {
         c = token[i];
     }
 
-    tree_attach_token(p, PARSE_CURRENT_NODE, token);
-    consume_token(token);
-    PARSE_MATCHED();
+    TNodeDecimalConstant data;
+    strcopy(token, data.token);
+
+    TNode* node;
+    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    tnode_set(node, st_decimal_constant, &data, 0);
+
+    lexer_consume(p->lex);
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_octal_constant(Parser* p, ParseNode* parent) {
+static ErrorCode parse_octal_constant(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(octal_constant);
+    ErrorCode ecode;
+    *matched = 0;
 
     /* Left recursion in C standard is converted to right recursion */
     /* octal-constant
@@ -207,8 +233,8 @@ static int parse_octal_constant(Parser* p, ParseNode* parent) {
     /* octal-constant-2
        -> octal-digit octal-constant-2(opt) */
 
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
     char c = token[0];
     if (c != '0') {
@@ -225,19 +251,24 @@ static int parse_octal_constant(Parser* p, ParseNode* parent) {
         c = token[i];
     }
 
-    tree_attach_token(p, PARSE_CURRENT_NODE, token);
-    consume_token(token);
-    PARSE_MATCHED();
+    /* FIXME
+    tree_attach_token(p, parent, token);
+    */
+    lexer_consume(p->lex);
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_hexadecimal_constant(Parser* p, ParseNode* parent) {
+static ErrorCode parse_hexadecimal_constant(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(hexadecimal_constant);
+    ErrorCode ecode;
+    *matched = 0;
 
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
     if (token[0] != '0') goto exit;
     if (token[1] != 'x' && token[1] != 'X') goto exit;
@@ -263,209 +294,258 @@ static int parse_hexadecimal_constant(Parser* p, ParseNode* parent) {
         c = token[i];
     }
 
-    tree_attach_token(p, PARSE_CURRENT_NODE, token);
-    consume_token(token);
-    PARSE_MATCHED();
+    /* FIXME
+    tree_attach_token(p, parent, token);
+    */
+    lexer_consume(p->lex);
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_primary_expression(Parser* p, ParseNode* parent) {
+static ErrorCode parse_primary_expression(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(primary_expression);
+    ErrorCode ecode;
+    *matched = 0;
 
-    if (parse_identifier(p, PARSE_CURRENT_NODE)) goto matched;
-    if (parse_constant(p, PARSE_CURRENT_NODE)) goto matched;
+    int has_match;
+    if ((ecode = parse_identifier(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
 
-    if (parse_expect(p, "(")) {
-        if (!parse_expression(p, PARSE_CURRENT_NODE)) goto exit;
-        if (parse_expect(p, ")")) goto matched;
+    if ((ecode = parse_constant(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
+
+    if ((ecode = parse_expect(p, "(", &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        if ((ecode = parse_expression(p, parent, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected expression\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        if ((ecode = parse_expect(p, ")", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected ')'\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+        goto matched;
     }
 
     goto exit;
 
 matched:
-    PARSE_MATCHED();
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_postfix_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(postfix_expression);
+//static ErrorCode parse_postfix_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(postfix_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* Left recursion in C standard is converted to right recursion */
+//    /* postfix-expression
+//       -> primary-expression postfix-expression-2(opt)
+//        | ( type-name ) { initializer-list } postfix-expression-2(opt)
+//        | ( type-name ) { initializer-list , } postfix-expression-2(opt) */
+//    /* postfix-expression-2
+//       -> [ expression ] postfix-expression-2(opt)
+//        | ( argument-expression-list(opt) ) postfix-expression-2(opt)
+//        | . identifier postfix-expression-2(opt)
+//        | -> identifier postfix-expression-2(opt)
+//        | ++ postfix-expression-2(opt)
+//        | -- postfix-expression-2(opt) */
+//
+//    int has_match;
+//    if ((ecode = parse_primary_expression(
+//                    p, parent, &has_match)) != ec_noerr) goto exit;
+//    if (has_match) {
+//        *matched = 1;
+//        /* FIXME
+//        if ((ecode = parse_postfix_expression_2(
+//                        p, parent, &has_match)) != ec_noerr) goto exit;
+//                        */
+//    }
+//
+//    /* Incomplete */
+//
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_postfix_expression_2(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(postfix_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* Array subscript */
+//    if (parse_expect(p, "[")) {
+//        if (!parse_expression(p, parent)) goto exit;
+//        if (!parse_expect(p, "]")) goto exit;
+//        PARSE_MATCHED();
+//
+//        parse_postfix_expression_2(p, parent);
+//    }
+//    /* Function call */
+//    else if (parse_expect(p, "(")) {
+//        if (!parse_argument_expression_list(p, parent)) goto exit;
+//        if (!parse_expect(p, ")")) goto exit;
+//        PARSE_MATCHED();
+//
+//        parse_postfix_expression_2(p, parent);
+//    }
+//    /* Postfix increment, decrement */
+//    else if (parse_expect(p, "++")) {
+//        tree_attach_token(p, parent, "++");
+//        PARSE_MATCHED();
+//
+//        parse_postfix_expression_2(p, parent);
+//    }
+//    else if (parse_expect(p, "--")) {
+//        tree_attach_token(p, parent, "--");
+//        PARSE_MATCHED();
+//
+//        parse_postfix_expression_2(p, parent);
+//    }
+//
+//    /* Incomplete */
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_argument_expression_list(Parser* p, TNode* parent, int* matched) {
+//    /* Left recursion in C standard is converted to right recursion
+//       argument-expression-list
+//       -> assignment-expression
+//        | assignment-expression , argument-expression-list */
+//    PARSE_FUNC_START(argument_expression_list);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    if (parse_assignment_expression(p, parent)) {
+//        if (parse_expect(p, ",")) {
+//            if (parse_argument_expression_list(p, parent)) {
+//                PARSE_MATCHED();
+//            }
+//        }
+//        else {
+//            PARSE_MATCHED();
+//        }
+//    }
+//
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(unary_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    char* token = read_token(p);
+//    if (parser_has_error(p)) goto exit;
+//
+//    /* Prefix increment, decrement */
+//    if (strequ(token, "++")) {
+//        tree_attach_token(p, parent, token);
+//        lexer_consume(p->lex);
+//        if (!parse_unary_expression(p, parent)) goto exit;
+//    }
+//    else if (strequ(token, "--")) {
+//        tree_attach_token(p, parent, token);
+//        lexer_consume(p->lex);
+//        if (!parse_unary_expression(p, parent)) goto exit;
+//    }
+//    else if (tok_isunaryop(token)) {
+//        tree_attach_token(p, parent, token);
+//        lexer_consume(p->lex);
+//        if (!parse_cast_expression(p, parent)) goto exit;
+//    }
+//    else if (!parse_postfix_expression(p, parent)) {
+//        goto exit;
+//    }
+//
+//    /* Incomplete */
+//
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_cast_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(cast_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* This comes first as the below consumes ( */
+//    if (parse_unary_expression(p, parent)) {
+//        PARSE_MATCHED();
+//    }
+//    else if (parse_expect(p, "(")) {
+//        if (!parse_type_name(p, parent)) goto exit;
+//        if (!parse_expect(p, ")")) goto exit;
+//        if (!parse_cast_expression(p, parent)) goto exit;
+//
+//        PARSE_MATCHED();
+//    }
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(multiplicative_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* Left recursion in C standard is converted to right recursion */
+//    /* NOTE: This does affect order of operations, operations involving
+//       multiplicative_expression nodes if preorder traversal
+//       e.g., a * b / c in the order of encountering them */
+//    /* multiplicative-expression
+//       -> cast-expression * multiplicative-expression
+//        | cast-expression / multiplicative-expression
+//        | cast-expression % multiplicative-expression
+//        | cast-expression */
+//
+//    if (!parse_cast_expression(p, parent)) goto exit;
+//
+//    if (parse_expect(p, "*")) {
+//        tree_attach_token(p, parent, "mul");
+//        if (!parse_multiplicative_expression(p, parent)) goto exit;
+//    }
+//    else if (parse_expect(p, "/")) {
+//        tree_attach_token(p, parent, "div");
+//        if (!parse_multiplicative_expression(p, parent)) goto exit;
+//    }
+//    else if (parse_expect(p, "%")) {
+//        tree_attach_token(p, parent, "mod");
+//        if (!parse_multiplicative_expression(p, parent)) goto exit;
+//    }
+//
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
 
-    /* Left recursion in C standard is converted to right recursion */
-    /* postfix-expression
-       -> primary-expression postfix-expression-2(opt)
-        | ( type-name ) { initializer-list } postfix-expression-2(opt)
-        | ( type-name ) { initializer-list , } postfix-expression-2(opt) */
-    /* postfix-expression-2
-       -> [ expression ] postfix-expression-2(opt)
-        | ( argument-expression-list(opt) ) postfix-expression-2(opt)
-        | . identifier postfix-expression-2(opt)
-        | -> identifier postfix-expression-2(opt)
-        | ++ postfix-expression-2(opt)
-        | -- postfix-expression-2(opt) */
-
-    if (parse_primary_expression(p, PARSE_CURRENT_NODE)) {
-        PARSE_MATCHED();
-        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
-    }
-
-    /* Incomplete */
-
-    PARSE_FUNC_END();
-}
-
-static int parse_postfix_expression_2(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(postfix_expression);
-
-    /* Array subscript */
-    if (parse_expect(p, "[")) {
-        if (!parse_expression(p, PARSE_CURRENT_NODE)) goto exit;
-        if (!parse_expect(p, "]")) goto exit;
-        PARSE_MATCHED();
-
-        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
-    }
-    /* Function call */
-    else if (parse_expect(p, "(")) {
-        if (!parse_argument_expression_list(p, PARSE_CURRENT_NODE)) goto exit;
-        if (!parse_expect(p, ")")) goto exit;
-        PARSE_MATCHED();
-
-        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
-    }
-    /* Postfix increment, decrement */
-    else if (parse_expect(p, "++")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "++");
-        PARSE_MATCHED();
-
-        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
-    }
-    else if (parse_expect(p, "--")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "--");
-        PARSE_MATCHED();
-
-        parse_postfix_expression_2(p, PARSE_CURRENT_NODE);
-    }
-
-    /* Incomplete */
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_argument_expression_list(Parser* p, ParseNode* parent) {
-    /* Left recursion in C standard is converted to right recursion
-       argument-expression-list
-       -> assignment-expression
-        | assignment-expression , argument-expression-list */
-    PARSE_FUNC_START(argument_expression_list);
-
-    if (parse_assignment_expression(p, PARSE_CURRENT_NODE)) {
-        if (parse_expect(p, ",")) {
-            if (parse_argument_expression_list(p, PARSE_CURRENT_NODE)) {
-                PARSE_MATCHED();
-            }
-        }
-        else {
-            PARSE_MATCHED();
-        }
-    }
-
-    PARSE_FUNC_END();
-}
-
-static int parse_unary_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(unary_expression);
-
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
-
-    /* Prefix increment, decrement */
-    if (strequ(token, "++")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
-        if (!parse_unary_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (strequ(token, "--")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
-        if (!parse_unary_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (tok_isunaryop(token)) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
-        if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (!parse_postfix_expression(p, PARSE_CURRENT_NODE)) {
-        goto exit;
-    }
-
-    /* Incomplete */
-
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_cast_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(cast_expression);
-
-    /* This comes first as the below consumes ( */
-    if (parse_unary_expression(p, PARSE_CURRENT_NODE)) {
-        PARSE_MATCHED();
-    }
-    else if (parse_expect(p, "(")) {
-        if (!parse_type_name(p, PARSE_CURRENT_NODE)) goto exit;
-        if (!parse_expect(p, ")")) goto exit;
-        if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
-
-        PARSE_MATCHED();
-    }
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_multiplicative_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(multiplicative_expression);
-
-    /* Left recursion in C standard is converted to right recursion */
-    /* NOTE: This does affect order of operations, operations involving
-       multiplicative_expression nodes if preorder traversal
-       e.g., a * b / c in the order of encountering them */
-    /* multiplicative-expression
-       -> cast-expression * multiplicative-expression
-        | cast-expression / multiplicative-expression
-        | cast-expression % multiplicative-expression
-        | cast-expression */
-
-    if (!parse_cast_expression(p, PARSE_CURRENT_NODE)) goto exit;
-
-    if (parse_expect(p, "*")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "mul");
-        if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (parse_expect(p, "/")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "div");
-        if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (parse_expect(p, "%")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "mod");
-        if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_additive_expression(Parser* p, ParseNode* parent) {
+static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(additive_expression);
+    ErrorCode ecode;
+    *matched = 0;
 
     /* Left recursion in C standard is converted to right recursion */
     /* NOTE: This does affect order of operations, operations involving
@@ -474,1032 +554,1254 @@ static int parse_additive_expression(Parser* p, ParseNode* parent) {
     /* additive-expression -> multiplicative-expression + additive-expression
                             | multiplicative-expression - additive-expression
                             | multiplicative-expression */
+    int has_match;
+    while (1) {
+        int made_match = 0; /* Made match on this iteration */
 
-    if (!parse_multiplicative_expression(p, PARSE_CURRENT_NODE)) goto exit;
+        TNode* node;
+        if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
 
-    if (parse_expect(p, "+")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "+");
-        if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
+        TNodeAdditiveExpression data;
+        data.type = TNodeAdditiveExpression_none;
+
+        /* FIXME should be multiplicative-expression */
+        /* if (!parse_multiplicative_expression(p, parent)) goto exit; */
+        if ((ecode = parse_primary_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (has_match) made_match = 1;
+        else break;
+
+        if ((ecode = parse_expect(p, "+", &has_match)) != ec_noerr) goto exit;
+        if (has_match) {
+            data.type = TNodeAdditiveExpression_add;
+            made_match = 1;
+        }
+        else {
+            if ((ecode = parse_expect(p, "-", &has_match)) != ec_noerr) goto exit;
+            if (has_match) {
+                data.type = TNodeAdditiveExpression_sub;
+                made_match = 1;
+            }
+        }
+
+        if (made_match) {
+            tnode_set(node, st_additive_expression, &data, 0);
+            parent = node;
+            *matched = 1;
+        }
+        else break;
     }
-    if (parse_expect(p, "-")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "-");
-        if (!parse_additive_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_shift_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(shift_expression);
-
-    if (parse_additive_expression(p, PARSE_CURRENT_NODE)) goto matched;
-
-    /* Incomplete */
 
     goto exit;
 
-matched:
-    PARSE_MATCHED();
-
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_relational_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(relational_expression);
-
-    /* Left recursion in C standard is converted to right recursion */
-    /* relational-expression
-        -> shift-expression
-         | shift-expression < relational-expression
-         | shift-expression > relational-expression
-         | shift-expression <= relational-expression
-         | shift-expression >= relational-expression*/
-
-    if (!parse_shift_expression(p, PARSE_CURRENT_NODE)) goto exit;
-
-    if (parse_expect(p, "<")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "<");
-        if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (parse_expect(p, ">")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, ">");
-        if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (parse_expect(p, "<=")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "<=");
-        if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (parse_expect(p, ">=")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, ">=");
-        if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_equality_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(equality_expression);
-
-    /* Left recursion in C standard is converted to right recursion */
-    /* equality-expression
-        -> relational-expression
-         | relational-expression == equality-expression
-         | relational-expression != equality-expression */
-
-    if (!parse_relational_expression(p, PARSE_CURRENT_NODE)) goto exit;
-
-    if (parse_expect(p, "==")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "ce");
-        if (!parse_equality_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    else if (parse_expect(p, "!=")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "cne");
-        if (!parse_equality_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_and_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(and_expression);
-
-    if (parse_equality_expression(p, PARSE_CURRENT_NODE)) goto matched;
-
-    /* Incomplete */
-
-    goto exit;
-
-matched:
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_exclusive_or_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(exclusive_or_expression);
-
-    if (parse_and_expression(p, PARSE_CURRENT_NODE)) goto matched;
-
-    /* Incomplete */
-
-    goto exit;
-
-matched:
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_inclusive_or_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(inclusive_or_expression);
-
-    if (parse_exclusive_or_expression(p, PARSE_CURRENT_NODE)) goto matched;
-
-    /* Incomplete */
-
-    goto exit;
-
-matched:
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_logical_and_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(logical_and_expression);
-
-    /* Left recursion in C standard is converted to right recursion */
-    /* logical-and-expression
-        -> inclusive-or-expression
-         | inclusive-or-expression && logical-and-expression */
-
-    if (!parse_inclusive_or_expression(p, PARSE_CURRENT_NODE)) goto exit;
-
-    if (parse_expect(p, "&&")) {
-        if (!parse_logical_and_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_logical_or_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(logical_or_expression);
-
-    /* Left recursion in C standard is converted to right recursion */
-    /* logical-or-expression
-        -> logical-and-expression
-         | logical-and-expression || logical-or-expression */
-
-    if (!parse_logical_and_expression(p, PARSE_CURRENT_NODE)) goto exit;
-
-    if (parse_expect(p, "||")) {
-        if (!parse_logical_or_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_conditional_expression(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(conditional_expression);
-
-    if (parse_logical_or_expression(p, PARSE_CURRENT_NODE)) goto matched;
-
-    /* Incomplete */
-
-    goto exit;
-
-matched:
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_assignment_expression(Parser* p, ParseNode* parent) {
-    /* For certain tokens, unary-expression can match but fail the
-       remaining production, it must backtrack to undo the unary-expression
-       to attempt another rule */
-    /* Cannot check conditional-expression first, assignment-expression may
-       match, but parent productions fail to match */
-    /* Because of how the backtrack system is implemented, the function
-       must return for backtrack to occur, thus I split the two possible
-       ways to form a production into functions */
-    if (parse_assignment_expression_3(p, parent)) return 1;
-    if (parse_assignment_expression_2(p, parent)) return 1;
-
-    return 0;
-}
-
-static int parse_assignment_expression_2(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(assignment_expression);
-
-    if (parse_conditional_expression(p, PARSE_CURRENT_NODE)) {
-        PARSE_MATCHED();
-    }
-
-    PARSE_FUNC_END();
-}
-
-static int parse_assignment_expression_3(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(assignment_expression);
-
-    if (!parse_unary_expression(p, PARSE_CURRENT_NODE)) goto exit;
-
-    char* token = read_token(p);
-    if (!tok_isassignmentop(token)) goto exit;
-    tree_attach_token(p, PARSE_CURRENT_NODE, token);
-    consume_token(token);
-
-    if (!parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto exit;
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_expression(Parser* p, ParseNode* parent) {
+//static ErrorCode parse_shift_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(shift_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    if (parse_additive_expression(p, parent)) goto matched;
+//
+//    /* Incomplete */
+//
+//    goto exit;
+//
+//matched:
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(relational_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* Left recursion in C standard is converted to right recursion */
+//    /* relational-expression
+//        -> shift-expression
+//         | shift-expression < relational-expression
+//         | shift-expression > relational-expression
+//         | shift-expression <= relational-expression
+//         | shift-expression >= relational-expression*/
+//
+//    if (!parse_shift_expression(p, parent)) goto exit;
+//
+//    if (parse_expect(p, "<")) {
+//        tree_attach_token(p, parent, "<");
+//        if (!parse_relational_expression(p, parent)) goto exit;
+//    }
+//    else if (parse_expect(p, ">")) {
+//        tree_attach_token(p, parent, ">");
+//        if (!parse_relational_expression(p, parent)) goto exit;
+//    }
+//    else if (parse_expect(p, "<=")) {
+//        tree_attach_token(p, parent, "<=");
+//        if (!parse_relational_expression(p, parent)) goto exit;
+//    }
+//    else if (parse_expect(p, ">=")) {
+//        tree_attach_token(p, parent, ">=");
+//        if (!parse_relational_expression(p, parent)) goto exit;
+//    }
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(equality_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* Left recursion in C standard is converted to right recursion */
+//    /* equality-expression
+//        -> relational-expression
+//         | relational-expression == equality-expression
+//         | relational-expression != equality-expression */
+//
+//    if (!parse_relational_expression(p, parent)) goto exit;
+//
+//    if (parse_expect(p, "==")) {
+//        tree_attach_token(p, parent, "ce");
+//        if (!parse_equality_expression(p, parent)) goto exit;
+//    }
+//    else if (parse_expect(p, "!=")) {
+//        tree_attach_token(p, parent, "cne");
+//        if (!parse_equality_expression(p, parent)) goto exit;
+//    }
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_and_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(and_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    if (parse_equality_expression(p, parent)) goto matched;
+//
+//    /* Incomplete */
+//
+//    goto exit;
+//
+//matched:
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_exclusive_or_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(exclusive_or_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    if (parse_and_expression(p, parent)) goto matched;
+//
+//    /* Incomplete */
+//
+//    goto exit;
+//
+//matched:
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_inclusive_or_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(inclusive_or_expression);
+//
+//    if (parse_exclusive_or_expression(p, parent)) goto matched;
+//
+//    /* Incomplete */
+//
+//    goto exit;
+//
+//matched:
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_logical_and_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(logical_and_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* Left recursion in C standard is converted to right recursion */
+//    /* logical-and-expression
+//        -> inclusive-or-expression
+//         | inclusive-or-expression && logical-and-expression */
+//
+//    if (!parse_inclusive_or_expression(p, parent)) goto exit;
+//
+//    if (parse_expect(p, "&&")) {
+//        if (!parse_logical_and_expression(p, parent)) goto exit;
+//    }
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_logical_or_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(logical_or_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* Left recursion in C standard is converted to right recursion */
+//    /* logical-or-expression
+//        -> logical-and-expression
+//         | logical-and-expression || logical-or-expression */
+//
+//    if (!parse_logical_and_expression(p, parent)) goto exit;
+//
+//    if (parse_expect(p, "||")) {
+//        if (!parse_logical_or_expression(p, parent)) goto exit;
+//    }
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_conditional_expression(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(conditional_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    if (parse_logical_or_expression(p, parent)) goto matched;
+//
+//    /* Incomplete */
+//
+//    goto exit;
+//
+//matched:
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_assignment_expression(Parser* p, TNode* parent, int* matched) {
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    /* For certain tokens, unary-expression can match but fail the
+//       remaining production, it must backtrack to undo the unary-expression
+//       to attempt another rule */
+//    /* Cannot check conditional-expression first, assignment-expression may
+//       match, but parent productions fail to match */
+//    /* Because of how the backtrack system is implemented, the function
+//       must return for backtrack to occur, thus I split the two possible
+//       ways to form a production into functions */
+//    if (parse_assignment_expression_3(p, parent)) return 1;
+//    if (parse_assignment_expression_2(p, parent)) return 1;
+//
+//    return ecode;
+//}
+//
+//static ErrorCode parse_assignment_expression_2(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(assignment_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    if (parse_conditional_expression(p, parent)) {
+//        PARSE_MATCHED();
+//    }
+//
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+//static ErrorCode parse_assignment_expression_3(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(assignment_expression);
+//    ErrorCode ecode;
+//    *matched = 0;
+//
+//    if (!parse_unary_expression(p, parent)) goto exit;
+//
+//    char* token = read_token(p);
+//    if (!tok_isassignmentop(token)) goto exit;
+//    tree_attach_token(p, parent, token);
+//    lexer_consume(p->lex);
+//
+//    if (!parse_assignment_expression(p, parent)) goto exit;
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
+//
+static ErrorCode parse_expression(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(expression);
+    ErrorCode ecode;
+    *matched = 0;
 
-    if (parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto matched;
+    TNode* node;
+    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    tnode_set(node, st_expression, NULL, 0);
+
+    int has_match;
+    /* FIXME this should be assignment expression */
+    if ((ecode = parse_additive_expression(
+                    p, node, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
 
     /* Incomplete */
 
     goto exit;
 
 matched:
-    PARSE_MATCHED();
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_declaration(Parser* p, ParseNode* parent) {
+static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(declaration);
+    ErrorCode ecode;
+    *matched = 0;
 
+    ecode = ec_noerr;
+    /* TODO
     if (!parse_declaration_specifiers(p, PARSE_CURRENT_NODE)) goto exit;
     parse_init_declarator_list(p, PARSE_CURRENT_NODE);
     if (!parse_expect(p, ";")) goto exit;
-
-    PARSE_MATCHED();
+    */
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_declaration_specifiers(Parser* p, ParseNode* parent) {
+static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(declaration_specifiers);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
 
-    if (parse_storage_class_specifier(p, PARSE_CURRENT_NODE)) goto matched;
-    if (parse_type_specifier(p, PARSE_CURRENT_NODE)) goto matched;
-    if (parse_type_qualifier(p, PARSE_CURRENT_NODE)) goto matched;
-    if (parse_function_specifier(p, PARSE_CURRENT_NODE)) goto matched;
+    int has_match; /* Whether has match on this iteration */
+    TNodeDeclarationSpecifiers data;
 
-    goto exit;
+    do {
+        has_match = 0;
 
-matched:
-    PARSE_MATCHED();
-    parse_declaration_specifiers(p, PARSE_CURRENT_NODE);
+        const char* token;
+        if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
-exit:
-    PARSE_FUNC_END();
-}
+        if (tok_isstoreclass(token)) {
+            // FIXME
+            lexer_consume(p->lex);
+            has_match = 1;
+            *matched = 1;
+        }
+        else if (tok_istypespec(token)) {
+            // FIXME
+            lexer_consume(p->lex);
+            has_match = 1;
+            *matched = 1;
+        }
+        else if (tok_istypequal(token)) {
+            // FIXME
+            lexer_consume(p->lex);
+            has_match = 1;
+            *matched = 1;
+        }
+        else if (tok_isfuncspec(token)) {
+            // FIXME
+            lexer_consume(p->lex);
+            has_match = 1;
+            *matched = 1;
+        }
+    } while (has_match);
 
-static int parse_init_declarator_list(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(init_declarator_list);
-
-    if (!parse_init_declarator(p, PARSE_CURRENT_NODE)) goto exit;
-
-    if (parse_expect(p, ",")) {
-        if (!parse_init_declarator(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_init_declarator(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(init_declarator);
-
-    if (!parse_declarator(p, PARSE_CURRENT_NODE)) goto exit;
-
-    if (parse_expect(p, "=")) {
-        if (!parse_initializer(p, PARSE_CURRENT_NODE)) goto exit;
-    }
-
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_storage_class_specifier(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(storage_class_specifier);
-
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
-    if (tok_isstoreclass(token)) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
-        PARSE_MATCHED();
+    if (*matched) {
+        TNode* node;
+        if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+        tnode_set(node, st_declaration_specifiers, &data, 0);
     }
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_type_specifier(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(type_specifier);
+//static ErrorCode parse_init_declarator_list(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(init_declarator_list);
+//
+//    if (!parse_init_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+//
+//    if (parse_expect(p, ",")) {
+//        if (!parse_init_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+//    }
+//
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//}
+//
+//static ErrorCode parse_init_declarator(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(init_declarator);
+//
+//    if (!parse_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+//
+//    if (parse_expect(p, "=")) {
+//        if (!parse_initializer(p, PARSE_CURRENT_NODE)) goto exit;
+//    }
+//
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//}
 
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
-    if (tok_istypespec(token)) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
-        PARSE_MATCHED();
-    }
+//static ErrorCode parse_specifier_qualifier_list(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(specifier_qualifier_list);
+//    ErrorCode ecode = ec_noerr;
+//    *matched = 0;
+//
+//    const char* token;
+//    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+//
+//    if (tok_istypespec(token)) {
+//        // TODO
+//        *matched = 1;
+//        /* parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE, &has_match); */
+//
+//        /* Incomplete */
+//    }
+//    else if (tok_istypequal(token)) {
+//        // TODO
+//        *matched = 1;
+//        /* parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE, &has_match); */
+//
+//        /* Incomplete */
+//    }
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
 
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_specifier_qualifier_list(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(specifier_qualifier_list);
-
-    if (parse_type_specifier(p, PARSE_CURRENT_NODE)) {
-        PARSE_MATCHED();
-        parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE);
-
-        /* Incomplete */
-    }
-    else if (parse_type_qualifier(p, PARSE_CURRENT_NODE)) {
-        PARSE_MATCHED();
-        parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE);
-
-        /* Incomplete */
-    }
-
-    PARSE_FUNC_END();
-}
-
-static int parse_type_qualifier(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(type_qualifier);
-
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
-    if (tok_istypequal(token)) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
-        PARSE_MATCHED();
-    }
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_function_specifier(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(function_specifier);
-
-    char* token = read_token(p);
-    if (parser_has_error(p)) goto exit;
-    if (tok_isfuncspec(token)) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, token);
-        consume_token(token);
-        PARSE_MATCHED();
-    }
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_declarator(Parser* p, ParseNode* parent) {
+static ErrorCode parse_declarator(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(declarator);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
 
-    parse_pointer(p, PARSE_CURRENT_NODE);
-    if (parser_has_error(p)) goto exit;
+    int matched_ptr;
+    int pointers = 0;
+    while (1) {
+        if ((ecode = parse_expect(p, "*", &matched_ptr)) != ec_noerr) goto exit;
+        if (matched_ptr) ++pointers;
+        else break;
+    }
+    TNode* node;
+    if ((ecode = tree_attach(p->tree, &node, parent)) != ec_noerr) goto exit;
+    TNodePointer data;
+    data.pointers = pointers;
+    tnode_set(node, st_pointer, &data, 0);
 
-    if (!parse_direct_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+    int matched_dirdecl;
+    if ((ecode = parse_direct_declarator(p, parent, &matched_dirdecl)) != ec_noerr) goto exit;
 
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_direct_declarator(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(direct_declarator);
-
-    /* Left recursion in C standard is converted to right recursion */
-    /* direct-declarator -> identifier direct-declarator-2(optional)
-                          | ( declarator ) direct-declarator-2(optional) */
-    /* direct-declarator-2 ->
-       | [ type-qualifier-list(optional) assignment-expression(optional) ]
-         direct-declarator-2(optional)
-         ...
-       | ( parameter-type-list ) direct-declarator-2(optional)
-         direct-declarator-2(optional) */
-
-    if (!parse_identifier(p, PARSE_CURRENT_NODE)) goto exit;
-    PARSE_MATCHED();
-
-    parse_direct_declarator_2(p, PARSE_CURRENT_NODE);
+    if (matched_ptr && !matched_dirdecl) {
+        ERRMSG("Expected direct-declarator\n");
+        ecode = ec_syntaxerr;
+    }
+    else if (matched_dirdecl) {
+        *matched = 1;
+    }
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_direct_declarator_2(Parser* p, ParseNode* parent) {
-    /* Use the same symbol type as it was originally one nonterminal
-       split into two */
+static ErrorCode parse_direct_declarator(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(direct_declarator);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
 
-    if (parse_expect(p, "[")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "[");
+    int has_match;
+    if ((ecode = parse_identifier(p, parent, &has_match)) != ec_noerr)
+    if (!has_match) {
+        ERRMSG("Expected identifier\n");
+        ecode = ec_syntaxerr;
+        goto exit;
+    }
 
+    *matched = 1;
+
+    /* Incomplete */
+    /*
+    if ((ecode = parse_expect(p, "[", &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
         if (!parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto exit;
-        /* Incomplete */
-        if (!parse_expect(p, "]")) goto exit;
-        PARSE_MATCHED();
-        parse_direct_declarator_2(p, PARSE_CURRENT_NODE);
-    }
-    if (parse_expect(p, "(")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "(");
 
-        if (!parse_parameter_type_list(p, PARSE_CURRENT_NODE)) goto exit;
-        if (!parse_expect(p, ")")) goto exit;
-        PARSE_MATCHED();
-        parse_direct_declarator_2(p, PARSE_CURRENT_NODE);
+        if ((ecode = parse_expect(p, "]", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) goto exit;
     }
-    goto exit;
+    */
+
+    if ((ecode = parse_expect(p, "(", &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        TNode* node;
+        tree_attach(p->tree, &node, parent);
+        tnode_set(node, st_parameter_type_list, NULL, 0);
+
+        if ((ecode = parse_parameter_type_list(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected parameter-type-list\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        if ((ecode = parse_expect(p, ")", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected ')'\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+    }
+
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_pointer(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(pointer);
-
-    if (!parse_expect(p, "*")) goto exit;
-    PARSE_MATCHED();
-
-    parse_pointer(p, PARSE_CURRENT_NODE);
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_parameter_type_list(Parser* p, ParseNode* parent) {
+static ErrorCode parse_parameter_type_list(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(parameter_type_list);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
 
-    if (!parse_parameter_list(p, PARSE_CURRENT_NODE)) goto exit;
-    PARSE_MATCHED();
+    int has_match;
+    if ((ecode = parse_parameter_list(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        *matched = 1;
+    }
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_parameter_list(Parser* p, ParseNode* parent) {
+static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(parameter_list);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
 
     /* Left recursion in C standard is converted to right recursion */
     /* parameter-list -> parameter-declaration
                        | parameter-declaration , parameter-list */
 
-    if (!parse_parameter_declaration(p, PARSE_CURRENT_NODE)) goto exit;
+    int has_match;
+    if ((ecode = parse_parameter_declaration(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
 
-    if (parse_expect(p, ",")) {
-        if (!parse_parameter_list(p, PARSE_CURRENT_NODE)) {
-            goto exit;
-        }
+    /* If comma, must have another parameter-list */
+    if ((ecode = parse_expect(p, ",", &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        if ((ecode = parse_parameter_list(
+                        p, parent, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) goto exit;
     }
-    PARSE_MATCHED();
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_parameter_declaration(Parser* p, ParseNode* parent) {
+static ErrorCode parse_parameter_declaration(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(parameter_declaration);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
 
-    if (!parse_declaration_specifiers(p, PARSE_CURRENT_NODE)) goto exit;
-    if (!parse_declarator(p, PARSE_CURRENT_NODE)) goto exit;
+    int has_match;
+    if ((ecode = parse_declaration_specifiers(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
 
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_type_name(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(type_name);
-
-    if (!parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE)) goto exit;
-    parse_abstract_declarator(p, PARSE_CURRENT_NODE);
-
-    PARSE_MATCHED();
+    if ((ecode = parse_declarator(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_abstract_declarator(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(abstract_declarator);
+//static ErrorCode parse_type_name(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(type_name);
+//    ErrorCode ecode = ec_noerr;
+//    *matched = 0;
+//
+//    int has_match;
+//    if ((ecode = parse_specifier_qualifier_list(
+//                    p, parent, &has_match)) != ec_noerr) goto exit;
+//    if (!has_match) goto exit;
+//
+//    if ((ecode = parse_abstract_declarator(
+//                    p, parent, &has_match)) != ec_noerr) goto exit;
+//    *matched = 1;
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
 
-    if (!parse_pointer(p, PARSE_CURRENT_NODE)) goto exit;
+//static ErrorCode parse_abstract_declarator(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(abstract_declarator);
+//    ErrorCode ecode = ec_noerr;
+//    *matched = 0;
+//
+//    int matched_ptr;
+//    int pointers = 0;
+//    while (1) {
+//        if ((ecode = parse_expect(p, "*", &matched_ptr)) != ec_noerr) goto exit;
+//        if (matched_ptr) ++pointers;
+//        else break;
+//    }
+//
+//    /* Incomplete */
+//
+//    *matched = 1;
+//
+//exit:
+//    PARSE_FUNC_END();
+//    return ecode;
+//}
 
-    /* Incomplete */
+//static ErrorCode parse_initializer(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(initializer);
+//
+//    if (parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto matched;
+//
+//    /* Incomplete */
+//
+//    goto exit;
+//
+//matched:
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//}
 
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_initializer(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(initializer);
-
-    if (parse_assignment_expression(p, PARSE_CURRENT_NODE)) goto matched;
-
-    /* Incomplete */
-
-    goto exit;
-
-matched:
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_statement(Parser* p, ParseNode* parent) {
+static ErrorCode parse_statement(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(statement);
+    ErrorCode ecode;
+    *matched = 0;
 
+    int has_match;
+    /*
+       TODO
     if (parse_compound_statement(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_expression_statement(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_selection_statement(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_iteration_statement(p, PARSE_CURRENT_NODE)) goto matched;
-    if (parse_jump_statement(p, PARSE_CURRENT_NODE)) goto matched;
+    */
+    if ((ecode = parse_jump_statement(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
 
     /* Incomplete */
-
     goto exit;
 
 matched:
-    PARSE_MATCHED();
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_compound_statement(Parser* p, ParseNode* parent) {
+static ErrorCode parse_compound_statement(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(compound_statement);
+    ErrorCode ecode;
+    *matched = 0;
 
-    if (parse_expect(p, "{")) {
-        symtab_push_scope(p);
-        /* block-item-list nodes are not needed for il generation */
-        while (parse_block_item(p, PARSE_CURRENT_NODE)) {
-            cg_block_item(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-            PARSE_TRIM_TREE();
-        }
+    int has_match;
+    if ((ecode = parse_expect(p, "{", &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
 
-        if (!parse_expect(p, "}")) {
-            ERRMSG("Expected '}' to end compound statement\n");
-            parser_set_error(p, ec_syntaxerr);
-            goto exit;
-        }
-        PARSE_MATCHED();
-        symtab_pop_scope(p);
+    symtab_push_scope(p->symtab);
+    /* block-item-list nodes are not needed for il generation */
+    do {
+        if ((ecode = parse_block_item(p, parent, &has_match)) != ec_noerr) goto exit;
+    } while (has_match);
+
+    if ((ecode = parse_expect(p, "}", &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected '}' to end compound statement\n");
+        ecode = ec_syntaxerr;
+        goto exit;
     }
+    *matched = 1;
+    symtab_pop_scope(p->symtab);
 
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
 
-static int parse_block_item(Parser* p, ParseNode* parent) {
+static ErrorCode parse_block_item(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(block_item);
-
-    if (parse_declaration(p, PARSE_CURRENT_NODE)) goto matched;
-    if (parse_statement(p, PARSE_CURRENT_NODE)) goto matched;
-
-    goto exit;
-
-matched:
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_expression_statement(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(expression_statement);
-
-    parse_expression(p, PARSE_CURRENT_NODE);
-    if (!parse_expect(p, ";")) goto exit;
-
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_selection_statement(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(selection_statement);
-
-    /* Generate as follows: (if only, no else):
-       evaluate expression
-       jz false
-         code when true
-       false: */
-    /* Generate as follows: (if else):
-       evaluate expression
-       jz false
-         code when true
-         jmp end
-       false:
-         code when false
-       end: */
-
-    /* Validate that the production matches if "if" seen
-       as it is not possible to backtrack after il generation and
-       parse tree is cleared */
-
-    if (!parse_expect(p, "if")) goto exit;
-    if (!parse_expect(p, "(")) {
-        ERRMSG("Expected '('\n");
-        goto syntaxerr;
-    }
-    if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-        ERRMSG("Expected expession\n");
-        goto syntaxerr;
-    }
-    if (!parse_expect(p, ")")) {
-        ERRMSG("Expected ')'\n");
-        goto syntaxerr;
-    }
-
-    SymbolId lab_false_id = cg_make_label(p);
-
-    SymbolId exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-    PARSE_TRIM_TREE();
-    cgil_jz(p, lab_false_id, exp_id);
-
-    symtab_push_scope(p);
-    if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-        ERRMSG("Expected statement\n");
-        goto syntaxerr;
-    }
-
-    cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-    PARSE_TRIM_TREE();
-    symtab_pop_scope(p);
-
-    if (parse_expect(p, "else")) {
-        SymbolId lab_end_id = cg_make_label(p);
-        cgil_jmp(p, lab_end_id);
-        cgil_lab(p, lab_false_id);
-
-        symtab_push_scope(p);
-        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-            ERRMSG("Expected statement\n");
-            goto syntaxerr;
-        }
-
-        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        PARSE_TRIM_TREE();
-        symtab_pop_scope(p);
-
-        cgil_lab(p, lab_end_id);
-    }
-    else {
-        cgil_lab(p, lab_false_id);
-    }
-
-    /* Incomplete */
-
-    PARSE_MATCHED();
-    goto exit;
-
-syntaxerr:
-    parser_set_error(p, ec_syntaxerr);
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_iteration_statement(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(iteration_statement);
-
-    if (parse_expect(p, "while")) {
-        /* Generate as follows:
-           eval expr1
-           jz end
-           loop:
-           statement
-           loop_body_end:
-           eval expr1
-           jnz loop
-           end: */
-        if (!parse_expect(p, "(")) {
-            ERRMSG("Expected '('\n");
-            goto syntaxerr;
-        }
-        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-            ERRMSG("Expected expression\n");
-            goto syntaxerr;
-        }
-        if (!parse_expect(p, ")")) {
-            ERRMSG("Expected ')'\n");
-            goto syntaxerr;
-        }
-
-        SymbolId lab_loop_id = cg_make_label(p);
-        SymbolId lab_body_end_id = cg_make_label(p);
-        SymbolId lab_end_id = cg_make_label(p);
-        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
-        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
-
-        SymbolId exp_id =
-            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        cgil_jz(p, lab_end_id, exp_id);
-        cgil_lab(p, lab_loop_id);
-
-        symtab_push_scope(p);
-        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-            ERRMSG("Expected statement\n");
-            goto syntaxerr;
-        }
-        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 1));
-        symtab_pop_scope(p);
-        symtab_pop_cat(p, sc_lab_loopbodyend);
-        symtab_pop_cat(p, sc_lab_loopend);
-
-        cgil_lab(p, lab_body_end_id);
-
-        exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        cgil_jnz(p, lab_loop_id, exp_id);
-        cgil_lab(p, lab_end_id);
-        PARSE_TRIM_TREE();
-
-        PARSE_MATCHED();
-    }
-    else if (parse_expect(p, "do")) {
-        /* Generate as follows:
-           loop:
-           statement
-           loop_body_end:
-           eval expr1
-           jnz loop
-           end: */
-        SymbolId lab_loop_id = cg_make_label(p);
-        SymbolId lab_body_end_id = cg_make_label(p);
-        SymbolId lab_end_id = cg_make_label(p);
-        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
-        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
-
-        cgil_lab(p, lab_loop_id);
-
-        symtab_push_scope(p);
-        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-            ERRMSG("Expected statement\n");
-            goto syntaxerr;
-        }
-        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        PARSE_TRIM_TREE();
-
-        symtab_pop_scope(p);
-        symtab_pop_cat(p, sc_lab_loopbodyend);
-        symtab_pop_cat(p, sc_lab_loopend);
-
-        cgil_lab(p, lab_body_end_id);
-
-        if (!parse_expect(p, "while")) {
-            ERRMSG("Expected 'while'\n");
-            goto syntaxerr;
-        }
-        if (!parse_expect(p, "(")) {
-            ERRMSG("Expected '('\n");
-            goto syntaxerr;
-        }
-        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-            ERRMSG("Expected expression\n");
-            goto syntaxerr;
-        }
-        if (!parse_expect(p, ")")) {
-            ERRMSG("Expected ')'\n");
-            goto syntaxerr;
-        }
-        if (!parse_expect(p, ";")) {
-            ERRMSG("Expected ';'\n");
-            goto syntaxerr;
-        }
-        SymbolId exp_id =
-            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        cgil_jnz(p, lab_loop_id, exp_id);
-        PARSE_TRIM_TREE();
-
-        cgil_lab(p, lab_end_id);
-
-        PARSE_MATCHED();
-    }
-    else if (parse_expect(p, "for")) {
-        /* Generate as follows:
-           expr1 / declaration
-           eval expr2
-           jz end
-           loop:
-           statement
-           loop_body_end:
-           expr3
-           eval expr2
-           jnz loop
-           end: */
-
-        symtab_push_scope(p); /* Scope for declaration */
-        if (!parse_expect(p, "(")) {
-            ERRMSG("Expected '('\n");
-            goto syntaxerr;
-        }
-
-        /* expression-1 or declaration */
-        if (parse_expression(p, PARSE_CURRENT_NODE)) {
-            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-            if (!parse_expect(p, ";")) {
-                ERRMSG("Expected ';'\n");
-                goto syntaxerr;
-            }
-            PARSE_TRIM_TREE();
-        }
-        else if (parse_declaration(p, PARSE_CURRENT_NODE)) {
-            cg_declaration(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-            PARSE_TRIM_TREE();
-        }
-        else {
-            ERRMSG("Expected expression or declaration\n");
-            goto syntaxerr;
-        }
-
-        /* expression-2 (Controlling expression)
-           Stored as child 0 */
-        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-            ERRMSG("Expected expession\n");
-            goto syntaxerr;
-        }
-        if (!parse_expect(p, ";")) {
-            ERRMSG("Expected ';'\n");
-            goto syntaxerr;
-        }
-
-        /* expression-3
-           Stored as child 1 */
-        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-            ERRMSG("Expected expession\n");
-            goto syntaxerr;
-        }
-        if (!parse_expect(p, ")")) {
-            ERRMSG("Expected ')'\n");
-            goto syntaxerr;
-        }
-
-        SymbolId lab_loop_id = cg_make_label(p);
-        SymbolId lab_body_end_id = cg_make_label(p);
-        SymbolId lab_end_id = cg_make_label(p);
-        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
-        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
-
-        SymbolId exp2_id =
-            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        cgil_jz(p, lab_end_id, exp2_id);
-        cgil_lab(p, lab_loop_id);
-
-        symtab_push_scope(p);
-        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-            ERRMSG("Expected statement\n");
-            goto syntaxerr;
-        }
-        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 2));
-        symtab_pop_scope(p);
-        symtab_pop_cat(p, sc_lab_loopbodyend);
-        symtab_pop_cat(p, sc_lab_loopend);
-
-        cgil_lab(p, lab_body_end_id);
-
-        /* expression-3 (At loop end)
-           expression-2 (Controlling expression) */
-        cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 1));
-        exp2_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-        PARSE_TRIM_TREE();
-        cgil_jnz(p, lab_loop_id, exp2_id);
-        cgil_lab(p, lab_end_id);
-
-        symtab_pop_scope(p); /* Scope for declaration */
-
-        PARSE_MATCHED();
-    }
-
-    /* Incomplete */
-
-    goto exit;
-
-syntaxerr:
-    parser_set_error(p, ec_syntaxerr);
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_jump_statement(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(jump_statement);
-
-    if (parse_expect(p, "continue")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "continue");
-        parse_expression(p, PARSE_CURRENT_NODE);
-        if (parse_expect(p, ";")) goto matched;
-    }
-    if (parse_expect(p, "break")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "break");
-        parse_expression(p, PARSE_CURRENT_NODE);
-        if (parse_expect(p, ";")) goto matched;
-    }
-    else if (parse_expect(p, "return")) {
-        tree_attach_token(p, PARSE_CURRENT_NODE, "return");
-        parse_expression(p, PARSE_CURRENT_NODE);
-        if (parse_expect(p, ";")) goto matched;
-    }
-
-    goto exit;
-
-matched:
-    PARSE_MATCHED();
-
-exit:
-    PARSE_FUNC_END();
-}
-
-static int parse_function_definition(Parser* p, ParseNode* parent) {
-    PARSE_FUNC_START(function_definition);
-
-    if (!parse_declaration_specifiers(p, PARSE_CURRENT_NODE) ||
-            parser_has_error(p)) goto exit;
-
-    if (!parse_declarator(p, PARSE_CURRENT_NODE) ||
-            parser_has_error(p)) goto exit;
-
-
-    ParseNode* declspec = parse_node_child(PARSE_CURRENT_NODE, 0);
-    ParseNode* declarator = parse_node_child(PARSE_CURRENT_NODE, 1);
-
-    /* name is function name, type is return type */
-    SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
-    Symbol* sym = symtab_get(p, func_id);
-
-    Type func_type;
-    Type ret_type = symbol_type(sym);
-    type_constructf(&func_type, &ret_type);
-    symbol_set_type(sym, &func_type);
-    parser_output_il(p, "func $s,$t,", func_id, func_id);
-
-    ParseNode* dirdeclarator = parse_node_child(declarator, -1);
-    ParseNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
-
-    const char* tok = parse_node_token(p, parse_node_child(dirdeclarator2, 0));
-    if (!strequ( "(", tok)) {
-        ERRMSG("Expected (' to begin parameter-type-list");
+    ErrorCode ecode;
+    *matched = 0;
+
+    int has_match;
+    if ((ecode = parse_declaration(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        *matched = 1;
         goto exit;
     }
 
-    /* FIXME The compound statement creates another scope, meaning that the
-       function parameters are inside its own scope, which is non standard
-       compliant. Doing so accepts all well formed programs, however fails to
-       reject some mal-formed programs so think of another method in the future
-       to handle scoping */
-    /* symtab_pop_scope is in cg_function_declaration */
-    symtab_push_scope(p);
+    if ((ecode = parse_statement(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        *matched = 1;
+        goto exit;
+    }
 
-    ParseNode* paramtypelist = parse_node_child(dirdeclarator2, 1);
-    ParseNode* paramlist = parse_node_child(paramtypelist, 0);
-    cg_parameter_list(p, paramlist);
-    parser_output_il(p, "\n");
-    PARSE_TRIM_TREE();
-
-
-    if (!parse_compound_statement(p, PARSE_CURRENT_NODE) ||
-            parser_has_error(p)) goto exit2;
-
-
-    PARSE_MATCHED();
-exit2:
-    symtab_pop_scope(p);
 exit:
     PARSE_FUNC_END();
+    return ecode;
 }
+
+//static ErrorCode parse_expression_statement(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(expression_statement);
+//
+//    parse_expression(p, PARSE_CURRENT_NODE);
+//    if (!parse_expect(p, ";")) goto exit;
+//
+//    PARSE_MATCHED();
+//
+//exit:
+//    PARSE_FUNC_END();
+//}
+//
+//static ErrorCode parse_selection_statement(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(selection_statement);
+//
+//    /* Generate as follows: (if only, no else):
+//       evaluate expression
+//       jz false
+//         code when true
+//       false: */
+//    /* Generate as follows: (if else):
+//       evaluate expression
+//       jz false
+//         code when true
+//         jmp end
+//       false:
+//         code when false
+//       end: */
+//
+//    /* Validate that the production matches if "if" seen
+//       as it is not possible to backtrack after il generation and
+//       parse tree is cleared */
+//
+//    if (!parse_expect(p, "if")) goto exit;
+//    if (!parse_expect(p, "(")) {
+//        ERRMSG("Expected '('\n");
+//        goto syntaxerr;
+//    }
+//    if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+//        ERRMSG("Expected expession\n");
+//        goto syntaxerr;
+//    }
+//    if (!parse_expect(p, ")")) {
+//        ERRMSG("Expected ')'\n");
+//        goto syntaxerr;
+//    }
+//
+//    SymbolId lab_false_id = cg_make_label(p);
+//
+//    SymbolId exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//    PARSE_TRIM_TREE();
+//    cgil_jz(p, lab_false_id, exp_id);
+//
+//    symtab_push_scope(p);
+//    if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+//        ERRMSG("Expected statement\n");
+//        goto syntaxerr;
+//    }
+//
+//    cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//    PARSE_TRIM_TREE();
+//    symtab_pop_scope(p);
+//
+//    if (parse_expect(p, "else")) {
+//        SymbolId lab_end_id = cg_make_label(p);
+//        cgil_jmp(p, lab_end_id);
+//        cgil_lab(p, lab_false_id);
+//
+//        symtab_push_scope(p);
+//        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+//            ERRMSG("Expected statement\n");
+//            goto syntaxerr;
+//        }
+//
+//        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//        PARSE_TRIM_TREE();
+//        symtab_pop_scope(p);
+//
+//        cgil_lab(p, lab_end_id);
+//    }
+//    else {
+//        cgil_lab(p, lab_false_id);
+//    }
+//
+//    /* Incomplete */
+//
+//    PARSE_MATCHED();
+//    goto exit;
+//
+//syntaxerr:
+//    parser_set_error(p, ec_syntaxerr);
+//
+//exit:
+//    PARSE_FUNC_END();
+//}
+//
+//static ErrorCode parse_iteration_statement(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(iteration_statement);
+//
+//    if (parse_expect(p, "while")) {
+//        /* Generate as follows:
+//           eval expr1
+//           jz end
+//           loop:
+//           statement
+//           loop_body_end:
+//           eval expr1
+//           jnz loop
+//           end: */
+//        if (!parse_expect(p, "(")) {
+//            ERRMSG("Expected '('\n");
+//            goto syntaxerr;
+//        }
+//        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+//            ERRMSG("Expected expression\n");
+//            goto syntaxerr;
+//        }
+//        if (!parse_expect(p, ")")) {
+//            ERRMSG("Expected ')'\n");
+//            goto syntaxerr;
+//        }
+//
+//        SymbolId lab_loop_id = cg_make_label(p);
+//        SymbolId lab_body_end_id = cg_make_label(p);
+//        SymbolId lab_end_id = cg_make_label(p);
+//        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
+//        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
+//
+//        SymbolId exp_id =
+//            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//        cgil_jz(p, lab_end_id, exp_id);
+//        cgil_lab(p, lab_loop_id);
+//
+//        symtab_push_scope(p);
+//        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+//            ERRMSG("Expected statement\n");
+//            goto syntaxerr;
+//        }
+//        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 1));
+//        symtab_pop_scope(p);
+//        symtab_pop_cat(p, sc_lab_loopbodyend);
+//        symtab_pop_cat(p, sc_lab_loopend);
+//
+//        cgil_lab(p, lab_body_end_id);
+//
+//        exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//        cgil_jnz(p, lab_loop_id, exp_id);
+//        cgil_lab(p, lab_end_id);
+//        PARSE_TRIM_TREE();
+//
+//        PARSE_MATCHED();
+//    }
+//    else if (parse_expect(p, "do")) {
+//        /* Generate as follows:
+//           loop:
+//           statement
+//           loop_body_end:
+//           eval expr1
+//           jnz loop
+//           end: */
+//        SymbolId lab_loop_id = cg_make_label(p);
+//        SymbolId lab_body_end_id = cg_make_label(p);
+//        SymbolId lab_end_id = cg_make_label(p);
+//        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
+//        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
+//
+//        cgil_lab(p, lab_loop_id);
+//
+//        symtab_push_scope(p);
+//        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+//            ERRMSG("Expected statement\n");
+//            goto syntaxerr;
+//        }
+//        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//        PARSE_TRIM_TREE();
+//
+//        symtab_pop_scope(p);
+//        symtab_pop_cat(p, sc_lab_loopbodyend);
+//        symtab_pop_cat(p, sc_lab_loopend);
+//
+//        cgil_lab(p, lab_body_end_id);
+//
+//        if (!parse_expect(p, "while")) {
+//            ERRMSG("Expected 'while'\n");
+//            goto syntaxerr;
+//        }
+//        if (!parse_expect(p, "(")) {
+//            ERRMSG("Expected '('\n");
+//            goto syntaxerr;
+//        }
+//        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+//            ERRMSG("Expected expression\n");
+//            goto syntaxerr;
+//        }
+//        if (!parse_expect(p, ")")) {
+//            ERRMSG("Expected ')'\n");
+//            goto syntaxerr;
+//        }
+//        if (!parse_expect(p, ";")) {
+//            ERRMSG("Expected ';'\n");
+//            goto syntaxerr;
+//        }
+//        SymbolId exp_id =
+//            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//        cgil_jnz(p, lab_loop_id, exp_id);
+//        PARSE_TRIM_TREE();
+//
+//        cgil_lab(p, lab_end_id);
+//
+//        PARSE_MATCHED();
+//    }
+//    else if (parse_expect(p, "for")) {
+//        /* Generate as follows:
+//           expr1 / declaration
+//           eval expr2
+//           jz end
+//           loop:
+//           statement
+//           loop_body_end:
+//           expr3
+//           eval expr2
+//           jnz loop
+//           end: */
+//
+//        symtab_push_scope(p); /* Scope for declaration */
+//        if (!parse_expect(p, "(")) {
+//            ERRMSG("Expected '('\n");
+//            goto syntaxerr;
+//        }
+//
+//        /* expression-1 or declaration */
+//        if (parse_expression(p, PARSE_CURRENT_NODE)) {
+//            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//            if (!parse_expect(p, ";")) {
+//                ERRMSG("Expected ';'\n");
+//                goto syntaxerr;
+//            }
+//            PARSE_TRIM_TREE();
+//        }
+//        else if (parse_declaration(p, PARSE_CURRENT_NODE)) {
+//            cg_declaration(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//            PARSE_TRIM_TREE();
+//        }
+//        else {
+//            ERRMSG("Expected expression or declaration\n");
+//            goto syntaxerr;
+//        }
+//
+//        /* expression-2 (Controlling expression)
+//           Stored as child 0 */
+//        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+//            ERRMSG("Expected expession\n");
+//            goto syntaxerr;
+//        }
+//        if (!parse_expect(p, ";")) {
+//            ERRMSG("Expected ';'\n");
+//            goto syntaxerr;
+//        }
+//
+//        /* expression-3
+//           Stored as child 1 */
+//        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
+//            ERRMSG("Expected expession\n");
+//            goto syntaxerr;
+//        }
+//        if (!parse_expect(p, ")")) {
+//            ERRMSG("Expected ')'\n");
+//            goto syntaxerr;
+//        }
+//
+//        SymbolId lab_loop_id = cg_make_label(p);
+//        SymbolId lab_body_end_id = cg_make_label(p);
+//        SymbolId lab_end_id = cg_make_label(p);
+//        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
+//        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
+//
+//        SymbolId exp2_id =
+//            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//        cgil_jz(p, lab_end_id, exp2_id);
+//        cgil_lab(p, lab_loop_id);
+//
+//        symtab_push_scope(p);
+//        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
+//            ERRMSG("Expected statement\n");
+//            goto syntaxerr;
+//        }
+//        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 2));
+//        symtab_pop_scope(p);
+//        symtab_pop_cat(p, sc_lab_loopbodyend);
+//        symtab_pop_cat(p, sc_lab_loopend);
+//
+//        cgil_lab(p, lab_body_end_id);
+//
+//        /* expression-3 (At loop end)
+//           expression-2 (Controlling expression) */
+//        cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 1));
+//        exp2_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
+//        PARSE_TRIM_TREE();
+//        cgil_jnz(p, lab_loop_id, exp2_id);
+//        cgil_lab(p, lab_end_id);
+//
+//        symtab_pop_scope(p); /* Scope for declaration */
+//
+//        PARSE_MATCHED();
+//    }
+//
+//    /* Incomplete */
+//
+//    goto exit;
+//
+//syntaxerr:
+//    parser_set_error(p, ec_syntaxerr);
+//
+//exit:
+//    PARSE_FUNC_END();
+//}
+
+static ErrorCode parse_jump_statement(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(jump_statement);
+    ErrorCode ecode;
+    *matched = 0;
+
+    TNodeJumpStatement data;
+    int has_match;
+    if ((ecode = parse_expect(p, "continue", &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        data.type = TNodeJumpStatement_continue;
+        goto matched;
+    }
+
+    if ((ecode = parse_expect(p, "break", &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        data.type = TNodeJumpStatement_break;
+        goto matched;
+    }
+
+    if ((ecode = parse_expect(p, "return", &has_match)) != ec_noerr) goto exit;
+    if (has_match) {
+        data.type = TNodeJumpStatement_return;
+        goto matched;
+    }
+
+    goto exit;
+
+matched:
+    TNode* node;
+    tree_attach(p->tree, &node, parent);
+    tnode_set(node, st_jump_statement, &data, 0);
+
+    if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;;
+
+    if ((ecode = parse_expect(p, ";", &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected ';'\n");
+        ecode = ec_syntaxerr;
+        goto exit;
+    }
+    *matched = 1;
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+ErrorCode parse_translation_unit(Parser* p) {
+    /* Repeatedly parse external-declaration until the end
+       can be either a function-definition OR declaration
+       We parse both until we can disambiguate */
+    /* external-declaration
+        -> function-definition
+         | declaration */
+
+    ErrorCode ecode;
+    TNode* node = tree_root(p->tree);
+
+    int matched;
+    if ((ecode = parse_external_declaration(
+                    p, node, &matched)) != ec_noerr) goto exit;
+
+    debug_print_tree(p->tree);
+exit:
+    return ecode;
+}
+
+static ErrorCode parse_external_declaration(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(external_declaration);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
+
+    /* Must be a declaration-specifiers */
+    int has_match;
+    if ((ecode = parse_declaration_specifiers(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected declaration-specifiers\n");
+        ecode = ec_syntaxerr;
+        goto exit;
+    }
+
+    /* declaration -> declaration-specifiers ; */
+    /* Useless declaration */
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+    if (strequ(token, ";")) {
+        lexer_consume(p->lex);
+        goto exit;
+    }
+
+    /* Must be a declarator */
+    if ((ecode = parse_declarator(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected declarator\n");
+        ecode = ec_syntaxerr;
+        goto exit;
+    }
+
+    /* Incomplete */
+
+    /* Decide whether funciton or variable based last node */
+    SymbolType type = tnode_type(tnode_child(parent, -1));
+    if (type == st_parameter_type_list) {
+        /* function-definition */
+
+        TNode* node;
+        tree_attach(p->tree, &node, parent);
+        tnode_set(node, st_compound_statement, NULL, 0);
+
+        if ((ecode = parse_compound_statement(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected compound-statement\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+        *matched = 1;
+    }
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+//static ErrorCode parse_function_definition(Parser* p, TNode* parent, int* matched) {
+//    PARSE_FUNC_START(function_definition);
+//
+//    if (!parse_declaration_specifiers(p, PARSE_CURRENT_NODE) ||
+//            parser_has_error(p)) goto exit;
+//
+//    if (!parse_declarator(p, PARSE_CURRENT_NODE) ||
+//            parser_has_error(p)) goto exit;
+//
+//
+//    TNode* declspec = parse_node_child(PARSE_CURRENT_NODE, 0);
+//    TNode* declarator = parse_node_child(PARSE_CURRENT_NODE, 1);
+//
+//    /* name is function name, type is return type */
+//    SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
+//    Symbol* sym = symtab_get(p, func_id);
+//
+//    Type func_type;
+//    Type ret_type = symbol_type(sym);
+//    type_constructf(&func_type, &ret_type);
+//    symbol_set_type(sym, &func_type);
+//    parser_output_il(p, "func $s,$t,", func_id, func_id);
+//
+//    TNode* dirdeclarator = parse_node_child(declarator, -1);
+//    TNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
+//
+//    const char* tok = parse_node_token(p, parse_node_child(dirdeclarator2, 0));
+//    if (!strequ( "(", tok)) {
+//        ERRMSG("Expected (' to begin parameter-type-list");
+//        goto exit;
+//    }
+//
+//    /* FIXME The compound statement creates another scope, meaning that the
+//       function parameters are inside its own scope, which is non standard
+//       compliant. Doing so accepts all well formed programs, however fails to
+//       reject some mal-formed programs so think of another method in the future
+//       to handle scoping */
+//    /* symtab_pop_scope is in cg_function_declaration */
+//    symtab_push_scope(p);
+//
+//    TNode* paramtypelist = parse_node_child(dirdeclarator2, 1);
+//    TNode* paramlist = parse_node_child(paramtypelist, 0);
+//    cg_parameter_list(p, paramlist);
+//    parser_output_il(p, "\n");
+//    PARSE_TRIM_TREE();
+//
+//
+//    if (!parse_compound_statement(p, PARSE_CURRENT_NODE) ||
+//            parser_has_error(p)) goto exit2;
+//
+//exit2:
+//    symtab_pop_scope(p);
+//exit:
+//    PARSE_FUNC_END();
+//}
 
 /* Return 1 if next token read matches provided token, 0 otherwise */
 /* The token is consumed if it matches the provided token */
-static int parse_expect(Parser* p, const char* match_token) {
-    char* token = read_token(p);
-    if (parser_has_error(p)) {
-        return 0;
-    }
+static ErrorCode parse_expect(Parser* p, const char* match_token, int* matched) {
+    ErrorCode ecode;
+    *matched = 0;
+
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) return ecode;
 
     if (strequ(token, match_token)) {
-        consume_token(token);
-        return 1;
+        lexer_consume(p->lex);
+        *matched = 1;
     }
-    return 0;
+    return ecode;
 }
 

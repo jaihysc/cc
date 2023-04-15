@@ -6,7 +6,7 @@
 #include "symbol.h"
 
 #define MAX_TREE_NODE 2000 /* Maximum nodes in tree */
-#define MAX_TNODE_CHILD 20 /* Maximum children tnode */
+#define MAX_TNODE_CHILD 256 /* Maximum children tnode */
 
 /* 6.4 Lexical elements */
 typedef struct {
@@ -17,6 +17,10 @@ typedef struct {
     char token[MAX_TOKEN_LEN + 1];
 } TNodeDecimalConstant;
 
+typedef struct {
+    char token[MAX_TOKEN_LEN + 1];
+} TNodeOctalConstant;
+
 /* 6.5 Expressions */
 typedef struct {
     enum {
@@ -25,6 +29,12 @@ typedef struct {
         TNodeAdditiveExpression_sub,
     } type;
 } TNodeAdditiveExpression;
+
+typedef struct {
+    enum {
+        TNodeAssignmentExpression_none,
+    } type;
+} TNodeAssignmentExpression;
 
 /* 6.7 Declarators */
 typedef struct {
@@ -46,7 +56,11 @@ typedef struct {
 typedef union {
     TNodeIdentifier identifier;
     TNodeDecimalConstant decimal_constant;
+    TNodeOctalConstant octal_constant;
+
     TNodeAdditiveExpression additive_expression;
+    TNodeAssignmentExpression assignment_expression;
+
     TNodeDeclarationSpecifiers declaration_specifiers;
     TNodePointer pointer;
     TNodeJumpStatement jump_statement;
@@ -87,11 +101,12 @@ typedef struct {
        (e.g., calculating index of node). Root treated as index -1
        | root | node1 | node 2 | ... */
     TNode root;
-    TNode buf[MAX_TREE_NODE];
+    TNode* buf;
     int i_buf; /* Index one past last element */
 } Tree;
 
 ErrorCode tree_construct(Tree* tree);
+void tree_destruct(Tree* tree);
 
 /* Returns the root of the tree */
 TNode* tree_root(Tree* tree);

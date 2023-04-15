@@ -19,6 +19,8 @@ static void AttachDetachNode(CuTest* tc) {
 
     tree_detach_child(&tree, node);
     CuAssertIntEquals(tc, tnode_count_child(node), 0);
+
+    tree_destruct(&tree);
 }
 
 CuSuite* TreeGetSuite() {

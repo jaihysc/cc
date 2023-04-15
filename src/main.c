@@ -133,19 +133,19 @@ int main(int argc, char** argv) {
     if ((ecode = symtab_construct(&symtab)) != ec_noerr) goto exit2;
 
     Tree tree;
-    if ((ecode = tree_construct(&tree)) != ec_noerr) goto exit2;
+    if ((ecode = tree_construct(&tree)) != ec_noerr) goto exit3;
 
     Parser p;
-    if ((ecode = parser_construct(&p, &lex, &symtab, &tree)) != ec_noerr) goto exit2;
+    if ((ecode = parser_construct(&p, &lex, &symtab, &tree)) != ec_noerr) goto exit3;
 
-    if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit2;
+    if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit3;
 
     ecode = parse_translation_unit(&p);
     if (ecode == ec_syntaxerr) {
         ERRMSG("Failed to build parse tree\n");
-        goto exit2;
+        goto exit3;
     }
-    else if (ecode != ec_noerr) goto exit2;
+    else if (ecode != ec_noerr) goto exit3;
 
     symtab_pop_scope(&symtab);
     ASSERT(symtab.i_scope == 0, "Scopes not empty on parse end");
@@ -160,12 +160,12 @@ int main(int argc, char** argv) {
         debug_print_tree(&tree);
     }
 
+exit3:
+    tree_destruct(&tree);
 exit2:
     lexer_destruct(&lex);
-
 exit1:
     flags_destruct(&flags);
-
 exit:
     if (ecode != ec_noerr) {
         ERRMSGF("Error during parsing: %d %s\n", ecode, ec_str(ecode));

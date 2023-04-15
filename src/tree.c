@@ -47,15 +47,29 @@ void tnode_set(TNode* node, SymbolType st, void* data, int var) {
     ASSERT(node != NULL, "Node is null");
     node->type = st;
     switch (st) {
+        /* 6.4 Lexical elements */
         case st_identifier:
             node->data.identifier = *(TNodeIdentifier*)data;
             break;
         case st_decimal_constant:
             node->data.decimal_constant = *(TNodeDecimalConstant*)data;
             break;
+        case st_octal_constant:
+            node->data.octal_constant = *(TNodeOctalConstant*)data;
+            break;
+
+        /* 6.5 Expressions */
         case st_additive_expression:
             node->data.additive_expression = *(TNodeAdditiveExpression*)data;
+            break;
+        case st_assignment_expression:
+            node->data.assignment_expression = *(TNodeAssignmentExpression*)data;
+            break;
         case st_expression:
+            break;
+
+        /* 6.7 Declarators */
+        case st_declaration:
             break;
         case st_declaration_specifiers:
             node->data.declaration_specifiers = *(TNodeDeclarationSpecifiers*)data;
@@ -65,6 +79,8 @@ void tnode_set(TNode* node, SymbolType st, void* data, int var) {
             break;
         case st_parameter_type_list:
             break;
+
+        /* 6.8 Statements and blocks */
         case st_compound_statement:
             break;
         case st_jump_statement:
@@ -80,7 +96,15 @@ void tnode_set(TNode* node, SymbolType st, void* data, int var) {
 ErrorCode tree_construct(Tree* tree) {
     ASSERT(tree != NULL, "Tree is null");
     cmemzero(tree, sizeof(Tree));
+
+    tree->buf = cmalloc(sizeof(TNode) * MAX_TREE_NODE);
+    if (tree->buf == NULL) return ec_badalloc;
+
     return ec_noerr;
+}
+
+void tree_destruct(Tree* tree) {
+    cfree(tree->buf);
 }
 
 TNode* tree_root(Tree* tree) {
@@ -156,6 +180,12 @@ static void debug_tnode_walk(
         case st_decimal_constant:
             {
                 TNodeDecimalConstant* data = (TNodeDecimalConstant*)&node->data;
+                LOGF("(%s)", data->token);
+            }
+            break;
+        case st_octal_constant:
+            {
+                TNodeOctalConstant* data = (TNodeOctalConstant*)&node->data;
                 LOGF("(%s)", data->token);
             }
             break;

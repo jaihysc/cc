@@ -13,11 +13,12 @@ ErrorCode tnode_alloc(TNode** node_ptr) {
 void tnode_destruct(TNode* node) {
     if (node == NULL) return;
 
-    for (int i = 0; i < MAX_TNODE_CHILD; ++i) {
+    for (int i = 0; i < node->child_count; ++i) {
         if (node->child[i] != NULL) {
             tnode_destruct(node->child[i]);
         }
     }
+    cfree(node->child);
     cfree(node);
 }
 
@@ -25,18 +26,20 @@ ErrorCode tnode_attach(TNode* node, TNode* new_node) {
     ASSERT(node != NULL, "Node is null");
     ASSERT(new_node != NULL, "New node is null");
 
-    /* First first available spot */
-    int i = 0;
-    while (1) {
-        if (i >= MAX_TNODE_CHILD) {
-            return ec_tnode_childexceed;
+    /* Resize */
+    if (node->child_count >= node->child_capacity) {
+        node->child_capacity = node->child_capacity * 2 + 1;
+        TNode** new_buf = cmalloc(node->child_capacity * sizeof(TNode));
+        if (new_buf == NULL) return ec_badalloc;
+
+        for (int i = 0; i < node->child_count; ++i) {
+            new_buf[i] = node->child[i];
         }
-        if (node->child[i] == NULL) {
-            node->child[i] = new_node;
-            break;
-        }
-        ++i;
+        cfree(node->child);
+        node->child = new_buf;
     }
+
+    node->child[node->child_count++] = new_node;
     return ec_noerr;
 }
 
@@ -58,28 +61,18 @@ ErrorCode tnode_alloca(TNode** node_ptr, TNode* parent) {
 
 int tnode_count_child(TNode* node) {
     ASSERT(node != NULL, "Node is null");
-
-    int count = 0;
-    while (count < MAX_TNODE_CHILD) {
-        if (node->child[count] == NULL) {
-            break;
-        }
-        ++count;
-    }
-    return count;
+    return node->child_count;
 }
 
 TNode* tnode_child(TNode* node, int i) {
-    int childs = tnode_count_child(node);
-
     if (i >= 0) {
-        ASSERT(i < MAX_TNODE_CHILD, "Child index out of range");
+        ASSERT(i < node->child_count, "Child index out of range");
         return node->child[i];
     }
 
     /* Index backwads */
-    ASSERT(childs + i >= 0, "Child reverse index out of range");
-    return node->child[childs + i];
+    ASSERT(node->child_count + i >= 0, "Child reverse index out of range");
+    return node->child[node->child_count + i];
 }
 
 SymbolType tnode_type(TNode* node) {
@@ -380,18 +373,7 @@ static void debug_tnode_walk(
     LOGF("\n");
 
     /* iterate through children */
-    int child_count = 0;
-    while (1) {
-        if (child_count >= MAX_TNODE_CHILD) {
-            break;
-        }
-        if (node->child[child_count] == NULL) {
-            break;
-        }
-        ++child_count;
-    }
-
-    for (int i = 0; i < child_count; ++i) {
+    for (int i = 0; i < node->child_count; ++i) {
         LOG(branch);
 
         /* Extend branch for to include this node */
@@ -401,7 +383,7 @@ static void debug_tnode_walk(
             LOG("Max depth exceeded\n");
         }
         else {
-            if (i == child_count - 1) {
+            if (i == node->child_count - 1) {
                 LOG("└ ");
                 branch[i_branch] = ' ';
             }
@@ -420,34 +402,28 @@ static void debug_tnode_walk(
 }
 
 static TNode* tree_remove_single_child_impl(TNode* node) {
-    int child_count = 0;
-    int last_child_idx = 0;
-
-    for (int i = 0; i < MAX_TNODE_CHILD; ++i) {
+    for (int i = 0; i < node->child_count; ++i) {
         if (node->child[i] != NULL) {
-            last_child_idx = i;
-
             TNode* new_child = tree_remove_single_child_impl(node->child[i]);
             if (new_child) {
                 tnode_destruct(node->child[i]);
                 node->child[i] = new_child;
             }
-            ++child_count;
         }
     }
 
     /* Return not NULL to indicate parent must delete this node
        replace the child with child */
-    if (child_count == 1) {
-        TNode* child = node->child[last_child_idx];
-        node->child[last_child_idx] = NULL;
+    if (node->child_count == 1) {
+        TNode* child = node->child[0];
+        node->child[0] = NULL;
         return child;
     }
     return NULL;
 }
 
 void tree_remove_single_child(TNode* node) {
-    for (int i = 0; i < MAX_TNODE_CHILD; ++i) {
+    for (int i = 0; i < node->child_count; ++i) {
         if (node->child[i] != NULL) {
             TNode* new_child = tree_remove_single_child_impl(node->child[i]);
             if (new_child) {

@@ -5,8 +5,6 @@
 #include "constant.h"
 #include "symbol.h"
 
-#define MAX_TNODE_CHILD 256 /* Maximum children tnode */
-
 /* 6.4 Lexical elements */
 typedef struct {
     char token[MAX_TOKEN_LEN + 1];
@@ -133,7 +131,10 @@ typedef union {
 } TNodeData;
 
 typedef struct TNode {
-    struct TNode* child[MAX_TNODE_CHILD];
+    struct TNode** child; /* Array of TNode* */
+    int child_count;
+    int child_capacity;
+
     SymbolType type;
     TNodeData data;
     /* The rule which was matched for this node

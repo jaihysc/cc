@@ -1257,7 +1257,7 @@ static ErrorCode parse_direct_declarator(Parser* p, TNode* parent, int* matched)
     *matched = 0;
 
     int has_match;
-    if ((ecode = parse_identifier(p, parent, &has_match)) != ec_noerr)
+    if ((ecode = parse_identifier(p, parent, &has_match)) != ec_noerr) goto exit;
     if (!has_match) {
         ERRMSG("Expected identifier\n");
         ecode = ec_syntaxerr;

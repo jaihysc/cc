@@ -3,7 +3,7 @@
 #define TREE_H
 
 #include "constant.h"
-#include "symbol.h"
+#include "errorcode.h"
 
 /* 6.4 Lexical elements */
 typedef struct {
@@ -12,11 +12,7 @@ typedef struct {
 
 typedef struct {
     char token[MAX_TOKEN_LEN + 1];
-} TNodeDecimalConstant;
-
-typedef struct {
-    char token[MAX_TOKEN_LEN + 1];
-} TNodeOctalConstant;
+} TNodeConstant;
 
 /* 6.5 Expressions */
 typedef struct {
@@ -30,52 +26,22 @@ typedef struct {
 
 typedef struct {
     enum {
-        TNodeMultiplicativeExpression_none,
-        TNodeMultiplicativeExpression_mul,
-        TNodeMultiplicativeExpression_div,
-        TNodeMultiplicativeExpression_mod,
+        TNodeBinaryExpression_none,
+        TNodeBinaryExpression_add,
+        TNodeBinaryExpression_sub,
+        TNodeBinaryExpression_mul,
+        TNodeBinaryExpression_div,
+        TNodeBinaryExpression_mod,
+        TNodeBinaryExpression_le,
+        TNodeBinaryExpression_ge,
+        TNodeBinaryExpression_leq,
+        TNodeBinaryExpression_geq,
+        TNodeBinaryExpression_eq,
+        TNodeBinaryExpression_neq,
+        TNodeBinaryExpression_logic_and,
+        TNodeBinaryExpression_logic_or,
     } type;
-} TNodeMultiplicativeExpression;
-
-typedef struct {
-    enum {
-        TNodeAdditiveExpression_none,
-        TNodeAdditiveExpression_add,
-        TNodeAdditiveExpression_sub,
-    } type;
-} TNodeAdditiveExpression;
-
-typedef struct {
-    enum {
-        TNodeRelationalExpression_none,
-        TNodeRelationalExpression_le,
-        TNodeRelationalExpression_ge,
-        TNodeRelationalExpression_leq,
-        TNodeRelationalExpression_geq,
-    } type;
-} TNodeRelationalExpression;
-
-typedef struct {
-    enum {
-        TNodeEqualityExpression_none,
-        TNodeEqualityExpression_eq,
-        TNodeEqualityExpression_neq,
-    } type;
-} TNodeEqualityExpression;
-
-typedef struct {
-    enum {
-        TNodeLogicalAndExpression_none,
-        TNodeLogicalAndExpression_and,
-    } type;
-} TNodeLogicalAndExpression;
-
-typedef struct {
-    enum {
-        TNodeLogicalOrExpression_none,
-        TNodeLogicalOrExpression_or,
-    } type;
-} TNodeLogicalOrExpression;
+} TNodeBinaryExpression;
 
 typedef struct {
     enum {
@@ -113,16 +79,10 @@ typedef struct {
 
 typedef union {
     TNodeIdentifier identifier;
-    TNodeDecimalConstant decimal_constant;
-    TNodeOctalConstant octal_constant;
+    TNodeConstant constant;
 
     TNodeUnaryExpression unary_expression;
-    TNodeMultiplicativeExpression multiplicative_expression;
-    TNodeAdditiveExpression additive_expression;
-    TNodeRelationalExpression relational_expression;
-    TNodeEqualityExpression equality_expression;
-    TNodeLogicalAndExpression logical_and_expression;
-    TNodeLogicalOrExpression logical_or_expression;
+    TNodeBinaryExpression binary_expression;
     TNodeAssignmentExpression assignment_expression;
 
     TNodeDeclarationSpecifiers declaration_specifiers;
@@ -130,12 +90,47 @@ typedef union {
     TNodeJumpStatement jump_statement;
 } TNodeData;
 
+/* Sorted by Annex A */
+/* 6.4 Lexical elements */
+/* 6.5 Expressions */
+/* 6.7 Declarators */
+/* 6.8 Statements and blocks */
+/* 6.9 External definitions */
+#define TNODE_TYPES                        \
+    TNODE_TYPE(root)                       \
+                                           \
+    TNODE_TYPE(identifier)                 \
+    TNODE_TYPE(constant)                   \
+                                           \
+    TNODE_TYPE(unary_expression)           \
+    TNODE_TYPE(binary_expression)          \
+    TNODE_TYPE(assignment_expression)      \
+    TNODE_TYPE(expression)                 \
+                                           \
+    TNODE_TYPE(declaration)                \
+    TNODE_TYPE(declaration_specifiers)     \
+    TNODE_TYPE(pointer)                    \
+    TNODE_TYPE(parameter_type_list)        \
+                                           \
+    TNODE_TYPE(compound_statement)         \
+    TNODE_TYPE(block_item)                 \
+    TNODE_TYPE(jump_statement)
+
+#define TNODE_TYPE(name__) tt_ ## name__,
+/* tt_ force compiler to choose data type with negative values
+   as negative values indicate a token is stored */
+typedef enum {tt_= -1, TNODE_TYPES} TNodeType;
+#undef TNODE_TYPE
+
+/* Converts TNodeType to string */
+const char* tt_str(TNodeType tt);
+
 typedef struct TNode {
     struct TNode** child; /* Array of TNode* */
     int child_count;
     int child_capacity;
 
-    SymbolType type;
+    TNodeType type;
     TNodeData data;
     /* The rule which was matched for this node
        Starting with 0 as first, in the order given by Annex A */
@@ -163,19 +158,19 @@ int tnode_count_child(TNode* node);
    negative to index backwards (-1 means last child, -2 second last) */
 TNode* tnode_child(TNode* node, int i);
 
-/* Retrieves the symbol type for node */
-SymbolType tnode_type(TNode* node);
+/* Retrieves the type for node */
+TNodeType tnode_type(TNode* node);
 
 /* Retrieves data for node
-   Cast into the appropriate type based on SymbolType */
+   Cast into the appropriate type based on TNodeType */
 TNodeData* tnode_data(TNode* node);
 
 /* Retrieves the variant for node */
 int tnode_variant(TNode* node);
 
-/* Sets TNodeData data of type SymbolType for node
+/* Sets TNodeData data of type TNodeType for node
    Contents of TNodeData is copied into node */
-void tnode_set(TNode* node, SymbolType st, void* data, int var);
+void tnode_set(TNode* node, TNodeType st, void* data, int var);
 
 typedef struct {
     TNode* root;

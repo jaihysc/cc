@@ -2,6 +2,15 @@
 
 #include "common.h"
 
+/* Maps TNodeType to string (index with symbol type) */
+#define TNODE_TYPE(name__) #name__,
+const char* tnode_type_str[] = {TNODE_TYPES};
+#undef TNODE_TYPES
+
+const char* tt_str(TNodeType tt) {
+    return tnode_type_str[(int)tt];
+}
+
 ErrorCode tnode_alloc(TNode** node_ptr) {
     ASSERT(node_ptr != NULL, "Node pointer is null");
 
@@ -75,7 +84,7 @@ TNode* tnode_child(TNode* node, int i) {
     return node->child[node->child_count + i];
 }
 
-SymbolType tnode_type(TNode* node) {
+TNodeType tnode_type(TNode* node) {
     ASSERT(node != NULL, "Node is null");
     return node->type;
 }
@@ -90,65 +99,47 @@ int tnode_variant(TNode* node) {
     return node->variant;
 }
 
-void tnode_set(TNode* node, SymbolType st, void* data, int var) {
+void tnode_set(TNode* node, TNodeType st, void* data, int var) {
     ASSERT(node != NULL, "Node is null");
     node->type = st;
     switch (st) {
         /* 6.4 Lexical elements */
-        case st_identifier:
+        case tt_identifier:
             node->data.identifier = *(TNodeIdentifier*)data;
             break;
-        case st_decimal_constant:
-            node->data.decimal_constant = *(TNodeDecimalConstant*)data;
-            break;
-        case st_octal_constant:
-            node->data.octal_constant = *(TNodeOctalConstant*)data;
+        case tt_constant:
+            node->data.constant = *(TNodeConstant*)data;
             break;
 
         /* 6.5 Expressions */
-        case st_unary_expression:
+        case tt_unary_expression:
             node->data.unary_expression = *(TNodeUnaryExpression*)data;
             break;
-        case st_multiplicative_expression:
-            node->data.multiplicative_expression = *(TNodeMultiplicativeExpression*)data;
+        case tt_binary_expression:
+            node->data.binary_expression = *(TNodeBinaryExpression*)data;
             break;
-        case st_additive_expression:
-            node->data.additive_expression = *(TNodeAdditiveExpression*)data;
-            break;
-        case st_relational_expression:
-            node->data.relational_expression = *(TNodeRelationalExpression*)data;
-            break;
-        case st_equality_expression:
-            node->data.equality_expression = *(TNodeEqualityExpression*)data;
-            break;
-        case st_logical_and_expression:
-            node->data.logical_and_expression = *(TNodeLogicalAndExpression*)data;
-            break;
-        case st_logical_or_expression:
-            node->data.logical_or_expression = *(TNodeLogicalOrExpression*)data;
-            break;
-        case st_assignment_expression:
+        case tt_assignment_expression:
             node->data.assignment_expression = *(TNodeAssignmentExpression*)data;
             break;
-        case st_expression:
+        case tt_expression:
             break;
 
         /* 6.7 Declarators */
-        case st_declaration:
+        case tt_declaration:
             break;
-        case st_declaration_specifiers:
+        case tt_declaration_specifiers:
             node->data.declaration_specifiers = *(TNodeDeclarationSpecifiers*)data;
             break;
-        case st_pointer:
+        case tt_pointer:
             node->data.pointer = *(TNodePointer*)data;
             break;
-        case st_parameter_type_list:
+        case tt_parameter_type_list:
             break;
 
         /* 6.8 Statements and blocks */
-        case st_compound_statement:
+        case tt_compound_statement:
             break;
-        case st_jump_statement:
+        case tt_jump_statement:
             node->data.jump_statement = *(TNodeJumpStatement*)data;
             break;
         default:
@@ -163,7 +154,7 @@ ErrorCode tree_construct(Tree* tree) {
     ErrorCode ecode;
 
     if ((ecode = tnode_alloc(&tree->root)) != ec_noerr) return ecode;
-    tree->root->type = st_root;
+    tree->root->type = tt_root;
     return ec_noerr;
 }
 
@@ -186,30 +177,24 @@ static void debug_tnode_walk(
     ASSERT(tree != NULL, "Tree is null");
 
     /* Is symbol type */
-    LOGF("%s", st_str(node->type));
+    LOGF("%s", tt_str(node->type));
     switch (node->type) {
         /* 6.4 Lexical elements */
-        case st_identifier:
+        case tt_identifier:
             {
                 TNodeIdentifier* data = (TNodeIdentifier*)&node->data;
                 LOGF("(%s)", data->token);
             }
             break;
-        case st_decimal_constant:
+        case tt_constant:
             {
-                TNodeDecimalConstant* data = (TNodeDecimalConstant*)&node->data;
-                LOGF("(%s)", data->token);
-            }
-            break;
-        case st_octal_constant:
-            {
-                TNodeOctalConstant* data = (TNodeOctalConstant*)&node->data;
+                TNodeConstant* data = (TNodeConstant*)&node->data;
                 LOGF("(%s)", data->token);
             }
             break;
 
         /* 6.5 Expressions */
-        case st_unary_expression:
+        case tt_unary_expression:
             {
                 TNodeUnaryExpression* data = (TNodeUnaryExpression*)&node->data;
                 if (data->type == TNodeUnaryExpression_ref) {
@@ -223,76 +208,58 @@ static void debug_tnode_walk(
                 }
             }
             break;
-        case st_multiplicative_expression:
+        case tt_binary_expression:
             {
-                TNodeMultiplicativeExpression* data = (TNodeMultiplicativeExpression*)&node->data;
-                if (data->type == TNodeMultiplicativeExpression_mul) {
-                    LOG("(*)");
-                }
-                else if (data->type == TNodeMultiplicativeExpression_div) {
-                    LOG("(/)");
-                }
-                else if (data->type == TNodeMultiplicativeExpression_mod) {
-                    LOG("(%)");
+                TNodeBinaryExpression* data = (TNodeBinaryExpression*)&node->data;
+                switch (data->type) {
+                    case TNodeBinaryExpression_none:
+                        break;
+                    case TNodeBinaryExpression_add:
+                        LOG("(+)");
+                        break;
+                    case TNodeBinaryExpression_sub:
+                        LOG("(-)");
+                            break;
+                    case TNodeBinaryExpression_mul:
+                        LOG("(*)");
+                            break;
+                    case TNodeBinaryExpression_div:
+                        LOG("(/)");
+                            break;
+                    case TNodeBinaryExpression_mod:
+                        LOG("(%)");
+                            break;
+                    case TNodeBinaryExpression_le:
+                        LOG("(<)");
+                            break;
+                    case TNodeBinaryExpression_ge:
+                        LOG("(>)");
+                            break;
+                    case TNodeBinaryExpression_leq:
+                        LOG("(<=)");
+                            break;
+                    case TNodeBinaryExpression_geq:
+                        LOG("(>=)");
+                            break;
+                    case TNodeBinaryExpression_eq:
+                        LOG("(==)");
+                            break;
+                    case TNodeBinaryExpression_neq:
+                        LOG("(!=)");
+                            break;
+                    case TNodeBinaryExpression_logic_and:
+                        LOG("(&&)");
+                            break;
+                    case TNodeBinaryExpression_logic_or:
+                        LOG("(||)");
+                        break;
+                    default:
+                        ASSERT(0, "Unimplemented");
+                        break;
                 }
             }
             break;
-        case st_additive_expression:
-            {
-                TNodeAdditiveExpression* data = (TNodeAdditiveExpression*)&node->data;
-                if (data->type == TNodeAdditiveExpression_add) {
-                    LOG("(+)");
-                }
-                else if (data->type == TNodeAdditiveExpression_sub) {
-                    LOG("(-)");
-                }
-            }
-            break;
-        case st_relational_expression:
-            {
-                TNodeRelationalExpression* data = (TNodeRelationalExpression*)&node->data;
-                if (data->type == TNodeRelationalExpression_le) {
-                    LOG("(<)");
-                }
-                else if (data->type == TNodeRelationalExpression_ge) {
-                    LOG("(>)");
-                }
-                else if (data->type == TNodeRelationalExpression_leq) {
-                    LOG("(<=)");
-                }
-                else if (data->type == TNodeRelationalExpression_geq) {
-                    LOG("(>=)");
-                }
-            }
-            break;
-        case st_equality_expression:
-            {
-                TNodeEqualityExpression* data = (TNodeEqualityExpression*)&node->data;
-                if (data->type == TNodeEqualityExpression_eq) {
-                    LOG("(==)");
-                }
-                else if (data->type == TNodeEqualityExpression_neq) {
-                    LOG("(!=)");
-                }
-            }
-            break;
-        case st_logical_and_expression:
-            {
-                TNodeLogicalAndExpression* data = (TNodeLogicalAndExpression*)&node->data;
-                if (data->type == TNodeLogicalAndExpression_and) {
-                    LOG("(&&)");
-                }
-            }
-            break;
-        case st_logical_or_expression:
-            {
-                TNodeLogicalOrExpression* data = (TNodeLogicalOrExpression*)&node->data;
-                if (data->type == TNodeLogicalOrExpression_or) {
-                    LOG("(||)");
-                }
-            }
-            break;
-        case st_assignment_expression:
+        case tt_assignment_expression:
             {
                 TNodeAssignmentExpression* data = (TNodeAssignmentExpression*)&node->data;
                 switch (data->type) {
@@ -339,13 +306,13 @@ static void debug_tnode_walk(
             break;
 
         /* 6.7 Declarators */
-        case st_declaration_specifiers:
+        case tt_declaration_specifiers:
             {
                 //TNodeDeclarationSpecifiers* data = (TNodeDeclarationSpecifiers*)&node->data;
                 //LOGF("(%s)\n", data->token);
             }
             break;
-        case st_pointer:
+        case tt_pointer:
             {
                 TNodePointer* data = (TNodePointer*)&node->data;
                 LOGF("(%d)", data->pointers);
@@ -353,7 +320,7 @@ static void debug_tnode_walk(
             break;
 
         /* 6.8 Statements and blocks */
-        case st_jump_statement:
+        case tt_jump_statement:
             {
                 TNodeJumpStatement* data = (TNodeJumpStatement*)&node->data;
                 if (data->type == TNodeJumpStatement_continue) {

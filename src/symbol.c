@@ -6,11 +6,6 @@
 
 SymbolId symid_invalid = {.index = -1};
 
-/* Maps symbol type to string (index with symbol type) */
-#define SYMBOL_TYPE(name__) #name__,
-const char* symbol_type_str[] = {SYMBOL_TYPES};
-#undef SYMBOL_TYPES
-
 int symid_valid(SymbolId sym_id) {
     return sym_id.index != -1;
 }
@@ -87,9 +82,5 @@ SymbolId symbol_ptr_sym(Symbol* sym) {
 SymbolId symbol_ptr_index(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->ptr_idx;
-}
-
-const char* st_str(SymbolType st) {
-    return symbol_type_str[(int)st];
 }
 

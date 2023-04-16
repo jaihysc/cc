@@ -111,6 +111,7 @@ typedef union {
     TNODE_TYPE(declaration_specifiers)     \
     TNODE_TYPE(pointer)                    \
     TNODE_TYPE(parameter_type_list)        \
+    TNODE_TYPE(parameter_list)             \
                                            \
     TNODE_TYPE(compound_statement)         \
     TNODE_TYPE(block_item)                 \

@@ -1044,7 +1044,8 @@ static ErrorCode parse_expression(Parser* p, TNode* parent, int* matched) {
 
     /* Cleanup the tree by removing nodes with only 1 child
        We cannot know ahead of time if there will be an operator applied */
-    tree_remove_single_child(node);
+    /* FIXME this incorrectly removes unary expressions */
+    //tree_remove_single_child(node);
 
 exit:
     if (!attached_node) tnode_destruct(node);
@@ -1333,21 +1334,26 @@ static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched) {
     /* parameter-list -> parameter-declaration
                        | parameter-declaration , parameter-list */
 
-    int has_match;
-    if ((ecode = parse_parameter_declaration(
-                    p, parent, &has_match)) != ec_noerr) goto exit;
-    if (!has_match) goto exit;
+    TNode* node;
+    while (1) {
+        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
 
-    /* If comma, must have another parameter-list */
-    if ((ecode = parse_expect(p, ",", &has_match)) != ec_noerr) goto exit;
-    if (has_match) {
-        if ((ecode = parse_parameter_list(
-                        p, parent, &has_match)) != ec_noerr) goto exit;
-        if (!has_match) goto exit;
+        int has_match;
+        if ((ecode = parse_parameter_declaration(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) break;
+
+        /* If comma, must have another parameter-list */
+        if ((ecode = parse_expect(p, ",", &has_match)) != ec_noerr) goto exit;
+
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, tt_parameter_list, NULL, 0);
+        *matched = 1;
     }
-    *matched = 1;
 
 exit:
+    /* Upon exiting, it always has an unattached node */
+    tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }
@@ -1432,7 +1438,8 @@ matched:
 
     /* Cleanup the tree by removing nodes with only 1 child
        We cannot know ahead of time if there will be an operator applied */
-    tree_remove_single_child(tnode_child(parent, -1));
+    /* FIXME this incorrectly removes unary expressions */
+    //tree_remove_single_child(tnode_child(parent, -1));
 
 exit:
     PARSE_FUNC_END();

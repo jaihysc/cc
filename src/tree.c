@@ -134,6 +134,7 @@ void tnode_set(TNode* node, TNodeType st, void* data, int var) {
             node->data.pointer = *(TNodePointer*)data;
             break;
         case tt_parameter_type_list:
+        case tt_parameter_list:
             break;
 
         /* 6.8 Statements and blocks */

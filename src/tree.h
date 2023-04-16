@@ -186,6 +186,9 @@ void tree_destruct(Tree* tree);
 /* Returns the root of the tree */
 TNode* tree_root(Tree* tree);
 
+/* Starting at children of node, remove nodes which have only 1 children */
+void tree_remove_single_child(TNode* node);
+
 void debug_print_tree(Tree* tree);
 
 #endif

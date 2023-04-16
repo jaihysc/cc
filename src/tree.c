@@ -419,6 +419,45 @@ static void debug_tnode_walk(
     }
 }
 
+static TNode* tree_remove_single_child_impl(TNode* node) {
+    int child_count = 0;
+    int last_child_idx = 0;
+
+    for (int i = 0; i < MAX_TNODE_CHILD; ++i) {
+        if (node->child[i] != NULL) {
+            last_child_idx = i;
+
+            TNode* new_child = tree_remove_single_child_impl(node->child[i]);
+            if (new_child) {
+                tnode_destruct(node->child[i]);
+                node->child[i] = new_child;
+            }
+            ++child_count;
+        }
+    }
+
+    /* Return not NULL to indicate parent must delete this node
+       replace the child with child */
+    if (child_count == 1) {
+        TNode* child = node->child[last_child_idx];
+        node->child[last_child_idx] = NULL;
+        return child;
+    }
+    return NULL;
+}
+
+void tree_remove_single_child(TNode* node) {
+    for (int i = 0; i < MAX_TNODE_CHILD; ++i) {
+        if (node->child[i] != NULL) {
+            TNode* new_child = tree_remove_single_child_impl(node->child[i]);
+            if (new_child) {
+                tnode_destruct(node->child[i]);
+                node->child[i] = new_child;
+            }
+        }
+    }
+}
+
 void debug_print_tree(Tree* tree) {
     ASSERT(tree != NULL, "Tree is null");
 

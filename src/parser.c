@@ -1042,6 +1042,10 @@ static ErrorCode parse_expression(Parser* p, TNode* parent, int* matched) {
 
     /* Incomplete */
 
+    /* Cleanup the tree by removing nodes with only 1 child
+       We cannot know ahead of time if there will be an operator applied */
+    tree_remove_single_child(node);
+
 exit:
     if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
@@ -1425,6 +1429,10 @@ static ErrorCode parse_initializer(Parser* p, TNode* parent, int* matched) {
 
 matched:
     *matched = 1;
+
+    /* Cleanup the tree by removing nodes with only 1 child
+       We cannot know ahead of time if there will be an operator applied */
+    tree_remove_single_child(tnode_child(parent, -1));
 
 exit:
     PARSE_FUNC_END();

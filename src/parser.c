@@ -455,6 +455,7 @@ static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) 
 
     /* Recursive as unary-operator needs a cast-expression, not a unary-expression */
 
+    int attached_node = 0;
     TNode* node;
     if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
 
@@ -511,11 +512,14 @@ static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) 
 
     /* Incomplete */
 
-exit:
     if (*matched) {
-        if ((ecode = tnode_attach(parent, node)) != ec_noerr) tnode_destruct(node);
-        else tnode_set(node, tt_unary_expression, &data, 0);
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, tt_unary_expression, &data, 0);
+        attached_node = 1;
     }
+
+exit:
+    if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }

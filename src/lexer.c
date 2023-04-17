@@ -232,7 +232,11 @@ static void consume_char(Lexer* lex) {
 }
 
 ErrorCode lexer_construct(Lexer* lex, const char* filepath) {
-    cmemzero(lex, sizeof(Lexer));
+    lex->line_num = 1;
+    lex->char_num = 1;
+    lex->last_line_num = 0;
+    lex->last_char_num = 0;
+    lex->get_buf[0] = '\0';
 
     lex->rf = fopen(filepath, "r");
     if (lex->rf == NULL) {

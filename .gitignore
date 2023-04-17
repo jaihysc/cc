@@ -1,6 +1,3 @@
-/parse
-/unittest
-
 out/
 test/__pycache__
 test/imm1

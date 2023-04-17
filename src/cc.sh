@@ -58,7 +58,7 @@ elif [ ${#input_files[@]} -eq 1 ]; then
     file=${input_files[0]}
     gcc -E -x c               "${pp_flags[@]}"    "$file"                   -o "$(dirname "$file")/imm1"  || fail "Preprocessor error"       5
     "$(dirname "$0")/parse"   "${parse_flags[@]}" "$(dirname "$file")/imm1" -o "$(dirname "$file")/imm2"  || fail "Parser error"             6
-    "$(dirname "$0")/asm_gen" "${ag_flags[@]}"    "$(dirname "$file")/imm2" -o "$(dirname "$file")/imm3"  || fail "Assembly generator error" 7
+    "$(dirname "$0")/asmgen"  "${ag_flags[@]}"    "$(dirname "$file")/imm2" -o "$(dirname "$file")/imm3"  || fail "Assembly generator error" 7
     nasm -felf64              "${asm_flags[@]}"   "$(dirname "$file")/imm3" -o "$(dirname "$file")/imm4"  || fail "Assembler error"          8
     ld                        "${ln_flags[@]}"    "$(dirname "$file")/imm4" -o "$(dirname "$file")/a.out" || fail "Linker error"             9
 else

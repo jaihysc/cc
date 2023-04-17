@@ -8,6 +8,7 @@
 #include <stdarg.h>
 
 #include "../common.h"
+#include "../type.h"
 #include "fwddecl.h"
 #include "constant.h"
 #include "ILIns.h"

@@ -1893,6 +1893,7 @@ static ErrorCode parse_jump_statement(Parser* p, TNode* parent, int* matched) {
     goto exit;
 
 matched:
+    ;
     TNode* node;
     if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
     tnode_set(node, tt_jump_statement, &data, 0);

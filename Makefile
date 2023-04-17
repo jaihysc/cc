@@ -2,8 +2,10 @@
 SRCDIR=src
 TESTDIR=testu
 OBJDIR=out
+OUTDIR=out
 
-CFLAGS=-g -Wall -Wextra -I $(SRCDIR) -I $(TESTDIR)
+SRC_CFLAGS:=${cc_flags} -I $(SRCDIR)
+TEST_CFLAGS=-g -Wall -Wextra -I $(SRCDIR) -I $(TESTDIR)
 
 SRCDEPS=$(SRCDIR)/*.h
 TESTDEPS=$(TESTDIR)/*.h
@@ -14,15 +16,18 @@ TESTOBJ=$(addprefix $(OBJDIR)/$(TESTDIR)/, \
 	testu.o CuTest.o lexer_test.o parser_test.o symbol_test.o symtab_test.o tree_test.o type_test.o)
 
 $(OBJDIR)/$(SRCDIR)/%.o: $(SRCDIR)/%.c $(SRCDEPS)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(SRC_CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/$(TESTDIR)/%.o: $(TESTDIR)/%.c $(SRCDEPS) $(TESTDEPS)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) -c -o $@ $<
 
-all: parse unittest
+all: $(OUTDIR)/parse $(OUTDIR)/asmgen $(OUTDIR)/unittest
 
-parse: $(SRCOBJ) $(OBJDIR)/$(SRCDIR)/main.o
-	$(CC) $(CFLAGS) -o $@ $^
+$(OUTDIR)/parse: $(SRCOBJ) $(OBJDIR)/$(SRCDIR)/main.o
+	$(CC) $(SRC_CFLAGS) -o $@ $^
 
-unittest: $(SRCOBJ) $(TESTOBJ)
-	$(CC) $(CFLAGS) -o $@ $^
+$(OUTDIR)/asmgen: $(SRCDIR)/asmgen/asm_gen.c $(OBJDIR)/$(SRCDIR)/type.o
+	$(CC) $(SRC_CFLAGS) -o $@ $^
+
+$(OUTDIR)/unittest: $(SRCOBJ) $(TESTOBJ)
+	$(CC) $(TEST_CFLAGS) -o $@ $^

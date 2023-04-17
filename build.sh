@@ -17,34 +17,30 @@ if [[ ! -d out/testu ]]; then
     mkdir out/testu || exit 2
 fi
 
+cc_flags="-Wall -Wextra -Wshadow -pedantic -Wmissing-prototypes -Wpointer-arith -Wcast-qual -Wswitch-default\
+    -Wswitch -Wbad-function-cast -Wlogical-op -Wredundant-decls -Wconversion -Wsign-conversion -Wdouble-promotion -Wmisleading-indentation\
+    -Wduplicated-cond -Wduplicated-branches -Wunreachable-code -Wuninitialized -Wmaybe-uninitialized -Wundef\
+    -Wno-unused-parameter"
+
+cc_debug_flags="-g"
+cc_release_flags="-O3"
+
+# Build mode
+if [ -z "$1" ]; then
+    # Default to debug mode
+    cc_flags="${cc_flags} ${cc_debug_flags}"
+elif [ "$1" = "debug" ]; then
+    cc_flags="${cc_flags} ${cc_debug_flags}"
+elif [ "$1" = "release" ]; then
+    cc_flags="${cc_flags} ${cc_release_flags}"
+else
+    help_menu
+    exit 10
+fi
+
+export cc_flags
 make
 
-# Old build script
-#cc_flags="-Wall -Wextra -Wshadow -pedantic -Wmissing-prototypes -Wpointer-arith -Wcast-qual -Wswitch-default\
-#    -Wswitch -Wbad-function-cast -Wlogical-op -Wredundant-decls -Wconversion -Wsign-conversion -Wdouble-promotion -Wmisleading-indentation\
-#    -Wduplicated-cond -Wduplicated-branches -Wunreachable-code -Wuninitialized -Wmaybe-uninitialized -Wundef\
-#    -Wno-unused-parameter"
-#
-#cc_debug_flags="-g"
-#cc_release_flags="-O3"
-#
-## Build mode
-#if [ -z "$1" ]; then
-#    # Default to debug mode
-#    cc_flags="${cc_flags} ${cc_debug_flags}"
-#elif [ "$1" = "debug" ]; then
-#    cc_flags="${cc_flags} ${cc_debug_flags}"
-#elif [ "$1" = "release" ]; then
-#    cc_flags="${cc_flags} ${cc_release_flags}"
-#else
-#    help_menu
-#    exit 10
-#fi
-## Output uses old name for now to avoid breaking scripts
-#cc $cc_flags src/lexer.c           -c -o out/lexer.o
-##cc $cc_flags src/main.c           -o out/parse
-##cc $cc_flags src/asmgen/asm_gen.c -o out/asm_gen
-#
-#cp "src/cc.sh" out/ || exit 3
+cp "src/cc.sh" out/ || exit 3
 
 exit 0

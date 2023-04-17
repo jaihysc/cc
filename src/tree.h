@@ -173,6 +173,10 @@ int tnode_variant(TNode* node);
    Contents of TNodeData is copied into node */
 void tnode_set(TNode* node, TNodeType st, void* data, int var);
 
+/* For the subtree starting at node,
+   remove each node if provided cmp function returns 1 */
+ErrorCode tnode_remove_if(TNode* node, int (*cmp)(TNode*));
+
 typedef struct {
     TNode* root;
 } Tree;
@@ -182,9 +186,6 @@ void tree_destruct(Tree* tree);
 
 /* Returns the root of the tree */
 TNode* tree_root(Tree* tree);
-
-/* Starting at children of node, remove nodes which have only 1 children */
-void tree_remove_single_child(TNode* node);
 
 void debug_print_tree(Tree* tree);
 

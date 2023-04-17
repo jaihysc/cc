@@ -150,6 +150,51 @@ void tnode_set(TNode* node, TNodeType st, void* data, int var) {
     node->variant = var;
 }
 
+ErrorCode tnode_remove_if(TNode* node, int (*cmp)(TNode*)) {
+    ASSERT(node != NULL, "Node is null");
+    ErrorCode ecode;
+
+    for (int i = 0; i < node->child_count; ++i) {
+        TNode* child = node->child[i];
+
+        ASSERT(child != NULL, "TNode child is NULL");
+        if ((ecode = tnode_remove_if(child, cmp)) != ec_noerr) return ecode;
+
+        if (!cmp(child)) continue;
+        if (child->child_count == 0) {
+            /* Shuffle the nodes forward */
+            for (int j = i; j < node->child_count - 1; ++j) {
+                node->child[j] = node->child[j + 1];
+            }
+            --node->child_count;
+            --i; /* Since next node moved forwards, index must move forwards */
+        }
+        else {
+            /* Replace child with child's first child */
+            node->child[i] = child->child[0];
+
+            /* Add remaining child's children to this node */
+            for (int j = 1; j < child->child_count; ++j) {
+                if ((ecode = tnode_attach(
+                                node, child->child[j])) != ec_noerr) return ecode;
+            }
+            /* Swap the children into the right position
+               e.g., A -> B -> D, E
+                          C
+               becomes A-> D
+                           E
+                           C */
+            for (int j = node->child_count - 1; j - child->child_count + 1 != i; --j) {
+                TNode* tmp = node->child[j];
+                node->child[j] = node->child[j - child->child_count + 1];
+                node->child[j - child->child_count + 1] = tmp;
+            }
+        }
+        cfree(child);
+    }
+    return ec_noerr;
+}
+
 ErrorCode tree_construct(Tree* tree) {
     ASSERT(tree != NULL, "Tree is null");
     ErrorCode ecode;
@@ -366,39 +411,6 @@ static void debug_tnode_walk(
         }
         /* Restore original branch */
         branch[i_branch] = '\0';
-    }
-}
-
-static TNode* tree_remove_single_child_impl(TNode* node) {
-    for (int i = 0; i < node->child_count; ++i) {
-        if (node->child[i] != NULL) {
-            TNode* new_child = tree_remove_single_child_impl(node->child[i]);
-            if (new_child) {
-                tnode_destruct(node->child[i]);
-                node->child[i] = new_child;
-            }
-        }
-    }
-
-    /* Return not NULL to indicate parent must delete this node
-       replace the child with child */
-    if (node->child_count == 1) {
-        TNode* child = node->child[0];
-        node->child[0] = NULL;
-        return child;
-    }
-    return NULL;
-}
-
-void tree_remove_single_child(TNode* node) {
-    for (int i = 0; i < node->child_count; ++i) {
-        if (node->child[i] != NULL) {
-            TNode* new_child = tree_remove_single_child_impl(node->child[i]);
-            if (new_child) {
-                tnode_destruct(node->child[i]);
-                node->child[i] = new_child;
-            }
-        }
     }
 }
 

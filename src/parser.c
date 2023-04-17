@@ -3,6 +3,17 @@
 #include "common.h"
 #include "globals.h"
 
+/* Function used to determine if TNode should be removed
+   Used in tnode_remove_if */
+static int cmp_remove_tnode(TNode* node) {
+    /* Do not remove unary expressions with an operator */
+    if (tnode_type(node) == tt_unary_expression) {
+        TNodeUnaryExpression* n = (TNodeUnaryExpression*)tnode_data(node);
+        return n->type == TNodeUnaryExpression_none;
+    }
+    return tnode_count_child(node) == 1;
+}
+
 ErrorCode parser_construct(Parser* p, Lexer* lex, Symtab* symtab, Tree* tree) {
     p->lex = lex;
     p->symtab = symtab;
@@ -1046,10 +1057,10 @@ static ErrorCode parse_expression(Parser* p, TNode* parent, int* matched) {
 
     /* Incomplete */
 
-    /* Cleanup the tree by removing nodes with only 1 child
-       We cannot know ahead of time if there will be an operator applied */
-    /* FIXME this incorrectly removes unary expressions */
-    //tree_remove_single_child(node);
+    /* Cleanup the tree by removing unecessary nodes
+       We cannot know ahead of time if there will be an operator applied,
+       thus it sometimes creates a node, to realize it is not necessary */
+    if ((ecode = tnode_remove_if(node, cmp_remove_tnode)) != ec_noerr) goto exit;
 
 exit:
     if (!attached_node) tnode_destruct(node);
@@ -1440,10 +1451,11 @@ static ErrorCode parse_initializer(Parser* p, TNode* parent, int* matched) {
 matched:
     *matched = 1;
 
-    /* Cleanup the tree by removing nodes with only 1 child
-       We cannot know ahead of time if there will be an operator applied */
-    /* FIXME this incorrectly removes unary expressions */
-    //tree_remove_single_child(tnode_child(parent, -1));
+    /* Cleanup the tree by removing unecessary nodes
+       We cannot know ahead of time if there will be an operator applied,
+       thus it sometimes creates a node, to realize it is not necessary */
+    if ((ecode = tnode_remove_if(
+                    tnode_child(parent, -1), cmp_remove_tnode)) != ec_noerr) goto exit;
 
 exit:
     PARSE_FUNC_END();

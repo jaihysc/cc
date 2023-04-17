@@ -128,7 +128,7 @@ static ErrorCode parse_identifier(Parser* p, TNode* parent, int* matched) {
 
         TNodeIdentifier data;
         strcopy(token, data.token);
-        tnode_set(node, tt_identifier, &data, 0);
+        tnode_set(node, tt_identifier, &data);
 
         lexer_consume(p->lex);
         *matched = 1;
@@ -221,7 +221,7 @@ static ErrorCode parse_decimal_constant(Parser* p, TNode* parent, int* matched) 
 
     TNode* node;
     if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
-    tnode_set(node, tt_constant, &data, 0);
+    tnode_set(node, tt_constant, &data);
 
     lexer_consume(p->lex);
     *matched = 1;
@@ -265,7 +265,7 @@ static ErrorCode parse_octal_constant(Parser* p, TNode* parent, int* matched) {
 
     TNode* node;
     if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
-    tnode_set(node, tt_constant, &data, 0);
+    tnode_set(node, tt_constant, &data);
 
     lexer_consume(p->lex);
     *matched = 1;
@@ -525,7 +525,7 @@ static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) 
 
     if (*matched) {
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_unary_expression, &data, 0);
+        tnode_set(node, tt_unary_expression, &data);
         attached_node = 1;
     }
 
@@ -605,7 +605,7 @@ static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* 
         }
 
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_binary_expression, &data, 0);
+        tnode_set(node, tt_binary_expression, &data);
         parent = node;
         attached_node = 1;
         *matched = 1;
@@ -657,7 +657,7 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
         }
 
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_binary_expression, &data, 0);
+        tnode_set(node, tt_binary_expression, &data);
         parent = node;
         attached_node = 1;
         *matched = 1;
@@ -733,7 +733,7 @@ static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matc
         }
 
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_binary_expression, &data, 0);
+        tnode_set(node, tt_binary_expression, &data);
         parent = node;
         attached_node = 1;
         *matched = 1;
@@ -784,7 +784,7 @@ static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matche
         }
 
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_binary_expression, &data, 0);
+        tnode_set(node, tt_binary_expression, &data);
         parent = node;
         attached_node = 1;
         *matched = 1;
@@ -872,7 +872,7 @@ static ErrorCode parse_logical_and_expression(Parser* p, TNode* parent, int* mat
         }
 
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_binary_expression, &data, 0);
+        tnode_set(node, tt_binary_expression, &data);
         parent = node;
         attached_node = 1;
         *matched = 1;
@@ -918,7 +918,7 @@ static ErrorCode parse_logical_or_expression(Parser* p, TNode* parent, int* matc
         }
 
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_binary_expression, &data, 0);
+        tnode_set(node, tt_binary_expression, &data);
         parent = node;
         attached_node = 1;
         *matched = 1;
@@ -1024,7 +1024,7 @@ static ErrorCode parse_assignment_expression(Parser* p, TNode* parent, int* matc
         }
 
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_assignment_expression, &data, 0);
+        tnode_set(node, tt_assignment_expression, &data);
         parent = node;
         *matched = 1;
         attached_node = 1;
@@ -1044,7 +1044,7 @@ static ErrorCode parse_expression(Parser* p, TNode* parent, int* matched) {
     int attached_node = 0;
     TNode* node;
     if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-    tnode_set(node, tt_expression, NULL, 0);
+    tnode_set(node, tt_expression, NULL);
 
     int has_match;
     if ((ecode = parse_assignment_expression(
@@ -1076,7 +1076,7 @@ static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched) {
     int attached_node = 0;
     TNode* node;
     if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-    tnode_set(node, tt_declaration, NULL, 0);
+    tnode_set(node, tt_declaration, NULL);
 
     int has_match;
     if ((ecode = parse_declaration_specifiers(
@@ -1146,7 +1146,7 @@ static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* mat
     if (*matched) {
         TNode* node;
         if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
-        tnode_set(node, tt_declaration_specifiers, &data, 0);
+        tnode_set(node, tt_declaration_specifiers, &data);
     }
 
 exit:
@@ -1249,7 +1249,7 @@ static ErrorCode parse_declarator(Parser* p, TNode* parent, int* matched) {
 
     TNodePointer data;
     data.pointers = pointers;
-    tnode_set(node, tt_pointer, &data, 0);
+    tnode_set(node, tt_pointer, &data);
 
     int matched_dirdecl;
     if ((ecode = parse_direct_declarator(p, parent, &matched_dirdecl)) != ec_noerr) goto exit;
@@ -1324,7 +1324,7 @@ static ErrorCode parse_parameter_type_list(Parser* p, TNode* parent, int* matche
     int attached_node = 0;
     TNode* node;
     if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-    tnode_set(node, tt_parameter_type_list, NULL, 0);
+    tnode_set(node, tt_parameter_type_list, NULL);
 
     int has_match;
     if ((ecode = parse_parameter_list(p, node, &has_match)) != ec_noerr) goto exit;
@@ -1362,7 +1362,7 @@ static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched) {
         if ((ecode = parse_expect(p, ",", &has_match)) != ec_noerr) goto exit;
 
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        tnode_set(node, tt_parameter_list, NULL, 0);
+        tnode_set(node, tt_parameter_list, NULL);
         *matched = 1;
     }
 
@@ -1504,7 +1504,7 @@ static ErrorCode parse_compound_statement(Parser* p, TNode* parent, int* matched
 
     TNode* node;
     if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
-    tnode_set(node, tt_compound_statement, NULL, 0);
+    tnode_set(node, tt_compound_statement, NULL);
 
     symtab_push_scope(p->symtab);
     /* block-item-list nodes are not needed for il generation */
@@ -1908,7 +1908,7 @@ matched:
     ;
     TNode* node;
     if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
-    tnode_set(node, tt_jump_statement, &data, 0);
+    tnode_set(node, tt_jump_statement, &data);
 
     if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;;
 

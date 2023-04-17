@@ -147,7 +147,7 @@ static void DeleteLeaf(CuTest* tc) {
     TNode* n2_1;
     tnode_alloca(&n2_1, n1_3);
     TNodeIdentifier data;
-    tnode_set(n2_1, tt_identifier, &data, 0);
+    tnode_set(n2_1, tt_identifier, &data);
 
     tnode_remove_if(tree_root(&tree), cmp_func3);
 

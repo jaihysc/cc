@@ -133,9 +133,6 @@ typedef struct TNode {
 
     TNodeType type;
     TNodeData data;
-    /* The rule which was matched for this node
-       Starting with 0 as first, in the order given by Annex A */
-    int variant;
 } TNode;
 
 /* Allocates a new TNode, stored at node_ptr */
@@ -166,12 +163,9 @@ TNodeType tnode_type(TNode* node);
    Cast into the appropriate type based on TNodeType */
 TNodeData* tnode_data(TNode* node);
 
-/* Retrieves the variant for node */
-int tnode_variant(TNode* node);
-
 /* Sets TNodeData data of type TNodeType for node
    Contents of TNodeData is copied into node */
-void tnode_set(TNode* node, TNodeType st, void* data, int var);
+void tnode_set(TNode* node, TNodeType st, void* data);
 
 /* For the subtree starting at node,
    remove each node if provided cmp function returns 1 */

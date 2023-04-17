@@ -94,12 +94,7 @@ TNodeData* tnode_data(TNode* node) {
     return &node->data;
 }
 
-int tnode_variant(TNode* node) {
-    ASSERT(node != NULL, "Node is null");
-    return node->variant;
-}
-
-void tnode_set(TNode* node, TNodeType st, void* data, int var) {
+void tnode_set(TNode* node, TNodeType st, void* data) {
     ASSERT(node != NULL, "Node is null");
     node->type = st;
     switch (st) {
@@ -147,7 +142,6 @@ void tnode_set(TNode* node, TNodeType st, void* data, int var) {
             ASSERT(0, "Unimplemented");
             break;
     }
-    node->variant = var;
 }
 
 ErrorCode tnode_remove_if(TNode* node, int (*cmp)(TNode*)) {

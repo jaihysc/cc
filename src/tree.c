@@ -19,6 +19,12 @@ ErrorCode tnode_alloc(TNode** node_ptr) {
     return ec_noerr;
 }
 
+/* Deletes members only, assumes children have been handled */
+static void tnode_destruct_members(TNode* node) {
+    cfree(node->child);
+    cfree(node);
+}
+
 void tnode_destruct(TNode* node) {
     if (node == NULL) return;
 
@@ -27,8 +33,7 @@ void tnode_destruct(TNode* node) {
             tnode_destruct(node->child[i]);
         }
     }
-    cfree(node->child);
-    cfree(node);
+    tnode_destruct_members(node);
 }
 
 ErrorCode tnode_attach(TNode* node, TNode* new_node) {
@@ -189,7 +194,7 @@ ErrorCode tnode_remove_if(TNode* node, int (*cmp)(TNode*)) {
                 node->child[j - child->child_count + 1] = tmp;
             }
         }
-        cfree(child);
+        tnode_destruct_members(child);
     }
     return ec_noerr;
 }

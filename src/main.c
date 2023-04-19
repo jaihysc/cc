@@ -3,6 +3,7 @@
 #include "common.h"
 
 #include "globals.h"
+#include "il2gen.h"
 #include "parser.h"
 
 typedef struct {
@@ -11,12 +12,12 @@ typedef struct {
     char* output_path;
 } Flags;
 
-ErrorCode flags_construct(Flags* f) {
+static ErrorCode flags_construct(Flags* f) {
     cmemzero(f, sizeof(Flags));
     return ec_noerr;
 }
 
-ErrorCode flags_destruct(Flags* f) {
+static ErrorCode flags_destruct(Flags* f) {
     if (f->input_path != NULL) cfree(f->input_path);
     if (f->output_path != NULL) cfree(f->output_path);
     return ec_noerr;
@@ -102,6 +103,8 @@ static ErrorCode handle_cli_arg(Flags* f, int argc, char** argv) {
 int main(int argc, char** argv) {
     ErrorCode ecode;
 
+    /* Process flags */
+
     Flags flags;
     if ((ecode = flags_construct(&flags)) != ec_noerr) goto exit;
 
@@ -123,6 +126,8 @@ int main(int argc, char** argv) {
         */
     }
 
+    /* Parse source code */
+
     Lexer lex;
     if ((ecode = lexer_construct(&lex, flags.input_path)) != ec_noerr) {
         ERRMSGF("Failed to open input file" TOKEN_COLOR " %s\n", flags.input_path);
@@ -141,11 +146,10 @@ int main(int argc, char** argv) {
     if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit3;
 
     ecode = parse_translation_unit(&p);
-    if (ecode == ec_syntaxerr) {
+    if (ecode != ec_noerr) {
         ERRMSG("Failed to build parse tree\n");
         goto exit3;
     }
-    else if (ecode != ec_noerr) goto exit3;
 
     symtab_pop_scope(&symtab);
     ASSERT(symtab.i_scope == 0, "Scopes not empty on parse end");
@@ -154,12 +158,27 @@ int main(int argc, char** argv) {
                 "Symbol category stack %d not empty on parse end", i);
     }
 
-    /* Debug options */
     if (g_debug_print_parse_tree) {
         LOG("Remaining ");
         debug_print_tree(&tree);
     }
 
+    /* Generate IL2 */
+
+    Cfg cfg;
+    if ((ecode = cfg_construct(&cfg)) != ec_noerr) goto exit3;
+
+    IL2Gen il2;
+    if ((ecode = il2_construct(&il2, &cfg, &tree)) != ec_noerr) goto exit4;
+
+    ecode = il2_gen(&il2);
+    if (ecode != ec_noerr) {
+        ERRMSG("Failed to generate IL2\n");
+        goto exit4;
+    }
+
+exit4:
+    cfg_destruct(&cfg);
 exit3:
     tree_destruct(&tree);
 exit2:

@@ -11,9 +11,9 @@ SRCDEPS=$(SRCDIR)/*.h
 TESTDEPS=$(TESTDIR)/*.h
 
 SRCOBJ=$(addprefix $(OBJDIR)/$(SRCDIR)/, \
-	errorcode.o globals.o lexer.o parser.o symbol.o symtab.o tree.o type.o)
+	cfg.o errorcode.o globals.o il2gen.o ilstatement.o lexer.o parser.o symbol.o symtab.o tree.o type.o vec.o)
 TESTOBJ=$(addprefix $(OBJDIR)/$(TESTDIR)/, \
-	testu.o CuTest.o lexer_test.o parser_test.o symbol_test.o symtab_test.o tree_test.o type_test.o)
+	testu.o CuTest.o cfg_test.o lexer_test.o parser_test.o symbol_test.o symtab_test.o tree_test.o type_test.o)
 
 $(OBJDIR)/$(SRCDIR)/%.o: $(SRCDIR)/%.c $(SRCDEPS)
 	$(CC) $(SRC_CFLAGS) -c -o $@ $<
@@ -26,7 +26,7 @@ all: $(OUTDIR)/parse $(OUTDIR)/asmgen $(OUTDIR)/unittest
 $(OUTDIR)/parse: $(SRCOBJ) $(OBJDIR)/$(SRCDIR)/main.o
 	$(CC) $(SRC_CFLAGS) -o $@ $^
 
-$(OUTDIR)/asmgen: $(SRCDIR)/asmgen/asm_gen.c $(OBJDIR)/$(SRCDIR)/type.o
+$(OUTDIR)/asmgen: $(SRCDIR)/asmgen/asm_gen.c $(OBJDIR)/$(SRCDIR)/type.o $(OBJDIR)/$(SRCDIR)/vec.o
 	$(CC) $(SRC_CFLAGS) -o $@ $^
 
 $(OUTDIR)/unittest: $(SRCOBJ) $(TESTOBJ)

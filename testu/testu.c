@@ -2,6 +2,7 @@
 
 #include "CuTest.h"
 
+CuSuite* CfgGetSuite(void);
 CuSuite* LexerGetSuite(void);
 CuSuite* ParserGetSuite(void);
 CuSuite* SymbolGetSuite(void);
@@ -13,6 +14,7 @@ int RunAllTests(void) {
 	CuString* output = CuStringNew();
 	CuSuite* suite = CuSuiteNew();
 
+	CuSuiteAddSuite(suite, CfgGetSuite());
 	CuSuiteAddSuite(suite, LexerGetSuite());
 	CuSuiteAddSuite(suite, ParserGetSuite());
 	CuSuiteAddSuite(suite, SymbolGetSuite());

@@ -141,20 +141,20 @@ int main(int argc, char** argv) {
     if ((ecode = tree_construct(&tree)) != ec_noerr) goto exit3;
 
     Parser p;
-    if ((ecode = parser_construct(&p, &lex, &symtab, &tree)) != ec_noerr) goto exit3;
+    if ((ecode = parser_construct(&p, &lex, &symtab, &tree)) != ec_noerr) goto exit4;
 
-    if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit3;
+    if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit4;
 
     ecode = parse_translation_unit(&p);
     if (ecode != ec_noerr) {
         ERRMSG("Failed to build parse tree\n");
-        goto exit3;
+        goto exit4;
     }
 
     symtab_pop_scope(&symtab);
-    ASSERT(symtab.i_scope == 0, "Scopes not empty on parse end");
+    ASSERT(symtab.scopes_size == 0, "Scopes not empty on parse end");
     for (int i = 0; i < sc_count; ++i) {
-        ASSERTF(symtab.i_cat[i] == 0,
+        ASSERTF(vec_size(&symtab.cat[i]) == 0,
                 "Symbol category stack %d not empty on parse end", i);
     }
 
@@ -166,21 +166,23 @@ int main(int argc, char** argv) {
     /* Generate IL2 */
 
     Cfg cfg;
-    if ((ecode = cfg_construct(&cfg)) != ec_noerr) goto exit3;
+    if ((ecode = cfg_construct(&cfg)) != ec_noerr) goto exit4;
 
     IL2Gen il2;
-    if ((ecode = il2_construct(&il2, &cfg, &tree)) != ec_noerr) goto exit4;
+    if ((ecode = il2_construct(&il2, &cfg, &tree)) != ec_noerr) goto exit5;
 
     ecode = il2_gen(&il2);
     if (ecode != ec_noerr) {
         ERRMSG("Failed to generate IL2\n");
-        goto exit4;
+        goto exit5;
     }
 
-exit4:
+exit5:
     cfg_destruct(&cfg);
-exit3:
+exit4:
     tree_destruct(&tree);
+exit3:
+    symtab_destruct(&symtab);
 exit2:
     lexer_destruct(&lex);
 exit1:

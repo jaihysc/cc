@@ -18,8 +18,6 @@
                                      \
     ERROR_CODE(badalloc)             \
     ERROR_CODE(badclioption)         \
-    ERROR_CODE(scopedepexceed)       \
-    ERROR_CODE(scopelenexceed)       \
     ERROR_CODE(syntaxerr)            \
     ERROR_CODE(writefailed)          \
     ERROR_CODE(fileposfailed)

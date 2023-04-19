@@ -27,7 +27,8 @@ typedef enum {
 } SymbolClass;
 
 typedef enum {
-    vc_lval = 0,
+    vc_none = 0,
+    vc_lval,
     vc_nlval
 } ValueCategory;
 
@@ -36,7 +37,6 @@ typedef struct {
     char token[MAX_SYMBOL_LEN + 1];
     Type type;
     ValueCategory valcat;
-    int scope_num; /* Guaranteed to be unique for each scope */
 
     /* Only for class sl_access */
     SymbolId ptr;
@@ -44,12 +44,7 @@ typedef struct {
 } Symbol;
 
 /* Creates symbol at given memory location */
-ErrorCode symbol_construct(
-        Symbol* sym,
-        const char* token,
-        Type type,
-        ValueCategory valcat,
-        int scope_num);
+ErrorCode symbol_construct(Symbol* sym, const char* token, Type type);
 
 /* Converts symbol to class representing access to memory location
    ptr: Is a symbol which when indexed yields this symbol
@@ -74,8 +69,8 @@ void symbol_set_type(Symbol* sym, const Type* type);
 /* Returns ValueCategory for symbol */
 ValueCategory symbol_valcat(Symbol* sym);
 
-/* Returns number guaranteed to be unique for each scope */
-int symbol_scope_num(Symbol* sym);
+/* Sets ValueCategory for symbol */
+void symbol_set_valcat(Symbol* sym, ValueCategory valcat);
 
 /* Returns the symbol for the pointer, which when indexed yields this symbol
    e.g., int* p; int a = p[2];

@@ -6,7 +6,7 @@ static void SymbolConstruct(CuTest* tc) {
     Symbol sym;
     CuAssertIntEquals(
             tc,
-            symbol_construct(&sym, "abc", type_int, vc_lval, 0),
+            symbol_construct(&sym, "abc", type_int),
             ec_noerr
     );
 
@@ -39,7 +39,7 @@ static void SymbolNameTooLong(CuTest* tc) {
     Symbol sym;
     CuAssertIntEquals(
             tc,
-            symbol_construct(&sym, long_name, type_int, vc_lval, 0),
+            symbol_construct(&sym, long_name, type_int),
             ec_symbol_nametoolong
     );
 

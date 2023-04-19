@@ -14,12 +14,7 @@ int symid_equal(SymbolId a, SymbolId b) {
     return a.index == b.index && a.scope == b.scope;
 }
 
-ErrorCode symbol_construct(
-        Symbol* sym,
-        const char* token,
-        Type type,
-        ValueCategory valcat,
-        int scope_num) {
+ErrorCode symbol_construct(Symbol* sym, const char* token, Type type) {
     sym->class = sl_normal;
 
     // Copy token into symbol
@@ -32,10 +27,10 @@ ErrorCode symbol_construct(
         sym->token[i] = token[i];
         ++i;
     }
+    sym->token[i] = '\0';
 
     sym->type = type;
-    sym->valcat = valcat;
-    sym->scope_num = scope_num;
+    sym->valcat = vc_none;
     return ec_noerr;
 }
 
@@ -70,8 +65,9 @@ ValueCategory symbol_valcat(Symbol* sym) {
     return sym->valcat;
 }
 
-int symbol_scope_num(Symbol* sym) {
-    return sym->scope_num;
+void symbol_set_valcat(Symbol* sym, ValueCategory valcat) {
+    ASSERT(sym != NULL, "Symbol is null");
+    sym->valcat = valcat;
 }
 
 SymbolId symbol_ptr_sym(Symbol* sym) {

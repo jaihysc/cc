@@ -2,11 +2,9 @@
 #ifndef SYMTAB_H
 #define SYMTAB_H
 
-#include "symbol.h"
 #include "errorcode.h"
-
-#define MAX_SCOPES 32 /* Max number of scopes */
-#define MAX_SCOPE_LEN 500   /* Max symbols per scope */
+#include "symbol.h"
+#include "vec.h"
 
 /* The category(purpose) a symbol serves
    e.g., label for end of loop body */
@@ -18,37 +16,35 @@ typedef enum {
     sc_count
 } SymbolCat;
 
+typedef vec_t(Symbol) Symtab_Scope;
+
 typedef struct {
     /* First scope is most global
-       First symbol element is earliest in occurrence
-       Constants always use the first scope (at index 0) */
-    Symbol symbol[MAX_SCOPES][MAX_SCOPE_LEN];
-    int i_scope; /* Index one past end of latest(deepest) scope. */
-    int i_symbol[MAX_SCOPES]; /* Index one past last element for each scope */
-
-    /* Number to uniquely identify every scope created */
-    int scope_num;
-    /* Number to create unique temporary/label/etc values */
-    int temp_num;
-    int label_num;
+       First symbol element is earliest in occurrence */
+    Symtab_Scope* scopes;
+    int scopes_size;
+    int scopes_capacity;
 
     /* Stack for symbol category, push and pop with
        symtab_push_cat()
-       symtab_pop_cat()
-       Use MAX_SCOPES as maximum for now, only need to push at most once
-       per scope */
-    SymbolId cat[sc_count][MAX_SCOPES];
-    int i_cat[sc_count]; /* Points one past last element */
+       symtab_pop_cat() */
+    vec_t(SymbolId) cat[sc_count];
+
+    /* Number to create unique temporary/label/etc values */
+    int temp_num;
+    int label_num;
 } Symtab;
 
 ErrorCode symtab_construct(Symtab* stab);
+
+void symtab_destruct(Symtab* stab);
 
 
 /* Categories */
 
 
 /* Pushes symbol onto symbol category stack */
-void symtab_push_cat(Symtab* stab, SymbolCat cat, SymbolId sym);
+ErrorCode symtab_push_cat(Symtab* stab, SymbolCat cat, SymbolId sym);
 
 /* Pops symbol from top of symbol category stack */
 void symtab_pop_cat(Symtab* stab, SymbolCat cat);
@@ -86,20 +82,15 @@ Type symtab_get_type(Symtab* stab, SymbolId sym_id);
 /* Returns ValueCategory for SymbolId */
 ValueCategory symtab_get_valcat(Symtab* stab, SymbolId sym_id);
 
-/* Returns number guaranteed to be unique for each scope for SymbolId*/
-int symtab_get_scope_num(Symtab* stab, SymbolId sym_id);
-
 
 /* Add to symbol table */
 
 
 /* Creates symbol with provided information in symbol table
-    token: Set null to create unnamed symbol
-    Has special handling for constants, always added to scope index 0
    Stores SymbolId of added symbol at pointer,
-   or symid_invalid if it already exists */
+   or ec_symtab_dupname if it already exists */
 ErrorCode symtab_add(Symtab* stab, SymbolId* symid_ptr,
-        const char* token, Type type, ValueCategory valcat);
+        const char* token, Type type);
 
 /* Creates a new temporary for the current scope in symbol table */
 ErrorCode symtab_add_temporary(Symtab* stab, SymbolId* symid_ptr, Type type);

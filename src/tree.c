@@ -94,10 +94,10 @@ TNodeData* tnode_data(TNode* node) {
     return &node->data;
 }
 
-void tnode_set(TNode* node, TNodeType st, void* data) {
+void tnode_set(TNode* node, TNodeType tt, void* data) {
     ASSERT(node != NULL, "Node is null");
-    node->type = st;
-    switch (st) {
+    node->type = tt;
+    switch (tt) {
         /* 6.4 Lexical elements */
         case tt_identifier:
             node->data.identifier = *(TNodeIdentifier*)data;
@@ -138,6 +138,11 @@ void tnode_set(TNode* node, TNodeType st, void* data) {
         case tt_jump_statement:
             node->data.jump_statement = *(TNodeJumpStatement*)data;
             break;
+
+        /* 6.9 External definitions */
+        case tt_function_definition:
+            break;
+
         default:
             ASSERT(0, "Unimplemented");
             break;

@@ -1950,9 +1950,13 @@ static ErrorCode parse_external_declaration(Parser* p, TNode* parent, int* match
     ErrorCode ecode = ec_noerr;
     *matched = 0;
 
+    int attached_node = 0;
+    TNode* node;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+
     /* Must be a declaration-specifiers */
     int has_match;
-    if ((ecode = parse_declaration_specifiers(p, parent, &has_match)) != ec_noerr) goto exit;
+    if ((ecode = parse_declaration_specifiers(p, node, &has_match)) != ec_noerr) goto exit;
     if (!has_match) {
         ERRMSG("Expected declaration-specifiers\n");
         ecode = ec_syntaxerr;
@@ -1969,7 +1973,7 @@ static ErrorCode parse_external_declaration(Parser* p, TNode* parent, int* match
     }
 
     /* Must be a declarator */
-    if ((ecode = parse_declarator(p, parent, &has_match)) != ec_noerr) goto exit;
+    if ((ecode = parse_declarator(p, node, &has_match)) != ec_noerr) goto exit;
     if (!has_match) {
         ERRMSG("Expected declarator\n");
         ecode = ec_syntaxerr;
@@ -1979,80 +1983,29 @@ static ErrorCode parse_external_declaration(Parser* p, TNode* parent, int* match
     /* Incomplete */
 
     /* Decide whether funciton or variable based last node */
-    TNodeType type = tnode_type(tnode_child(parent, -1));
+    TNodeType type = tnode_type(tnode_child(node, -1));
     if (type == tt_parameter_type_list) {
         /* function-definition */
 
         if ((ecode = parse_compound_statement(
-                        p, parent, &has_match)) != ec_noerr) goto exit;
+                        p, node, &has_match)) != ec_noerr) goto exit;
         if (!has_match) {
             ERRMSG("Expected compound-statement\n");
             ecode = ec_syntaxerr;
             goto exit;
         }
+
+        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        tnode_set(node, tt_function_definition, NULL);
+        attached_node = 1;
         *matched = 1;
     }
 
 exit:
+    if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }
-
-//static ErrorCode parse_function_definition(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(function_definition);
-//
-//    if (!parse_declaration_specifiers(p, PARSE_CURRENT_NODE) ||
-//            parser_has_error(p)) goto exit;
-//
-//    if (!parse_declarator(p, PARSE_CURRENT_NODE) ||
-//            parser_has_error(p)) goto exit;
-//
-//
-//    TNode* declspec = parse_node_child(PARSE_CURRENT_NODE, 0);
-//    TNode* declarator = parse_node_child(PARSE_CURRENT_NODE, 1);
-//
-//    /* name is function name, type is return type */
-//    SymbolId func_id = cg_extract_symbol(p, declspec, declarator);
-//    Symbol* sym = symtab_get(p, func_id);
-//
-//    Type func_type;
-//    Type ret_type = symbol_type(sym);
-//    type_constructf(&func_type, &ret_type);
-//    symbol_set_type(sym, &func_type);
-//    parser_output_il(p, "func $s,$t,", func_id, func_id);
-//
-//    TNode* dirdeclarator = parse_node_child(declarator, -1);
-//    TNode* dirdeclarator2 = parse_node_child(dirdeclarator, 1);
-//
-//    const char* tok = parse_node_token(p, parse_node_child(dirdeclarator2, 0));
-//    if (!strequ( "(", tok)) {
-//        ERRMSG("Expected (' to begin parameter-type-list");
-//        goto exit;
-//    }
-//
-//    /* FIXME The compound statement creates another scope, meaning that the
-//       function parameters are inside its own scope, which is non standard
-//       compliant. Doing so accepts all well formed programs, however fails to
-//       reject some mal-formed programs so think of another method in the future
-//       to handle scoping */
-//    /* symtab_pop_scope is in cg_function_declaration */
-//    symtab_push_scope(p);
-//
-//    TNode* paramtypelist = parse_node_child(dirdeclarator2, 1);
-//    TNode* paramlist = parse_node_child(paramtypelist, 0);
-//    cg_parameter_list(p, paramlist);
-//    parser_output_il(p, "\n");
-//    PARSE_TRIM_TREE();
-//
-//
-//    if (!parse_compound_statement(p, PARSE_CURRENT_NODE) ||
-//            parser_has_error(p)) goto exit2;
-//
-//exit2:
-//    symtab_pop_scope(p);
-//exit:
-//    PARSE_FUNC_END();
-//}
 
 /* Return 1 if next token read matches provided token, 0 otherwise */
 /* The token is consumed if it matches the provided token */

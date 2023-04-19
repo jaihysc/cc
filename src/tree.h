@@ -115,7 +115,9 @@ typedef union {
                                            \
     TNODE_TYPE(compound_statement)         \
     TNODE_TYPE(block_item)                 \
-    TNODE_TYPE(jump_statement)
+    TNODE_TYPE(jump_statement)             \
+                                           \
+    TNODE_TYPE(function_definition)
 
 #define TNODE_TYPE(name__) tt_ ## name__,
 /* tt_ force compiler to choose data type with negative values
@@ -165,7 +167,7 @@ TNodeData* tnode_data(TNode* node);
 
 /* Sets TNodeData data of type TNodeType for node
    Contents of TNodeData is copied into node */
-void tnode_set(TNode* node, TNodeType st, void* data);
+void tnode_set(TNode* node, TNodeType tt, void* data);
 
 /* For the subtree starting at node,
    remove each node if provided cmp function returns 1 */

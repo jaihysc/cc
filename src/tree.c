@@ -79,6 +79,7 @@ int tnode_count_child(TNode* node) {
 }
 
 TNode* tnode_child(TNode* node, int i) {
+    ASSERT(node != NULL, "Node is null");
     if (i >= 0) {
         ASSERT(i < node->child_count, "Child index out of range");
         return node->child[i];
@@ -87,6 +88,26 @@ TNode* tnode_child(TNode* node, int i) {
     /* Index backwads */
     ASSERT(node->child_count + i >= 0, "Child reverse index out of range");
     return node->child[node->child_count + i];
+}
+
+ErrorCode tnode_replace_child(TNode* node, TNode** new_child_ptr, int i) {
+    ASSERT(node != NULL, "Node is null");
+
+    if (i >= 0) {
+        ASSERT(i < node->child_count, "Child index out of range");
+    }
+    else {
+        ASSERT(node->child_count + i >= 0, "Child reverse index out of range");
+        i = node->child_count + i;
+    }
+
+    tnode_destruct(node->child[i]);
+
+    ErrorCode ecode;
+    if ((ecode = tnode_alloc(&node->child[i])) != ec_noerr) return ecode;
+
+    *new_child_ptr = node->child[i];
+    return ec_noerr;
 }
 
 TNodeType tnode_type(TNode* node) {

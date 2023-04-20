@@ -1143,6 +1143,14 @@ static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched) {
     if ((ecode = symtab_add(
                     p->symtab, &sym, identifier->token, type)) != ec_noerr) goto exit;
 
+    /* Replace the new-identifier with identifier as now added to symtab */
+    TNode* identifier_node;
+    tnode_replace_child(node, &identifier_node, 2);
+
+    TNodeIdentifier data;
+    data.symbol = sym;
+    tnode_set(identifier_node, tt_identifier, &data);
+
     /* Add to tree */
     if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
     attached_node = 1;

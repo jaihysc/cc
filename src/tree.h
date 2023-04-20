@@ -167,6 +167,10 @@ int tnode_count_child(TNode* node);
    negative to index backwards (-1 means last child, -2 second last) */
 TNode* tnode_child(TNode* node, int i);
 
+/* Replaces the child at index with new child, saved to provided pointer
+   negative to index backwards (-1 means last child, -2 second last) */
+ErrorCode tnode_replace_child(TNode* node, TNode** new_child_ptr, int i);
+
 /* Retrieves the type for node */
 TNodeType tnode_type(TNode* node);
 

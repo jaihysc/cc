@@ -107,6 +107,9 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
         case tt_identifier:
             node->data.identifier = *(TNodeIdentifier*)data;
             break;
+        case tt_new_identifier:
+            node->data.new_identifier = *(TNodeNewIdentifier*)data;
+            break;
         case tt_constant:
             node->data.constant = *(TNodeConstant*)data;
             break;
@@ -233,6 +236,12 @@ static void debug_tnode_walk(
         case tt_identifier:
             {
                 TNodeIdentifier* data = (TNodeIdentifier*)&node->data;
+                LOGF("(%s)", symbol_token(data->symbol));
+            }
+            break;
+        case tt_new_identifier:
+            {
+                TNodeNewIdentifier* data = (TNodeNewIdentifier*)&node->data;
                 LOGF("(%s)", data->token);
             }
             break;

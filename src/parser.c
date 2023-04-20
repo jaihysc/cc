@@ -61,6 +61,7 @@ int debug_parse_func_recursion_depth = 0;
 
 /* 6.4 Lexical elements */
 static ErrorCode parse_identifier(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_new_identifier(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_constant(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_integer_constant(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_decimal_constant(Parser* p, TNode* parent, int* matched);
@@ -113,7 +114,7 @@ static ErrorCode parse_function_definition(Parser* p, TNode* parent, int* matche
 /* Helpers */
 static ErrorCode parse_expect(Parser* p, const char* match_token, int* matched);
 
-/* identifier */
+/* identifier that was already added to symbol table */
 static ErrorCode parse_identifier(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(identifier);
     ErrorCode ecode = ec_noerr;
@@ -126,9 +127,43 @@ static ErrorCode parse_identifier(Parser* p, TNode* parent, int* matched) {
         TNode* node;
         if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
 
+        Symbol* sym = symtab_find(p->symtab, token);
+        if (sym == NULL) {
+            ERRMSGF("Unknown identifier '%s'\n", token);
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
         TNodeIdentifier data;
-        strcopy(token, data.token);
+        data.symbol = sym;
         tnode_set(node, tt_identifier, &data);
+
+        lexer_consume(p->lex);
+        *matched = 1;
+        goto exit;
+    }
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+/* New identifier not yet added to symbol table */
+static ErrorCode parse_new_identifier(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(identifier);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
+
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+    if (tok_isidentifier(token)) {
+        TNode* node;
+        if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+
+        TNodeNewIdentifier data;
+        strcopy(token, data.token);
+        tnode_set(node, tt_new_identifier, &data);
 
         lexer_consume(p->lex);
         *matched = 1;
@@ -1098,8 +1133,8 @@ static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched) {
         (TNodeDeclarationSpecifiers*)tnode_data(tnode_child(node, 0));
     TNodePointer* pointer =
         (TNodePointer*)tnode_data(tnode_child(node, 1));
-    TNodeIdentifier* identifier =
-        (TNodeIdentifier*)tnode_data(tnode_child(node, 2));
+    TNodeNewIdentifier* identifier =
+        (TNodeNewIdentifier*)tnode_data(tnode_child(node, 2));
 
     Type type;
     type_construct(&type, declspec->ts, pointer->pointers);
@@ -1303,7 +1338,7 @@ static ErrorCode parse_direct_declarator(Parser* p, TNode* parent, int* matched)
     *matched = 0;
 
     int has_match;
-    if ((ecode = parse_identifier(p, parent, &has_match)) != ec_noerr) goto exit;
+    if ((ecode = parse_new_identifier(p, parent, &has_match)) != ec_noerr) goto exit;
     if (!has_match) {
         ERRMSG("Expected identifier\n");
         ecode = ec_syntaxerr;
@@ -1397,8 +1432,8 @@ static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched) {
             (TNodeDeclarationSpecifiers*)tnode_data(tnode_child(node, 0));
         TNodePointer* pointer =
             (TNodePointer*)tnode_data(tnode_child(node, 1));
-        TNodeIdentifier* identifier =
-            (TNodeIdentifier*)tnode_data(tnode_child(node, 2));
+        TNodeNewIdentifier* identifier =
+            (TNodeNewIdentifier*)tnode_data(tnode_child(node, 2));
 
         Type type;
         type_construct(&type, declspec->ts, pointer->pointers);

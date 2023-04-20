@@ -60,6 +60,8 @@ static ErrorCode call_cg(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
 }
 
 static ErrorCode cg_identifier(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
+    TNodeIdentifier* data = (TNodeIdentifier*)tnode_data(node);
+    *sym = data->symbol;
     return ec_noerr;
 }
 

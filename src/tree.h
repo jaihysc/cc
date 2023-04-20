@@ -4,12 +4,17 @@
 
 #include "constant.h"
 #include "errorcode.h"
+#include "symbol.h"
 #include "type.h"
 
 /* 6.4 Lexical elements */
 typedef struct {
-    char token[MAX_TOKEN_LEN + 1];
+    Symbol* symbol;
 } TNodeIdentifier;
+
+typedef struct {
+    char token[MAX_TOKEN_LEN + 1];
+} TNodeNewIdentifier;
 
 typedef struct {
     char token[MAX_TOKEN_LEN + 1];
@@ -81,6 +86,7 @@ typedef struct {
 
 typedef union {
     TNodeIdentifier identifier;
+    TNodeNewIdentifier new_identifier;
     TNodeConstant constant;
 
     TNodeUnaryExpression unary_expression;
@@ -102,6 +108,7 @@ typedef union {
     TNODE_TYPE(root)                       \
                                            \
     TNODE_TYPE(identifier)                 \
+    TNODE_TYPE(new_identifier)             \
     TNODE_TYPE(constant)                   \
                                            \
     TNODE_TYPE(unary_expression)           \

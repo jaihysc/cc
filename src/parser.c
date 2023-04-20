@@ -251,8 +251,12 @@ static ErrorCode parse_decimal_constant(Parser* p, TNode* parent, int* matched) 
         c = token[i];
     }
 
+    Symbol* sym;
+    if ((ecode = symtab_add_constant(
+                    p->symtab, &sym, token, type_int)) != ec_noerr) goto exit;
+
     TNodeConstant data;
-    strcopy(token, data.token);
+    data.symbol = sym;
 
     TNode* node;
     if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
@@ -295,8 +299,12 @@ static ErrorCode parse_octal_constant(Parser* p, TNode* parent, int* matched) {
         c = token[i];
     }
 
+    Symbol* sym;
+    if ((ecode = symtab_add_constant(
+                    p->symtab, &sym, token, type_int)) != ec_noerr) goto exit;
+
     TNodeConstant data;
-    strcopy(token, data.token);
+    data.symbol = sym;
 
     TNode* node;
     if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
@@ -342,9 +350,17 @@ static ErrorCode parse_hexadecimal_constant(Parser* p, TNode* parent, int* match
         c = token[i];
     }
 
-    /* FIXME
-    tree_attach_token(p, parent, token);
-    */
+    Symbol* sym;
+    if ((ecode = symtab_add_constant(
+                    p->symtab, &sym, token, type_int)) != ec_noerr) goto exit;
+
+    TNodeConstant data;
+    data.symbol = sym;
+
+    TNode* node;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+    tnode_set(node, tt_constant, &data);
+
     lexer_consume(p->lex);
     *matched = 1;
 

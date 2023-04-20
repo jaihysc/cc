@@ -73,11 +73,25 @@ static void AccessSymbolOutOfScope(CuTest* tc) {
     symtab_destruct(&stab);
 }
 
+static void AddConstant(CuTest* tc) {
+    Symtab stab;
+    symtab_construct(&stab);
+
+    Symbol* sym = NULL;
+    symtab_add_constant(&stab, &sym, "1234", type_int);
+
+    CuAssertPtrNotNull(tc, sym);
+    CuAssertStrEquals(tc, symbol_token(sym), "1234");
+
+    symtab_destruct(&stab);
+}
+
 CuSuite* SymtabGetSuite() {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, AddSymbol);
     SUITE_ADD_TEST(suite, DuplicateSymbol);
     SUITE_ADD_TEST(suite, FindSymbol);
     SUITE_ADD_TEST(suite, AccessSymbolOutOfScope);
+    SUITE_ADD_TEST(suite, AddConstant);
     return suite;
 }

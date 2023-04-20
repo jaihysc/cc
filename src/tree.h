@@ -17,7 +17,7 @@ typedef struct {
 } TNodeNewIdentifier;
 
 typedef struct {
-    char token[MAX_TOKEN_LEN + 1];
+    Symbol* symbol;
 } TNodeConstant;
 
 /* 6.5 Expressions */

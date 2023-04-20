@@ -269,7 +269,7 @@ static void debug_tnode_walk(
         case tt_constant:
             {
                 TNodeConstant* data = (TNodeConstant*)&node->data;
-                LOGF("(%s)", data->token);
+                LOGF("(%s)", symbol_token(data->symbol));
             }
             break;
 

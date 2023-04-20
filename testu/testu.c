@@ -26,7 +26,12 @@ int RunAllTests(void) {
 	CuSuiteSummary(suite, output);
 	CuSuiteDetails(suite, output);
 	printf("%s\n", output->buffer);
-	return suite->failCount;
+	int failCount = suite->failCount;
+
+    CuSuiteDelete(suite);
+    CuStringDelete(output);
+
+    return failCount;
 }
 
 int main(void) {

@@ -8,10 +8,10 @@
 char* ts_str[] = {TYPE_SPECIFIERS};
 #undef TYPE_SPECIFIER
 
-Type type_int = {.typespec = ts_i32, .pointers = 0};
+Type type_int = {.typespec = ts_int, .pointers = 0};
 Type type_label = {.typespec = ts_void, .pointers = 0};
-Type type_ptroffset = {.typespec = ts_i64, .pointers = 0};
-Type type_ptrdiff = {.typespec = ts_i64, .pointers = 0};
+Type type_ptroffset = {.typespec = ts_longlong, .pointers = 0};
+Type type_ptrdiff = {.typespec = ts_longlong, .pointers = 0};
 
 const char* type_specifiers_str(TypeSpecifiers typespec) {
     return ts_str[typespec];
@@ -169,43 +169,32 @@ int type_bytes(Type type) {
         case ts_void:
             bytes = 0;
             break;
-        case ts_i8:
+        case ts_char:
+        case ts_schar:
+        case ts_uchar:
             bytes = 1;
             break;
-        case ts_i16:
+        case ts_short:
+        case ts_ushort:
             bytes = 2;
             break;
-        case ts_i32:
+        case ts_int:
+        case ts_uint:
             bytes = 4;
             break;
-        case ts_i32_:
+        case ts_long:
+        case ts_ulong:
             bytes = 4;
             break;
-        case ts_i64:
+        case ts_longlong:
+        case ts_ulonglong:
             bytes = 8;
             break;
-        case ts_u8:
-            bytes = 1;
-            break;
-        case ts_u16:
-            bytes = 2;
-            break;
-        case ts_u32:
+        case ts_float:
             bytes = 4;
             break;
-        case ts_u32_:
-            bytes = 4;
-            break;
-        case ts_u64:
-            bytes = 8;
-            break;
-        case ts_f32:
-            bytes = 4;
-            break;
-        case ts_f64:
-            bytes = 8;
-            break;
-        case ts_f64_:
+        case ts_double:
+        case ts_ldouble:
             bytes = 8;
             break;
         case ts_none:
@@ -235,20 +224,21 @@ int type_equal(Type lhs, Type rhs) {
 
 int type_rank(TypeSpecifiers typespec) {
     switch (typespec) {
-        case ts_i8:
-        case ts_u8:
+        case ts_char:
+        case ts_schar:
+        case ts_uchar:
             return 1;
-        case ts_i16:
-        case ts_u16:
+        case ts_short:
+        case ts_ushort:
             return 2;
-        case ts_i32:
-        case ts_u32:
+        case ts_int:
+        case ts_uint:
             return 3;
-        case ts_i32_:
-        case ts_u32_:
+        case ts_long:
+        case ts_ulong:
             return 4;
-        case ts_i64:
-        case ts_u64:
+        case ts_longlong:
+        case ts_ulonglong:
             return 5;
         default:
             ASSERT(0, "Bad type specifier");
@@ -301,16 +291,17 @@ int type_integral(Type type) {
         return 0;
     }
     switch (type_typespec(&type)) {
-        case ts_i8:
-        case ts_u8:
-        case ts_i16:
-        case ts_u16:
-        case ts_i32:
-        case ts_u32:
-        case ts_i32_:
-        case ts_u32_:
-        case ts_i64:
-        case ts_u64:
+        case ts_char:
+        case ts_schar:
+        case ts_uchar:
+        case ts_short:
+        case ts_ushort:
+        case ts_int:
+        case ts_uint:
+        case ts_long:
+        case ts_ulong:
+        case ts_longlong:
+        case ts_ulonglong:
             return 1;
         default:
             return 0;
@@ -320,20 +311,21 @@ int type_integral(Type type) {
 int type_signed(TypeSpecifiers typespec) {
     switch (typespec) {
         case ts_void:
-        case ts_f32:
-        case ts_f64:
-        case ts_f64_:
-        case ts_u8:
-        case ts_u16:
-        case ts_u32:
-        case ts_u32_:
-        case ts_u64:
+        case ts_float:
+        case ts_double:
+        case ts_ldouble:
+        case ts_uchar:
+        case ts_ushort:
+        case ts_uint:
+        case ts_ulong:
+        case ts_ulonglong:
             return 0;
-        case ts_i8:
-        case ts_i16:
-        case ts_i32:
-        case ts_i32_:
-        case ts_i64:
+        case ts_char:
+        case ts_schar:
+        case ts_short:
+        case ts_int:
+        case ts_long:
+        case ts_longlong:
             return 1;
         default:
             ASSERT(0, "Bad type specifier");
@@ -344,20 +336,21 @@ int type_signed(TypeSpecifiers typespec) {
 int type_unsigned(TypeSpecifiers typespec) {
     switch (typespec) {
         case ts_void:
-        case ts_f32:
-        case ts_f64:
-        case ts_f64_:
-        case ts_i8:
-        case ts_i16:
-        case ts_i32:
-        case ts_i32_:
-        case ts_i64:
+        case ts_float:
+        case ts_double:
+        case ts_ldouble:
+        case ts_char:
+        case ts_schar:
+        case ts_short:
+        case ts_int:
+        case ts_long:
+        case ts_longlong:
             return 0;
-        case ts_u8:
-        case ts_u16:
-        case ts_u32:
-        case ts_u32_:
-        case ts_u64:
+        case ts_uchar:
+        case ts_ushort:
+        case ts_uint:
+        case ts_ulong:
+        case ts_ulonglong:
             return 1;
         default:
             ASSERT(0, "Bad type specifier");
@@ -368,43 +361,44 @@ int type_unsigned(TypeSpecifiers typespec) {
 int type_signed_represent_unsigned(
         TypeSpecifiers sign, TypeSpecifiers unsign) {
     switch (sign) {
-        case ts_i8:
+        case ts_char:
+        case ts_schar:
             return 0;
-        case ts_i16:
+        case ts_short:
             switch (unsign) {
-                case ts_u8:
+                case ts_uchar:
                     return 1;
-                case ts_u16:
-                case ts_u32:
-                case ts_u32_:
-                case ts_u64:
+                case ts_ushort:
+                case ts_uint:
+                case ts_ulong:
+                case ts_ulonglong:
                     return 0;
                 default:
                     ASSERT(0, "Bad type specifier");
                     return 0;
             }
-        case ts_i32:
-        case ts_i32_:
+        case ts_int:
+        case ts_long:
             switch (unsign) {
-                case ts_u8:
-                case ts_u16:
+                case ts_uchar:
+                case ts_ushort:
                     return 1;
-                case ts_u32:
-                case ts_u32_:
-                case ts_u64:
+                case ts_uint:
+                case ts_ulong:
+                case ts_ulonglong:
                     return 0;
                 default:
                     ASSERT(0, "Bad type specifier");
                     return 0;
             }
-        case ts_i64:
+        case ts_longlong:
             switch (unsign) {
-                case ts_u8:
-                case ts_u16:
-                case ts_u32:
-                case ts_u32_:
+                case ts_uchar:
+                case ts_ushort:
+                case ts_uint:
+                case ts_ulong:
                     return 1;
-                case ts_u64:
+                case ts_ulonglong:
                     return 0;
                 default:
                     ASSERT(0, "Bad type specifier");
@@ -418,16 +412,17 @@ int type_signed_represent_unsigned(
 
 TypeSpecifiers type_unsign_signed(TypeSpecifiers typespec) {
     switch (typespec) {
-        case ts_i8:
-            return ts_u8;
-        case ts_i16:
-            return ts_u16;
-        case ts_i32:
-            return ts_u32;
-        case ts_i32_:
-            return ts_u32_;
-        case ts_i64:
-            return ts_u64;
+        case ts_char:
+        case ts_schar:
+            return ts_uchar;
+        case ts_short:
+            return ts_ushort;
+        case ts_int:
+            return ts_uint;
+        case ts_long:
+            return ts_ulong;
+        case ts_longlong:
+            return ts_ulonglong;
         default:
             ASSERT(0, "Bad type specifier");
             return 0;
@@ -436,14 +431,14 @@ TypeSpecifiers type_unsign_signed(TypeSpecifiers typespec) {
 
 TypeSpecifiers type_common_ts(
         TypeSpecifiers lhs, TypeSpecifiers rhs) {
-    if (lhs == ts_f64_ || rhs == ts_f64_) {
-        return ts_f64;
+    if (lhs == ts_ldouble || rhs == ts_ldouble) {
+        return ts_ldouble;
     }
-    if (lhs == ts_f64 || rhs == ts_f64) {
-        return ts_f64;
+    if (lhs == ts_double || rhs == ts_double) {
+        return ts_double;
     }
-    if (lhs == ts_f32 || rhs == ts_f32) {
-        return ts_f32;
+    if (lhs == ts_float || rhs == ts_float) {
+        return ts_float;
     }
     if (lhs == rhs) {
         return lhs;
@@ -505,11 +500,12 @@ Type type_promotion(Type type) {
     }
 
     switch (type_typespec(&type)) {
-        case ts_i8:
-        case ts_i16:
-        case ts_u8:
-        case ts_u16:
-            type_set_typespec(&type, ts_i32);
+        case ts_char:
+        case ts_schar:
+        case ts_uchar:
+        case ts_short:
+        case ts_ushort:
+            type_set_typespec(&type, ts_int);
             break;
         default:
             break;

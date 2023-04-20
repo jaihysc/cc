@@ -351,7 +351,7 @@ static SymbolId symtab_find(Parser* p, const char* name) {
     if (name_isconstant(name)) {
         /* TODO calculate size of constant, assume integer for now */
         Type type;
-        type_construct(&type, ts_i32, 0);
+        type_construct(&type, ts_int, 0);
         SymbolId sym_id = symtab_add(p, type, name);
         symbol_make_constant(symtab_get(p, sym_id));
         return sym_id;
@@ -419,16 +419,16 @@ static SymbolId symtab_add_temporaryr(Parser* p, Register reg) {
     TypeSpecifiers ts;
     switch (reg_bytes(reg)) {
         case 1:
-            ts = ts_i8;
+            ts = ts_schar;
             break;
         case 2:
-            ts = ts_i16;
+            ts = ts_short;
             break;
         case 4:
-            ts = ts_i32;
+            ts = ts_int;
             break;
         case 8:
-            ts = ts_i64;
+            ts = ts_longlong;
             break;
         default:
             ASSERT(0, "Bad byte size");

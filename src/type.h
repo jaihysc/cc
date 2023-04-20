@@ -2,24 +2,25 @@
 #ifndef TYPE_H
 #define TYPE_H
 
-/* long needs to map to its own type to correctly calculate implicit
-   conversions, hence the i32_ and u32_
-   Same for long double and f64_ */
-#define TYPE_SPECIFIERS  \
-    TYPE_SPECIFIER(void) \
-    TYPE_SPECIFIER(i8)   \
-    TYPE_SPECIFIER(i16)  \
-    TYPE_SPECIFIER(i32)  \
-    TYPE_SPECIFIER(i32_) \
-    TYPE_SPECIFIER(i64)  \
-    TYPE_SPECIFIER(u8)   \
-    TYPE_SPECIFIER(u16)  \
-    TYPE_SPECIFIER(u32)  \
-    TYPE_SPECIFIER(u32_) \
-    TYPE_SPECIFIER(u64)  \
-    TYPE_SPECIFIER(f32)  \
-    TYPE_SPECIFIER(f64)  \
-    TYPE_SPECIFIER(f64_)
+/* char is signed
+   schar = signed char
+   uchar = unsigned char */
+#define TYPE_SPECIFIERS       \
+    TYPE_SPECIFIER(void)      \
+    TYPE_SPECIFIER(char)      \
+    TYPE_SPECIFIER(schar)     \
+    TYPE_SPECIFIER(uchar)     \
+    TYPE_SPECIFIER(short)     \
+    TYPE_SPECIFIER(ushort)    \
+    TYPE_SPECIFIER(int)       \
+    TYPE_SPECIFIER(uint)      \
+    TYPE_SPECIFIER(long)      \
+    TYPE_SPECIFIER(ulong)     \
+    TYPE_SPECIFIER(longlong)  \
+    TYPE_SPECIFIER(ulonglong) \
+    TYPE_SPECIFIER(float)     \
+    TYPE_SPECIFIER(double)    \
+    TYPE_SPECIFIER(ldouble)
 #define TYPE_SPECIFIER(name__) ts_ ## name__,
 /* ts_none for indicating error */
 typedef enum {ts_none = -1, TYPE_SPECIFIERS ts_count} TypeSpecifiers;

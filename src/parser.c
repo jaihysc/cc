@@ -1375,6 +1375,23 @@ static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched) {
         /* If comma, must have another parameter-list */
         if ((ecode = parse_expect(p, ",", &has_match)) != ec_noerr) goto exit;
 
+
+        /* Add symbol (parameter) to symtab */
+        TNodeDeclarationSpecifiers* declspec =
+            (TNodeDeclarationSpecifiers*)tnode_data(tnode_child(node, 0));
+        TNodePointer* pointer =
+            (TNodePointer*)tnode_data(tnode_child(node, 1));
+        TNodeIdentifier* identifier =
+            (TNodeIdentifier*)tnode_data(tnode_child(node, 2));
+
+        Type type;
+        type_construct(&type, declspec->ts, pointer->pointers);
+
+        SymbolId symid;
+        if ((ecode = symtab_add(
+                        p->symtab, &symid, identifier->token, type)) != ec_noerr) goto exit;
+
+        /* Add to tree */
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
         tnode_set(node, tt_parameter_list, NULL);
         *matched = 1;

@@ -10,6 +10,8 @@ static void ParserConstruct(CuTest* tc, Parser* p) {
     Symtab* symtab = cmalloc(sizeof(Symtab));
     CuAssertIntEquals(tc, symtab_construct(symtab), ec_noerr);
 
+    symtab_push_scope(symtab);
+
     Tree* tree = cmalloc(sizeof(Tree));
     CuAssertIntEquals(tc, tree_construct(tree), ec_noerr);
 

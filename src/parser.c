@@ -614,31 +614,22 @@ static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* 
     ErrorCode ecode;
     *matched = 0;
 
-    /* Left recursion in C standard is converted to right recursion */
-    /* NOTE: This does affect order of operations, operations involving
-       multiplicative_expression nodes if preorder traversal
-       e.g., a * b / c in the order of encountering them */
-    /* multiplicative-expression
-       -> cast-expression * multiplicative-expression
-        | cast-expression / multiplicative-expression
-        | cast-expression % multiplicative-expression
-        | cast-expression */
-
     int attached_node = 0;
     TNode* node;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+
+    TNodeBinaryExpression data;
+    data.type = TNodeBinaryExpression_none;
+
+    /* Parse LHS */
+    int has_match;
+    if ((ecode = parse_cast_expression(
+                    p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+    attached_node = 1;
 
     while (1) {
-        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-        attached_node = 0;
-
-        TNodeBinaryExpression data;
-        data.type = TNodeBinaryExpression_none;
-
-        int has_match;
-        if ((ecode = parse_cast_expression(
-                        p, node, &has_match)) != ec_noerr) goto exit;
-        if (!has_match) break;
-
+        /* Parse operator */
         const char* token;
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
@@ -654,13 +645,27 @@ static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* 
             data.type = TNodeBinaryExpression_mod;
             lexer_consume(p->lex);
         }
+        else break;
 
-        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        /* Parse RHS */
+        if ((ecode = parse_cast_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) goto exit;
+
+        /* LHS <- RHS */
         tnode_set(node, tt_binary_expression, &data);
-        parent = node;
-        attached_node = 1;
-        *matched = 1;
+
+        TNode* new_node;
+        if ((ecode = tnode_alloc(&new_node)) != ec_noerr) goto exit;
+        if ((ecode = tnode_attach(new_node, node)) != ec_noerr) goto exit;
+        node = new_node;
+        data.type = TNodeBinaryExpression_none;
     }
+
+    if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+    tnode_set(node, tt_binary_expression, &data);
+
+    *matched = 1;
 
 exit:
     if (!attached_node) tnode_destruct(node);
@@ -673,28 +678,22 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
     ErrorCode ecode;
     *matched = 0;
 
-    /* Left recursion in C standard is converted to right recursion */
-    /* NOTE: This does affect order of operations, operations involving
-       multiplicative_expression nodes is preorder traversal
-       e.g., a + b - c in the order of encountering them */
-    /* additive-expression -> multiplicative-expression + additive-expression
-                            | multiplicative-expression - additive-expression
-                            | multiplicative-expression */
     int attached_node = 0;
     TNode* node;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+
+    TNodeBinaryExpression data;
+    data.type = TNodeBinaryExpression_none;
+
+    /* Parse LHS */
+    int has_match;
+    if ((ecode = parse_multiplicative_expression(
+                    p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+    attached_node = 1;
 
     while (1) {
-        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-        attached_node = 0;
-
-        TNodeBinaryExpression data;
-        data.type = TNodeBinaryExpression_none;
-
-        int has_match;
-        if ((ecode = parse_multiplicative_expression(
-                        p, node, &has_match)) != ec_noerr) goto exit;
-        if (!has_match) break;
-
+        /* Parse operator */
         const char* token;
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
@@ -706,13 +705,27 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
             data.type = TNodeBinaryExpression_sub;
             lexer_consume(p->lex);
         }
+        else break;
 
-        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        /* Parse RHS */
+        if ((ecode = parse_multiplicative_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) goto exit;
+
+        /* LHS <- RHS */
         tnode_set(node, tt_binary_expression, &data);
-        parent = node;
-        attached_node = 1;
-        *matched = 1;
+
+        TNode* new_node;
+        if ((ecode = tnode_alloc(&new_node)) != ec_noerr) goto exit;
+        if ((ecode = tnode_attach(new_node, node)) != ec_noerr) goto exit;
+        node = new_node;
+        data.type = TNodeBinaryExpression_none;
     }
+
+    if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+    tnode_set(node, tt_binary_expression, &data);
+
+    *matched = 1;
 
 exit:
     if (!attached_node) tnode_destruct(node);
@@ -740,29 +753,22 @@ static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matc
     ErrorCode ecode;
     *matched = 0;
 
-    /* Left recursion in C standard is converted to right recursion */
-    /* relational-expression
-        -> shift-expression
-         | shift-expression < relational-expression
-         | shift-expression > relational-expression
-         | shift-expression <= relational-expression
-         | shift-expression >= relational-expression*/
-
     int attached_node = 0;
     TNode* node;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+
+    TNodeBinaryExpression data;
+    data.type = TNodeBinaryExpression_none;
+
+    /* Parse LHS */
+    int has_match;
+    if ((ecode = parse_shift_expression(
+                    p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+    attached_node = 1;
 
     while (1) {
-        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-        attached_node = 0;
-
-        TNodeBinaryExpression data;
-        data.type = TNodeBinaryExpression_none;
-
-        int has_match;
-        if ((ecode = parse_shift_expression(
-                        p, node, &has_match)) != ec_noerr) goto exit;
-        if (!has_match) break;
-
+        /* Parse operator */
         const char* token;
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
@@ -782,13 +788,27 @@ static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matc
             data.type = TNodeBinaryExpression_geq;
             lexer_consume(p->lex);
         }
+        else break;
 
-        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        /* Parse RHS */
+        if ((ecode = parse_shift_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) goto exit;
+
+        /* LHS <- RHS */
         tnode_set(node, tt_binary_expression, &data);
-        parent = node;
-        attached_node = 1;
-        *matched = 1;
+
+        TNode* new_node;
+        if ((ecode = tnode_alloc(&new_node)) != ec_noerr) goto exit;
+        if ((ecode = tnode_attach(new_node, node)) != ec_noerr) goto exit;
+        node = new_node;
+        data.type = TNodeBinaryExpression_none;
     }
+
+    if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+    tnode_set(node, tt_binary_expression, &data);
+
+    *matched = 1;
 
 exit:
     if (!attached_node) tnode_destruct(node);
@@ -801,27 +821,22 @@ static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matche
     ErrorCode ecode;
     *matched = 0;
 
-    /* Left recursion in C standard is converted to right recursion */
-    /* equality-expression
-        -> relational-expression
-         | relational-expression == equality-expression
-         | relational-expression != equality-expression */
-
     int attached_node = 0;
     TNode* node;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+
+    TNodeBinaryExpression data;
+    data.type = TNodeBinaryExpression_none;
+
+    /* Parse LHS */
+    int has_match;
+    if ((ecode = parse_relational_expression(
+                    p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+    attached_node = 1;
 
     while (1) {
-        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-        attached_node = 0;
-
-        TNodeBinaryExpression data;
-        data.type = TNodeBinaryExpression_none;
-
-        int has_match;
-        if ((ecode = parse_relational_expression(
-                        p, node, &has_match)) != ec_noerr) goto exit;
-        if (!has_match) break;
-
+        /* Parse operator */
         const char* token;
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
@@ -833,13 +848,27 @@ static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matche
             data.type = TNodeBinaryExpression_neq;
             lexer_consume(p->lex);
         }
+        else break;
 
-        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        /* Parse RHS */
+        if ((ecode = parse_relational_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) goto exit;
+
+        /* LHS <- RHS */
         tnode_set(node, tt_binary_expression, &data);
-        parent = node;
-        attached_node = 1;
-        *matched = 1;
+
+        TNode* new_node;
+        if ((ecode = tnode_alloc(&new_node)) != ec_noerr) goto exit;
+        if ((ecode = tnode_attach(new_node, node)) != ec_noerr) goto exit;
+        node = new_node;
+        data.type = TNodeBinaryExpression_none;
     }
+
+    if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+    tnode_set(node, tt_binary_expression, &data);
+
+    *matched = 1;
 
 exit:
     if (!attached_node) tnode_destruct(node);
@@ -894,26 +923,22 @@ static ErrorCode parse_logical_and_expression(Parser* p, TNode* parent, int* mat
     ErrorCode ecode;
     *matched = 0;
 
-    /* Left recursion in C standard is converted to right recursion */
-    /* logical-and-expression
-        -> inclusive-or-expression
-         | inclusive-or-expression && logical-and-expression */
-
     int attached_node = 0;
     TNode* node;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+
+    TNodeBinaryExpression data;
+    data.type = TNodeBinaryExpression_none;
+
+    /* Parse LHS */
+    int has_match;
+    if ((ecode = parse_inclusive_or_expression(
+                    p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+    attached_node = 1;
 
     while (1) {
-        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-        attached_node = 0;
-
-        TNodeBinaryExpression data;
-        data.type = TNodeBinaryExpression_none;
-
-        int has_match;
-        if ((ecode = parse_inclusive_or_expression(
-                        p, node, &has_match)) != ec_noerr) goto exit;
-        if (!has_match) break;
-
+        /* Parse operator */
         const char* token;
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
@@ -921,13 +946,27 @@ static ErrorCode parse_logical_and_expression(Parser* p, TNode* parent, int* mat
             data.type = TNodeBinaryExpression_logic_and;
             lexer_consume(p->lex);
         }
+        else break;
 
-        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        /* Parse RHS */
+        if ((ecode = parse_inclusive_or_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) goto exit;
+
+        /* LHS <- RHS */
         tnode_set(node, tt_binary_expression, &data);
-        parent = node;
-        attached_node = 1;
-        *matched = 1;
+
+        TNode* new_node;
+        if ((ecode = tnode_alloc(&new_node)) != ec_noerr) goto exit;
+        if ((ecode = tnode_attach(new_node, node)) != ec_noerr) goto exit;
+        node = new_node;
+        data.type = TNodeBinaryExpression_none;
     }
+
+    if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+    tnode_set(node, tt_binary_expression, &data);
+
+    *matched = 1;
 
 exit:
     if (!attached_node) tnode_destruct(node);
@@ -940,26 +979,22 @@ static ErrorCode parse_logical_or_expression(Parser* p, TNode* parent, int* matc
     ErrorCode ecode;
     *matched = 0;
 
-    /* Left recursion in C standard is converted to right recursion */
-    /* logical-or-expression
-        -> logical-and-expression
-         | logical-and-expression || logical-or-expression */
-
     int attached_node = 0;
     TNode* node;
+    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
+
+    TNodeBinaryExpression data;
+    data.type = TNodeBinaryExpression_none;
+
+    /* Parse LHS */
+    int has_match;
+    if ((ecode = parse_logical_and_expression(
+                    p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+    attached_node = 1;
 
     while (1) {
-        if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-        attached_node = 0;
-
-        TNodeBinaryExpression data;
-        data.type = TNodeBinaryExpression_none;
-
-        int has_match;
-        if ((ecode = parse_logical_and_expression(
-                        p, node, &has_match)) != ec_noerr) goto exit;
-        if (!has_match) break;
-
+        /* Parse operator */
         const char* token;
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
@@ -967,13 +1002,27 @@ static ErrorCode parse_logical_or_expression(Parser* p, TNode* parent, int* matc
             data.type = TNodeBinaryExpression_logic_or;
             lexer_consume(p->lex);
         }
+        else break;
 
-        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+        /* Parse RHS */
+        if ((ecode = parse_logical_and_expression(
+                        p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) goto exit;
+
+        /* LHS <- RHS */
         tnode_set(node, tt_binary_expression, &data);
-        parent = node;
-        attached_node = 1;
-        *matched = 1;
+
+        TNode* new_node;
+        if ((ecode = tnode_alloc(&new_node)) != ec_noerr) goto exit;
+        if ((ecode = tnode_attach(new_node, node)) != ec_noerr) goto exit;
+        node = new_node;
+        data.type = TNodeBinaryExpression_none;
     }
+
+    if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
+    tnode_set(node, tt_binary_expression, &data);
+
+    *matched = 1;
 
 exit:
     if (!attached_node) tnode_destruct(node);

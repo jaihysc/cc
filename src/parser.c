@@ -1108,9 +1108,11 @@ static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* mat
     ErrorCode ecode = ec_noerr;
     *matched = 0;
 
-    int has_match; /* Whether has match on this iteration */
-    TNodeDeclarationSpecifiers data;
+    /* longest declaration specifier + 1 for null terminator */
+    int i_tsbuf = 0;
+    char tsbuf[TS_STR_MAX_LEN + 1];
 
+    int has_match; /* Whether has match on this iteration */
     do {
         has_match = 0;
 
@@ -1124,7 +1126,15 @@ static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* mat
             *matched = 1;
         }
         else if (tok_istypespec(token)) {
-            // FIXME
+            int i = 0;
+            char c;
+            while ((c = token[i]) != '\0') {
+                if (i_tsbuf >= TS_STR_MAX_LEN) break;
+                tsbuf[i_tsbuf++] = c;
+                ++i;
+            }
+            tsbuf[i_tsbuf] = '\0';
+
             lexer_consume(p->lex);
             has_match = 1;
             *matched = 1;
@@ -1144,6 +1154,10 @@ static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* mat
     } while (has_match);
 
     if (*matched) {
+        TNodeDeclarationSpecifiers data;
+
+        data.ts = ts_from_str(tsbuf);
+
         TNode* node;
         if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
         tnode_set(node, tt_declaration_specifiers, &data);

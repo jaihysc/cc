@@ -358,8 +358,8 @@ static void debug_tnode_walk(
         /* 6.7 Declarators */
         case tt_declaration_specifiers:
             {
-                //TNodeDeclarationSpecifiers* data = (TNodeDeclarationSpecifiers*)&node->data;
-                //LOGF("(%s)\n", data->token);
+                TNodeDeclarationSpecifiers* data = (TNodeDeclarationSpecifiers*)&node->data;
+                LOGF("(%s)", ts_str(data->ts));
             }
             break;
         case tt_pointer:

@@ -2,6 +2,10 @@
 #ifndef TYPE_H
 #define TYPE_H
 
+/* Maximum length of declaration specifier string,
+   no null terminator */
+#define TS_STR_MAX_LEN 22
+
 /* char is signed
    schar = signed char
    uchar = unsigned char */
@@ -27,7 +31,11 @@ typedef enum {ts_none = -1, TYPE_SPECIFIERS ts_count} TypeSpecifiers;
 #undef TYPE_SPECIFIER
 
 /* Converts a type specifier to string */
-const char* type_specifiers_str(TypeSpecifiers typespec);
+const char* ts_str(TypeSpecifiers typespec);
+
+/* Converts string to type specifier
+   ts_none if invalid */
+TypeSpecifiers ts_from_str(const char* str);
 
 typedef struct {
     /* 0 = Standard types, e.g., int, float, long long*

@@ -4,6 +4,7 @@
 
 #include "constant.h"
 #include "errorcode.h"
+#include "type.h"
 
 /* 6.4 Lexical elements */
 typedef struct {
@@ -62,6 +63,7 @@ typedef struct {
 
 /* 6.7 Declarators */
 typedef struct {
+    TypeSpecifiers ts;
 } TNodeDeclarationSpecifiers;
 
 typedef struct {

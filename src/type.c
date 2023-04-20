@@ -5,7 +5,7 @@
 #include "common.h"
 
 #define TYPE_SPECIFIER(name__) #name__,
-char* ts_str[] = {TYPE_SPECIFIERS};
+const char* type_specifiers_str[] = {TYPE_SPECIFIERS};
 #undef TYPE_SPECIFIER
 
 Type type_int = {.typespec = ts_int, .pointers = 0};
@@ -13,8 +13,54 @@ Type type_label = {.typespec = ts_void, .pointers = 0};
 Type type_ptroffset = {.typespec = ts_longlong, .pointers = 0};
 Type type_ptrdiff = {.typespec = ts_longlong, .pointers = 0};
 
-const char* type_specifiers_str(TypeSpecifiers typespec) {
-    return ts_str[typespec];
+const char* ts_str(TypeSpecifiers typespec) {
+    return type_specifiers_str[typespec];
+}
+
+TypeSpecifiers ts_from_str(const char* str) {
+    /* Index of string in arrangement corresponds to type specifier at index */
+    char* arrangement[] = {
+        "void",
+        "char",
+        "signed char",
+        "unsigned char",
+        "short", "signed short", "short int", "signed short int",
+        "unsigned short", "unsigned short int",
+        "int", "signed", "signed int",
+        "unsigned", "unsigned int",
+        "long", "signed long", "long int", "signed long int",
+        "unsigned long", "unsigned long int",
+        "long long", "signed long long", "long long int", "signed long long int",
+        "unsigned long long", "unsigned long long int",
+        "float",
+        "double",
+        "long double",
+    };
+    int count = ARRAY_SIZE(arrangement);
+    TypeSpecifiers typespec[] = {
+        ts_void,
+        ts_char,
+        ts_schar,
+        ts_uchar,
+        ts_short, ts_short, ts_short, ts_short,
+        ts_ushort, ts_ushort,
+        ts_int, ts_int, ts_int,
+        ts_uint, ts_uint,
+        ts_long, ts_long, ts_long, ts_long,
+        ts_ulong, ts_ulong,
+        ts_longlong, ts_longlong, ts_longlong, ts_longlong,
+        ts_ulonglong, ts_ulonglong,
+        ts_float,
+        ts_double,
+        ts_ldouble,
+    };
+
+    for (int i = 0; i < count; ++i) {
+        if (strequ(arrangement[i], str)) {
+            return typespec[i];
+        }
+    }
+    return ts_none;
 }
 
 void type_construct(
@@ -118,7 +164,7 @@ Type type_from_str(const char* str) {
     /* Insert null terminator so can compare */
     buf[i] = '\0';
     for (int j = 0; j < ts_count; ++j) {
-        if (strequ(buf, ts_str[j])) {
+        if (strequ(buf, type_specifiers_str[j])) {
             type.typespec = j;
         }
     }

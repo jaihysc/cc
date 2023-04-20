@@ -242,7 +242,7 @@ void debug_print_symtab(Symtab* stab) {
         for (int j = 0; j < symbols_size; ++j) {
             Symbol* sym = &vec_at(&stab->scopes[i], j);
             Type type = symbol_type(sym);
-            LOGF("    %d %s", j, type_specifiers_str(type.typespec));
+            LOGF("    %d %s", j, ts_str(type.typespec));
 
             for (int k = 0; k < type.pointers; ++k) {
                 LOG("*");

@@ -1886,7 +1886,7 @@ static void debug_print_symtab(Parser* p) {
     for (int i = 0; i < hvec_size(&p->symbol); ++i) {
         Symbol* sym = &hvec_at(&p->symbol, i);
         Type type = symbol_type(sym);
-        LOGF("  %s", type_specifiers_str(type.typespec));
+        LOGF("  %s", ts_str(type.typespec));
         for (int j = 0; j < type.pointers; ++j) {
             LOG("*");
         }

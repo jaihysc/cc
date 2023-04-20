@@ -1093,6 +1093,22 @@ static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched) {
         goto exit;
     }
 
+    /* Add symbol (parameter) to symtab */
+    TNodeDeclarationSpecifiers* declspec =
+        (TNodeDeclarationSpecifiers*)tnode_data(tnode_child(node, 0));
+    TNodePointer* pointer =
+        (TNodePointer*)tnode_data(tnode_child(node, 1));
+    TNodeIdentifier* identifier =
+        (TNodeIdentifier*)tnode_data(tnode_child(node, 2));
+
+    Type type;
+    type_construct(&type, declspec->ts, pointer->pointers);
+
+    Symbol* sym;
+    if ((ecode = symtab_add(
+                    p->symtab, &sym, identifier->token, type)) != ec_noerr) goto exit;
+
+    /* Add to tree */
     if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
     attached_node = 1;
     *matched = 1;

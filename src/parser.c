@@ -1502,7 +1502,7 @@ matched:
        We cannot know ahead of time if there will be an operator applied,
        thus it sometimes creates a node, to realize it is not necessary */
     if ((ecode = tnode_remove_if(
-                    tnode_child(parent, -1), cmp_remove_tnode)) != ec_noerr) goto exit;
+                    parent, cmp_remove_tnode)) != ec_noerr) goto exit;
 
 exit:
     PARSE_FUNC_END();

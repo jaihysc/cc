@@ -1,18 +1,6 @@
 #include "symbol.h"
 
-#include <stddef.h>
-
 #include "common.h"
-
-SymbolId symid_invalid = {.index = -1};
-
-int symid_valid(SymbolId sym_id) {
-    return sym_id.index != -1;
-}
-
-int symid_equal(SymbolId a, SymbolId b) {
-    return a.index == b.index && a.scope == b.scope;
-}
 
 ErrorCode symbol_construct(Symbol* sym, const char* token, Type type) {
     sym->class = sl_normal;
@@ -34,7 +22,7 @@ ErrorCode symbol_construct(Symbol* sym, const char* token, Type type) {
     return ec_noerr;
 }
 
-void symbol_sl_access(Symbol* sym, SymbolId ptr, SymbolId idx) {
+void symbol_sl_access(Symbol* sym, Symbol* ptr, Symbol* idx) {
     ASSERT(sym != NULL, "Symbol is null");
     sym->class = sl_access;
     sym->ptr = ptr;
@@ -70,12 +58,12 @@ void symbol_set_valcat(Symbol* sym, ValueCategory valcat) {
     sym->valcat = valcat;
 }
 
-SymbolId symbol_ptr_sym(Symbol* sym) {
+Symbol* symbol_ptr_sym(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->ptr;
 }
 
-SymbolId symbol_ptr_index(Symbol* sym) {
+Symbol* symbol_ptr_index(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
     return sym->ptr_idx;
 }

@@ -46,7 +46,7 @@ ILIns ilstat_ins(const ILStatement* stat) {
     return stat->ins;
 }
 
-SymbolId ilstat_arg(const ILStatement* stat, int i) {
+Symbol* ilstat_arg(const ILStatement* stat, int i) {
     ASSERT(stat != NULL, "ILStatement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->argc, "Index out of range");

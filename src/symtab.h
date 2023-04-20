@@ -16,11 +16,15 @@ typedef enum {
     sc_count
 } SymbolCat;
 
-typedef vec_t(Symbol) Symtab_Scope;
+typedef vec_t(Symbol*) Symtab_Scope;
 
 typedef struct {
+    /* Holds all symbols ever added */
+    hvec_t(Symbol) symbol;
+
     /* First scope is most global
-       First symbol element is earliest in occurrence */
+       First symbol element is earliest in occurrence
+       Points to a symbol in the symbol vector */
     Symtab_Scope* scopes;
     int scopes_size;
     int scopes_capacity;
@@ -28,7 +32,7 @@ typedef struct {
     /* Stack for symbol category, push and pop with
        symtab_push_cat()
        symtab_pop_cat() */
-    vec_t(SymbolId) cat[sc_count];
+    vec_t(Symbol*) cat[sc_count];
 
     /* Number to create unique temporary/label/etc values */
     int temp_num;
@@ -44,13 +48,13 @@ void symtab_destruct(Symtab* stab);
 
 
 /* Pushes symbol onto symbol category stack */
-ErrorCode symtab_push_cat(Symtab* stab, SymbolCat cat, SymbolId sym);
+ErrorCode symtab_push_cat(Symtab* stab, SymbolCat cat, Symbol* sym);
 
 /* Pops symbol from top of symbol category stack */
 void symtab_pop_cat(Symtab* stab, SymbolCat cat);
 
 /* Returns the last symbol for symbol category (top of stack) */
-SymbolId symtab_last_cat(Symtab* stab, SymbolCat cat);
+Symbol* symtab_last_cat(Symtab* stab, SymbolCat cat);
 
 
 /* Scopes */
@@ -63,40 +67,24 @@ ErrorCode symtab_push_scope(Symtab* stab);
 void symtab_pop_scope(Symtab* stab);
 
 /* Finds provided token in symbol table, closest scope first
-   Returns symid_invalid if not found */
-SymbolId symtab_find(Symtab* stab, const char* token);
-
-/* Returns symbol at provided SymbolId */
-Symbol* symtab_get(Symtab* stab, SymbolId sym_id);
-
-
-/* Short forms to reduce typing */
-
-
-/* Returns token for SymbolId */
-const char* symtab_get_token(Symtab* stab, SymbolId sym_id);
-
-/* Returns type for SymbolId */
-Type symtab_get_type(Symtab* stab, SymbolId sym_id);
-
-/* Returns ValueCategory for SymbolId */
-ValueCategory symtab_get_valcat(Symtab* stab, SymbolId sym_id);
+   Returns NULL if not found */
+Symbol* symtab_find(Symtab* stab, const char* token);
 
 
 /* Add to symbol table */
 
 
 /* Creates symbol with provided information in symbol table
-   Stores SymbolId of added symbol at pointer,
+   Stores Symbol* of added symbol at pointer,
    or ec_symtab_dupname if it already exists */
-ErrorCode symtab_add(Symtab* stab, SymbolId* symid_ptr,
+ErrorCode symtab_add(Symtab* stab, Symbol** symid_ptr,
         const char* token, Type type);
 
 /* Creates a new temporary for the current scope in symbol table */
-ErrorCode symtab_add_temporary(Symtab* stab, SymbolId* symid_ptr, Type type);
+ErrorCode symtab_add_temporary(Symtab* stab, Symbol** symid_ptr, Type type);
 
 /* Creates a new label for the current scope in symbol table */
-ErrorCode symtab_add_label(Symtab* stab, SymbolId* symid_ptr);
+ErrorCode symtab_add_label(Symtab* stab, Symbol** symid_ptr);
 
 
 /* Debug */

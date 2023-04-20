@@ -22,16 +22,16 @@ int block_lab_count(Block* blk) {
     return vec_size(&blk->labels);
 }
 
-SymbolId block_lab(Block* blk, int i) {
+Symbol* block_lab(Block* blk, int i) {
     ASSERT(blk != NULL, "Block is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < block_lab_count(blk), "Index out of range");
     return vec_at(&blk->labels, i);
 }
 
-ErrorCode block_add_label(Block* blk, SymbolId lab_id) {
+ErrorCode block_add_label(Block* blk, Symbol* lab) {
     ASSERT(blk != NULL, "Block is null");
-    if (!vec_push_back(&blk->labels, lab_id)) return ec_badalloc;
+    if (!vec_push_back(&blk->labels, lab)) return ec_badalloc;
     return ec_noerr;
 }
 
@@ -104,11 +104,11 @@ ErrorCode cfg_new_block(Cfg* cfg, Block** block_ptr) {
     return ec_noerr;
 }
 
-Block* cfg_find_labelled(Cfg* cfg, SymbolId lab_id) {
+Block* cfg_find_labelled(Cfg* cfg, Symbol* lab) {
     for (int i = 0; i < vec_size(&cfg->blocks); ++i) {
         Block* blk = &vec_at(&cfg->blocks, i);
         for (int j = 0; j < block_lab_count(blk); ++j) {
-            if (symid_equal(block_lab(blk, j), lab_id)) {
+            if (block_lab(blk, j) == lab) {
                 return blk;
             }
         }

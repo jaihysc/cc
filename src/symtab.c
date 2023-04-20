@@ -6,6 +6,8 @@
 ErrorCode symtab_construct(Symtab* stab) {
     ASSERT(stab != NULL, "Symtab is null");
 
+    hvec_construct(&stab->symbol);
+
     stab->scopes = NULL;
     stab->scopes_size = 0;
     stab->scopes_capacity = 0;
@@ -30,9 +32,11 @@ void symtab_destruct(Symtab* stab) {
         vec_destruct(&stab->scopes[i]);
     }
     cfree(stab->scopes);
+
+    hvec_destruct(&stab->symbol);
 }
 
-ErrorCode symtab_push_cat(Symtab* stab, SymbolCat cat, SymbolId sym) {
+ErrorCode symtab_push_cat(Symtab* stab, SymbolCat cat, Symbol* sym) {
     ASSERT(stab != NULL, "Symtab is null");
 
     if (!vec_push_backu(&stab->cat[cat])) return ec_badalloc;
@@ -49,7 +53,7 @@ void symtab_pop_cat(Symtab* stab, SymbolCat cat) {
     (void)vec_pop_back(&stab->cat[cat]);
 }
 
-SymbolId symtab_last_cat(Symtab* stab, SymbolCat cat) {
+Symbol* symtab_last_cat(Symtab* stab, SymbolCat cat) {
     ASSERT(stab != NULL, "Symtab is null");
     ASSERTF(vec_size(&stab->cat[cat]) > 0,
             "No symbol on symbol category %d stack", cat);
@@ -111,86 +115,58 @@ void symtab_pop_scope(Symtab* stab) {
 }
 
 /* Finds provided token within indicated scope
-   Returns symid_invalid if not found */
-static SymbolId symtab_find_scoped(Symtab* stab, int i_scope, const char* token) {
+   Returns NULL if not found */
+static Symbol* symtab_find_scoped(Symtab* stab, int i_scope, const char* token) {
     ASSERT(stab != NULL, "Symtab is null");
 
     for (int i = 0; i < vec_size(&stab->scopes[i_scope]); ++i) {
-        Symbol* sym = &vec_at(&stab->scopes[i_scope], i);
-        if (strequ(symbol_token(sym), token)) {
-            SymbolId id;
-            id.scope = i_scope;
-            id.index = i;
-            return id;
-        }
+        Symbol* sym = vec_at(&stab->scopes[i_scope], i);
+        if (strequ(symbol_token(sym), token)) return sym;
     }
-    return symid_invalid;
+    return NULL;
 }
 
-SymbolId symtab_find(Symtab* stab, const char* token) {
+Symbol* symtab_find(Symtab* stab, const char* token) {
     ASSERT(stab != NULL, "Symtab is null");
 
     for (int i_scope = stab->scopes_size - 1; i_scope >= 0; --i_scope) {
-        SymbolId found_id = symtab_find_scoped(stab, i_scope, token);
-        if (symid_valid(found_id)) {
-            return found_id;
-        }
+        Symbol* found = symtab_find_scoped(stab, i_scope, token);
+        if (found != NULL) return found;
     }
-    return symid_invalid;
-}
-
-Symbol* symtab_get(Symtab* stab, SymbolId sym_id) {
-    ASSERT(stab != NULL, "Symtab is null");
-    ASSERT(symid_valid(sym_id), "Invalid symbol id");
-    ASSERT(sym_id.index < vec_size(&stab->scopes[sym_id.scope]), "Symbol id out of range");
-    return &vec_at(&stab->scopes[sym_id.scope], sym_id.index);
-}
-
-const char* symtab_get_token(Symtab* stab, SymbolId sym_id) {
-    ASSERT(stab != NULL, "Symtab is null");
-    return symbol_token(symtab_get(stab, sym_id));
-}
-
-Type symtab_get_type(Symtab* stab, SymbolId sym_id) {
-    ASSERT(stab != NULL, "Symtab is null");
-    return symbol_type(symtab_get(stab, sym_id));
-}
-
-ValueCategory symtab_get_valcat(Symtab* stab, SymbolId sym_id) {
-    ASSERT(stab != NULL, "Symtab is null");
-    return symbol_valcat(symtab_get(stab, sym_id));
+    return NULL;
 }
 
 /* Allocates storage for symbol in symbol table
-   Stores SymbolId of added symbol at pointer
+   Stores Symbol* of added symbol at pointer
    or ec_symtab_dupname if it already exists */
-static ErrorCode symtab_add_scoped(Symtab* stab, SymbolId* symid_ptr,
+static ErrorCode symtab_add_scoped(Symtab* stab, Symbol** sym_ptr,
         int i_scope, const char* token, Type type) {
     ASSERT(stab != NULL, "Symtab is null");
     ASSERT(stab->scopes_size > 0, "Invalid scope");
 
+    /* Add to vec of symbols */
+    if (!hvec_push_backu(&stab->symbol)) return ec_badalloc;
+    Symbol* sym = &hvec_back(&stab->symbol);
+
+    /* Add to vec of symbols in scope */
     if (token != NULL) {
         /* Normal symbols can not have duplicates in same scope */
-        if (symid_valid(symtab_find_scoped(stab, i_scope, token))) {
+        if (symtab_find_scoped(stab, i_scope, token) != NULL) {
             ERRMSGF("Symbol already exists %s\n", token);
-            *symid_ptr = symid_invalid;
+            *sym_ptr = NULL;
             return ec_symtab_dupname;
         }
     }
 
-    SymbolId id;
-    id.scope = i_scope;
-    id.index = vec_size(&stab->scopes[i_scope]);
-
     if (!vec_push_backu(&stab->scopes[i_scope])) return ec_badalloc;
-    Symbol* sym = &vec_back(&stab->scopes[i_scope]);
+    vec_back(&stab->scopes[i_scope]) = sym;
 
     symbol_construct(sym, token, type);
-    *symid_ptr = id;
+    *sym_ptr = sym;
     return ec_noerr;
 }
 
-ErrorCode symtab_add(Symtab* stab, SymbolId* symid_ptr,
+ErrorCode symtab_add(Symtab* stab, Symbol** sym_ptr,
         const char* token, Type type) {
     ASSERT(stab != NULL, "Symtab is null");
     ASSERT(token != NULL, "token is null");
@@ -201,21 +177,21 @@ ErrorCode symtab_add(Symtab* stab, SymbolId* symid_ptr,
     /* Add new symbol to current scope */
     ASSERT(stab->scopes_size > 0, "No scope exists");
     int curr_scope = stab->scopes_size - 1;
-    return symtab_add_scoped(stab, symid_ptr, curr_scope, token, type);
+    return symtab_add_scoped(stab, sym_ptr, curr_scope, token, type);
 }
 
-ErrorCode symtab_add_temporary(Symtab* stab, SymbolId* symid_ptr, Type type) {
+ErrorCode symtab_add_temporary(Symtab* stab, Symbol** sym_ptr, Type type) {
     ASSERT(stab != NULL, "Symtab is null");
     AAPPENDI(token, "__t", stab->temp_num);
     ++stab->temp_num;
 
     ErrorCode ecode;
-    if ((ecode = symtab_add(stab, symid_ptr, token, type)) != ec_noerr) return ecode;
-    symbol_set_valcat(symtab_get(stab, *symid_ptr), vc_nlval);
+    if ((ecode = symtab_add(stab, sym_ptr, token, type)) != ec_noerr) return ecode;
+    symbol_set_valcat(*sym_ptr, vc_nlval);
     return ec_noerr;
 }
 
-ErrorCode symtab_add_label(Symtab* stab, SymbolId* symid_ptr) {
+ErrorCode symtab_add_label(Symtab* stab, Symbol** sym_ptr) {
     ASSERT(stab != NULL, "Symtab is null");
     AAPPENDI(token, "__l", stab->label_num);
     ++stab->label_num;
@@ -224,8 +200,8 @@ ErrorCode symtab_add_label(Symtab* stab, SymbolId* symid_ptr) {
     /* Scope at index 1 is function scope */
     ErrorCode ecode;
     if ((ecode = symtab_add_scoped(
-                    stab, symid_ptr, 1, token, type_label)) != ec_noerr) return ecode;
-    symbol_set_valcat(symtab_get(stab, *symid_ptr), vc_nlval);
+                    stab, sym_ptr, 1, token, type_label)) != ec_noerr) return ecode;
+    symbol_set_valcat(*sym_ptr, vc_nlval);
     return ec_noerr;
 }
 
@@ -240,7 +216,7 @@ void debug_print_symtab(Symtab* stab) {
         LOGF("  %d [%d]\n", i, symbols_size);
 
         for (int j = 0; j < symbols_size; ++j) {
-            Symbol* sym = &vec_at(&stab->scopes[i], j);
+            Symbol* sym = vec_at(&stab->scopes[i], j);
             Type type = symbol_type(sym);
             LOGF("    %d %s", j, ts_str(type.typespec));
 

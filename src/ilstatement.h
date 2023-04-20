@@ -53,7 +53,7 @@ int il2_incfg(ILIns ins);
 
 typedef struct {
     ILIns ins;
-    SymbolId arg[MAX_IL2_ARGS];
+    Symbol* arg[MAX_IL2_ARGS];
     int argc;
 } ILStatement;
 
@@ -61,7 +61,7 @@ typedef struct {
 ILIns ilstat_ins(const ILStatement* stat);
 
 /* Returns arg at index i for IL statement */
-SymbolId ilstat_arg(const ILStatement* stat, int i);
+Symbol* ilstat_arg(const ILStatement* stat, int i);
 
 /* Returns the number of arguments in IL statement */
 int ilstat_argc(const ILStatement* stat);

@@ -1387,9 +1387,9 @@ static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched) {
         Type type;
         type_construct(&type, declspec->ts, pointer->pointers);
 
-        SymbolId symid;
+        Symbol* sym;
         if ((ecode = symtab_add(
-                        p->symtab, &symid, identifier->token, type)) != ec_noerr) goto exit;
+                        p->symtab, &sym, identifier->token, type)) != ec_noerr) goto exit;
 
         /* Add to tree */
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;

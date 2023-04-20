@@ -13,7 +13,7 @@
    2. Control always leaves at the last statement or end of the block */
 typedef struct {
     /* Labels at the entry of this block */
-    vec_t(SymbolId) labels;
+    vec_t(Symbol*) labels;
     vec_t(ILStatement) il_stats;
 
     /* At most 2 options:
@@ -32,10 +32,10 @@ void block_destruct(Block* blk);
 int block_lab_count(Block* blk);
 
 /* Returns label at index in block */
-SymbolId block_lab(Block* blk, int i);
+Symbol* block_lab(Block* blk, int i);
 
 /* Adds a new label at the entry of this block */
-ErrorCode block_add_label(Block* blk, SymbolId lab_id);
+ErrorCode block_add_label(Block* blk, Symbol* lab);
 
 /* Returns number of IL statements in block */
 int block_ilstat_count(Block* blk);
@@ -69,6 +69,6 @@ ErrorCode cfg_new_block(Cfg* cfg, Block** block_ptr);
 
 /* Finds the first block which has the provided label
    Returns null if not found */
-Block* cfg_find_labelled(Cfg* cfg, SymbolId lab_id);
+Block* cfg_find_labelled(Cfg* cfg, Symbol* lab);
 
 #endif

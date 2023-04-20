@@ -7,20 +7,6 @@
 
 #define MAX_SYMBOL_LEN 255 /* Max characters symbol name (exclude null terminator) */
 
-typedef struct {
-    int scope; /* Index of scope */
-    int index; /* Index of symbol in scope */
-} SymbolId;
-
-/* Used to indicate invalid symbol */
-extern SymbolId symid_invalid;
-
-/* Return 1 if the SymbolId is valid, 0 otherwise */
-int symid_valid(SymbolId sym_id);
-
-/* Returns 1 if both symid are equal, 0 otherwise */
-int symid_equal(SymbolId a, SymbolId b);
-
 typedef enum {
     sl_normal = 0,
     sl_access /* Represents access to memory location */
@@ -32,16 +18,17 @@ typedef enum {
     vc_nlval
 } ValueCategory;
 
-typedef struct {
+typedef struct Symbol Symbol;
+struct Symbol {
     SymbolClass class;
     char token[MAX_SYMBOL_LEN + 1];
     Type type;
     ValueCategory valcat;
 
     /* Only for class sl_access */
-    SymbolId ptr;
-    SymbolId ptr_idx;
-} Symbol;
+    Symbol* ptr;
+    Symbol* ptr_idx;
+};
 
 /* Creates symbol at given memory location */
 ErrorCode symbol_construct(Symbol* sym, const char* token, Type type);
@@ -52,7 +39,7 @@ ErrorCode symbol_construct(Symbol* sym, const char* token, Type type);
         symbol, leave as symid_invalid to default to 0
    e.g., int* p; int a = p[2];
    If this symbol is a, ptr is p, idx is 2 */
-void symbol_sl_access(Symbol* sym, SymbolId ptr, SymbolId idx);
+void symbol_sl_access(Symbol* sym, Symbol* ptr, Symbol* idx);
 
 /* Returns SymbolClass for symbol */
 SymbolClass symbol_class(Symbol* sym);
@@ -75,11 +62,11 @@ void symbol_set_valcat(Symbol* sym, ValueCategory valcat);
 /* Returns the symbol for the pointer, which when indexed yields this symbol
    e.g., int* p; int a = p[2];
    If this symbol is a, the returned symbol is p */
-SymbolId symbol_ptr_sym(Symbol* sym);
+Symbol* symbol_ptr_sym(Symbol* sym);
 
 /* Returns the symbol of the index, which when used to index symbol_ptr_sym
    yields this symbol
    The index is always in bytes */
-SymbolId symbol_ptr_index(Symbol* sym);
+Symbol* symbol_ptr_index(Symbol* sym);
 
 #endif

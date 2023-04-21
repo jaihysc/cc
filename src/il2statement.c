@@ -1,4 +1,4 @@
-#include "ilstatement.h"
+#include "il2statement.h"
 
 #include "common.h"
 
@@ -41,19 +41,38 @@ int il2_incfg(ILIns ins) {
     }
 }
 
-ILIns ilstat_ins(const ILStatement* stat) {
-    ASSERT(stat != NULL, "ILStatement is null");
+IL2Statement il2stat_make2(ILIns ins, Symbol* a0, Symbol* a1) {
+    IL2Statement stat;
+    stat.ins = ins;
+    stat.arg[0] = a0;
+    stat.arg[1] = a1;
+    stat.argc = 2;
+    return stat;
+}
+
+IL2Statement il2stat_make(ILIns ins, Symbol* a0, Symbol* a1, Symbol* a2) {
+    IL2Statement stat;
+    stat.ins = ins;
+    stat.arg[0] = a0;
+    stat.arg[1] = a1;
+    stat.arg[2] = a2;
+    stat.argc = 3;
+    return stat;
+}
+
+ILIns il2stat_ins(const IL2Statement* stat) {
+    ASSERT(stat != NULL, "IL2Statement is null");
     return stat->ins;
 }
 
-Symbol* ilstat_arg(const ILStatement* stat, int i) {
-    ASSERT(stat != NULL, "ILStatement is null");
+Symbol* il2stat_arg(const IL2Statement* stat, int i) {
+    ASSERT(stat != NULL, "IL2Statement is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < stat->argc, "Index out of range");
     return stat->arg[i];
 }
 
-int ilstat_argc(const ILStatement* stat) {
-    ASSERT(stat != NULL, "ILStatement is null");
+int il2stat_argc(const IL2Statement* stat) {
+    ASSERT(stat != NULL, "IL2Statement is null");
     return stat->argc;
 }

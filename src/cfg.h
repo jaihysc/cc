@@ -2,7 +2,7 @@
 #ifndef CFG_H
 #define CFG_H
 
-#include "ilstatement.h"
+#include "il2statement.h"
 #include "symbol.h"
 #include "vec.h"
 
@@ -14,7 +14,7 @@
 typedef struct {
     /* Labels at the entry of this block */
     vec_t(Symbol*) labels;
-    vec_t(ILStatement) il_stats;
+    vec_t(IL2Statement) il_stats;
 
     /* At most 2 options:
        1. Flow through to next block
@@ -41,10 +41,10 @@ ErrorCode block_add_label(Block* blk, Symbol* lab);
 int block_ilstat_count(Block* blk);
 
 /* Returns IL statement at index in block */
-ILStatement* block_ilstat(Block* blk, int i);
+IL2Statement* block_ilstat(Block* blk, int i);
 
 /* Adds IL statement to block */
-ErrorCode block_add_ilstat(Block* blk, ILStatement stat);
+ErrorCode block_add_ilstat(Block* blk, IL2Statement stat);
 
 /* Links block to next block */
 void block_link(Block* blk, Block* next);
@@ -70,5 +70,7 @@ ErrorCode cfg_new_block(Cfg* cfg, Block** block_ptr);
 /* Finds the first block which has the provided label
    Returns null if not found */
 Block* cfg_find_labelled(Cfg* cfg, Symbol* lab);
+
+void debug_print_cfg(Cfg* cfg);
 
 #endif

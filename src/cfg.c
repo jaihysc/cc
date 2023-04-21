@@ -40,14 +40,14 @@ int block_ilstat_count(Block* blk) {
     return vec_size(&blk->il_stats);
 }
 
-ILStatement* block_ilstat(Block* blk, int i) {
+IL2Statement* block_ilstat(Block* blk, int i) {
     ASSERT(blk != NULL, "Block is null");
     ASSERT(i >= 0, "Index out of range");
     ASSERT(i < block_ilstat_count(blk), "Index out of range");
     return &vec_at(&blk->il_stats, i);
 }
 
-ErrorCode block_add_ilstat(Block* blk, ILStatement stat) {
+ErrorCode block_add_ilstat(Block* blk, IL2Statement stat) {
     ASSERT(blk != NULL, "Block is null");
     if (!vec_push_back(&blk->il_stats, stat)) return ec_badalloc;
     return ec_noerr;
@@ -116,3 +116,45 @@ Block* cfg_find_labelled(Cfg* cfg, Symbol* lab) {
     return NULL;
 }
 
+void debug_print_cfg(Cfg* cfg) {
+    LOGF("Control flow graph [%d]\n", vec_size(&cfg->blocks));
+    for (int i = 0; i < vec_size(&cfg->blocks); ++i) {
+        LOGF("  Block %d\n", i);
+        Block* blk = &vec_at(&cfg->blocks, i);
+
+        /* Labels associated with block */
+        if (block_lab_count(blk) > 0) {
+            LOG("    Labels:");
+            for (int j = 0; j < block_lab_count(blk); ++j) {
+                LOGF(" %s", symbol_token(block_lab(blk, j)));
+            }
+            LOG("\n");
+        }
+
+        /* Print IL instruction and arguments */
+        LOG("    IL:\n");
+        for (int j = 0; j < block_ilstat_count(blk); ++j) {
+            IL2Statement* stat = block_ilstat(blk, j);
+            LOGF("    %3d %8s", j, il2_str(il2stat_ins(stat)));
+            for (int k = 0; k < il2stat_argc(stat); ++k) {
+                if (k == 0) {
+                    LOG(" ");
+                }
+                else {
+                    LOG(", ");
+                }
+                LOGF("%s", symbol_token(il2stat_arg(stat, k)));
+            }
+            LOG("\n");
+        }
+
+        /* Print next block index */
+        LOG("    ->");
+        for (int j = 0; j < 2; ++j) {
+            if (block_next(blk, j)) {
+                LOGF(" %ld", block_next(blk, j) - vec_data(&cfg->blocks));
+            }
+        }
+        LOG("\n");
+    }
+}

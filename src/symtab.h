@@ -95,6 +95,13 @@ ErrorCode symtab_add_temporary(Symtab* stab, Symbol** symid_ptr, Type type);
 ErrorCode symtab_add_label(Symtab* stab, Symbol** symid_ptr);
 
 
+/* Special constants */
+
+
+/* Returns the constant 0 */
+Symbol* symtab_constant_zero(Symtab* stab);
+
+
 /* Debug */
 
 

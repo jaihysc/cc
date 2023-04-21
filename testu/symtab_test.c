@@ -86,6 +86,18 @@ static void AddConstant(CuTest* tc) {
     symtab_destruct(&stab);
 }
 
+static void ConstantZero(CuTest* tc) {
+    Symtab stab;
+    symtab_construct(&stab);
+
+    Symbol* sym = symtab_constant_zero(&stab);
+
+    CuAssertPtrNotNull(tc, sym);
+    CuAssertStrEquals(tc, symbol_token(sym), "0");
+
+    symtab_destruct(&stab);
+}
+
 CuSuite* SymtabGetSuite() {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, AddSymbol);
@@ -93,5 +105,6 @@ CuSuite* SymtabGetSuite() {
     SUITE_ADD_TEST(suite, FindSymbol);
     SUITE_ADD_TEST(suite, AccessSymbolOutOfScope);
     SUITE_ADD_TEST(suite, AddConstant);
+    SUITE_ADD_TEST(suite, ConstantZero);
     return suite;
 }

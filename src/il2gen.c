@@ -2,8 +2,9 @@
 
 #include "common.h"
 
-ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Tree* tree) {
+ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree) {
     il2->cfg = cfg;
+    il2->stab = stab;
     il2->tree = tree;
     return ec_noerr;
 }
@@ -66,20 +67,46 @@ static ErrorCode cg_identifier(IL2Gen* il2, Symbol** sym, TNode* node, Block* bl
 }
 
 static ErrorCode cg_constant(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
+    TNodeConstant* data = (TNodeConstant*)tnode_data(node);
+    *sym = data->symbol;
     return ec_noerr;
 }
 
 static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
     ErrorCode ecode;
+    TNodeUnaryExpression* data = (TNodeUnaryExpression*)tnode_data(node);
     TNode* child = tnode_child(node, 0);
 
     Symbol* child_result;
     if ((ecode = call_cg(il2, &child_result, child, blk)) != ec_noerr) return ecode;
+
+    /* FIXME take common type */
+    if ((ecode = symtab_add_temporary(
+                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+
+    switch (data->type) {
+        case TNodeUnaryExpression_ref:
+            ecode = block_add_ilstat(blk, il2stat_make2(
+                        il2_mad, *sym, child_result));
+            break;
+        case TNodeUnaryExpression_deref:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_mfi, *sym, child_result, symtab_constant_zero(il2->stab)));
+            break;
+        case TNodeUnaryExpression_negate:
+            ecode = block_add_ilstat(blk, il2stat_make2(
+                        il2_not, *sym, child_result));
+            break;
+        default:
+            ASSERT(0, "Unknown node type");
+            break;
+    }
     return ec_noerr;
 }
 
 static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
     ErrorCode ecode;
+    TNodeBinaryExpression* data = (TNodeBinaryExpression*)tnode_data(node);
     TNode* lchild = tnode_child(node, 0);
     TNode* rchild = tnode_child(node, 1);
 
@@ -88,7 +115,71 @@ static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Bl
 
     Symbol* rresult;
     if ((ecode = call_cg(il2, &rresult, rchild, blk)) != ec_noerr) return ecode;
-    return ec_noerr;
+
+    /* FIXME take common type */
+    if ((ecode = symtab_add_temporary(
+                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+
+    switch (data->type) {
+        case TNodeBinaryExpression_add:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_add, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_sub:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_sub, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_mul:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_mul, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_div:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_div, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_mod:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_mod, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_l:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_cl, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_g:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_cl, *sym, rresult, lresult));
+            break;
+        case TNodeBinaryExpression_le:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_cle, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_ge:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_cle, *sym, rresult, lresult));
+            break;
+        case TNodeBinaryExpression_e:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_ce, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_ne:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_cne, *sym, lresult, rresult));
+            break;
+            /* FIXME
+        case TNodeBinaryExpression_logic_and:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_land, *sym, lresult, rresult));
+            break;
+        case TNodeBinaryExpression_logic_or:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_lor, *sym, lresult, rresult));
+            break;
+            */
+        default:
+            ASSERT(0, "Unknown node type");
+            break;
+    }
+    return ecode;
 }
 
 static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {

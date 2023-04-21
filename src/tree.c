@@ -309,22 +309,22 @@ static void debug_tnode_walk(
                     case TNodeBinaryExpression_mod:
                         LOG("(%)");
                             break;
-                    case TNodeBinaryExpression_le:
+                    case TNodeBinaryExpression_l:
                         LOG("(<)");
                             break;
-                    case TNodeBinaryExpression_ge:
+                    case TNodeBinaryExpression_g:
                         LOG("(>)");
                             break;
-                    case TNodeBinaryExpression_leq:
+                    case TNodeBinaryExpression_le:
                         LOG("(<=)");
                             break;
-                    case TNodeBinaryExpression_geq:
+                    case TNodeBinaryExpression_ge:
                         LOG("(>=)");
                             break;
-                    case TNodeBinaryExpression_eq:
+                    case TNodeBinaryExpression_e:
                         LOG("(==)");
                             break;
-                    case TNodeBinaryExpression_neq:
+                    case TNodeBinaryExpression_ne:
                         LOG("(!=)");
                             break;
                     case TNodeBinaryExpression_logic_and:

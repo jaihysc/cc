@@ -9,6 +9,11 @@ ErrorCode symtab_construct(Symtab* stab) {
     hvec_construct(&stab->symbol);
     hvec_construct(&stab->constant);
 
+    /* Create special constants */
+    Symbol sym_0;
+    symbol_construct(&sym_0, "0", type_int); /* Index 0 */
+    if (!hvec_push_back(&stab->constant, sym_0)) return ec_badalloc;
+
     stab->scopes = NULL;
     stab->scopes_size = 0;
     stab->scopes_capacity = 0;
@@ -110,9 +115,6 @@ void symtab_pop_scope(Symtab* stab) {
     --stab->scopes_size;
     if (g_debug_print_parse_recursion) {
         LOGF("Pop scope at depth %d\n", stab->scopes_size);
-    }
-    if (g_debug_print_buffers) {
-        debug_print_symtab(stab);
     }
 }
 
@@ -220,6 +222,10 @@ ErrorCode symtab_add_label(Symtab* stab, Symbol** sym_ptr) {
                     stab, sym_ptr, 1, token, type_label)) != ec_noerr) return ecode;
     symbol_set_valcat(*sym_ptr, vc_nlval);
     return ec_noerr;
+}
+
+Symbol* symtab_constant_zero(Symtab* stab) {
+    return &hvec_at(&stab->constant, 0);
 }
 
 void debug_print_symtab(Symtab* stab) {

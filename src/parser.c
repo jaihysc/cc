@@ -773,19 +773,19 @@ static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matc
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
         if (strequ(token, "<")) {
-            data.type = TNodeBinaryExpression_le;
+            data.type = TNodeBinaryExpression_l;
             lexer_consume(p->lex);
         }
         else if (strequ(token, ">")) {
-            data.type = TNodeBinaryExpression_ge;
+            data.type = TNodeBinaryExpression_g;
             lexer_consume(p->lex);
         }
         else if (strequ(token, "<=")) {
-            data.type = TNodeBinaryExpression_leq;
+            data.type = TNodeBinaryExpression_le;
             lexer_consume(p->lex);
         }
         else if (strequ(token, ">=")) {
-            data.type = TNodeBinaryExpression_geq;
+            data.type = TNodeBinaryExpression_ge;
             lexer_consume(p->lex);
         }
         else break;
@@ -841,11 +841,11 @@ static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matche
         if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
         if (strequ(token, "==")) {
-            data.type = TNodeBinaryExpression_eq;
+            data.type = TNodeBinaryExpression_e;
             lexer_consume(p->lex);
         }
         else if (strequ(token, "!=")) {
-            data.type = TNodeBinaryExpression_neq;
+            data.type = TNodeBinaryExpression_ne;
             lexer_consume(p->lex);
         }
         else break;
@@ -2094,8 +2094,6 @@ ErrorCode parse_translation_unit(Parser* p) {
     int matched;
     if ((ecode = parse_external_declaration(
                     p, node, &matched)) != ec_noerr) goto exit;
-
-    debug_print_tree(p->tree);
 exit:
     return ecode;
 }

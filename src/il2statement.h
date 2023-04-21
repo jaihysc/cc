@@ -1,8 +1,8 @@
 /* Represents a statement in IL2 */
-#ifndef ILSTATEMENT_H
-#define ILSTATEMENT_H
+#ifndef IL2STATEMENT_H
+#define IL2STATEMENT_H
 
-#define MAX_IL2_ARGS 5
+#define MAX_IL2_ARGS 3
 
 #include "symbol.h"
 
@@ -55,15 +55,21 @@ typedef struct {
     ILIns ins;
     Symbol* arg[MAX_IL2_ARGS];
     int argc;
-} ILStatement;
+} IL2Statement;
+
+/* Makes IL2 statement with given arguments */
+IL2Statement il2stat_make2(ILIns ins, Symbol* a0, Symbol* a1);
+
+/* Makes IL2 statement with given arguments */
+IL2Statement il2stat_make(ILIns ins, Symbol* a0, Symbol* a1, Symbol* a2);
 
 /* Returns ILIns for IL statement */
-ILIns ilstat_ins(const ILStatement* stat);
+ILIns il2stat_ins(const IL2Statement* stat);
 
 /* Returns arg at index i for IL statement */
-Symbol* ilstat_arg(const ILStatement* stat, int i);
+Symbol* il2stat_arg(const IL2Statement* stat, int i);
 
 /* Returns the number of arguments in IL statement */
-int ilstat_argc(const ILStatement* stat);
+int il2stat_argc(const IL2Statement* stat);
 
 #endif

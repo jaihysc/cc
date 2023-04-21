@@ -11,7 +11,7 @@ SRCDEPS=$(SRCDIR)/*.h
 TESTDEPS=$(TESTDIR)/*.h
 
 SRCOBJ=$(addprefix $(OBJDIR)/$(SRCDIR)/, \
-	cfg.o errorcode.o globals.o il2gen.o ilstatement.o lexer.o parser.o symbol.o symtab.o tree.o type.o vec.o)
+	cfg.o errorcode.o globals.o il2gen.o il2statement.o lexer.o parser.o symbol.o symtab.o tree.o type.o vec.o)
 TESTOBJ=$(addprefix $(OBJDIR)/$(TESTDIR)/, \
 	testu.o CuTest.o cfg_test.o lexer_test.o parser_test.o symbol_test.o symtab_test.o tree_test.o type_test.o)
 

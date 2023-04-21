@@ -29,11 +29,10 @@ static ErrorCode flags_destruct(Flags* f) {
    SWITCH_OPTION(option string, variable to set)
    Order by option string, see strbinfind for ordering requirements */
 #define SWITCH_OPTIONS                                                    \
-    SWITCH_OPTION(-dprint-buffers, g_debug_print_buffers)                 \
-    SWITCH_OPTION(-dprint-cg-recursion, g_debug_print_cg_recursion)       \
+    SWITCH_OPTION(-dprint-cfg, g_debug_print_cfg)                         \
     SWITCH_OPTION(-dprint-parse-recursion, g_debug_print_parse_recursion) \
-    SWITCH_OPTION(-dprint-parse-tree, g_debug_print_parse_tree)           \
-    SWITCH_OPTION(-dprint-symtab, g_debug_print_symtab)
+    SWITCH_OPTION(-dprint-symtab, g_debug_print_symtab)                   \
+    SWITCH_OPTION(-dprint-tree, g_debug_print_tree)
 
 #define SWITCH_OPTION(str__, var__) #str__,
 const char* option_switch_str[] = {SWITCH_OPTIONS};
@@ -158,7 +157,7 @@ int main(int argc, char** argv) {
                 "Symbol category stack %d not empty on parse end", i);
     }
 
-    if (g_debug_print_parse_tree) {
+    if (g_debug_print_tree) {
         LOG("Remaining ");
         debug_print_tree(&tree);
     }
@@ -169,12 +168,20 @@ int main(int argc, char** argv) {
     if ((ecode = cfg_construct(&cfg)) != ec_noerr) goto exit4;
 
     IL2Gen il2;
-    if ((ecode = il2_construct(&il2, &cfg, &tree)) != ec_noerr) goto exit5;
+    if ((ecode = il2_construct(&il2, &cfg, &symtab, &tree)) != ec_noerr) goto exit5;
+
+    if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit5;
 
     ecode = il2_gen(&il2);
     if (ecode != ec_noerr) {
         ERRMSG("Failed to generate IL2\n");
         goto exit5;
+    }
+
+    symtab_pop_scope(&symtab);
+
+    if (g_debug_print_cfg) {
+        debug_print_cfg(&cfg);
     }
 
 exit5:

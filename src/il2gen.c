@@ -19,6 +19,8 @@ static ErrorCode cg_constant(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk)
 /* 6.5 Expressions */
 static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
+static ErrorCode cg_logical_and_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
+static ErrorCode cg_logical_or_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_expression(IL2Gen* il2, TNode* node, Block* blk);
 /* 6.7 Declarators */
@@ -49,6 +51,12 @@ static ErrorCode call_cg(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
             break;
         case tt_binary_expression:
             ecode = cg_binary_expression(il2, sym, node, blk);
+            break;
+        case tt_logical_and_expression:
+            ecode = cg_logical_and_expression(il2, sym, node, blk);
+            break;
+        case tt_logical_or_expression:
+            ecode = cg_logical_or_expression(il2, sym, node, blk);
             break;
         case tt_assignment_expression:
             ecode = cg_assignment_expression(il2, sym, node, blk);
@@ -165,21 +173,95 @@ static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Bl
             ecode = block_add_ilstat(blk, il2stat_make(
                         il2_cne, *sym, lresult, rresult));
             break;
-            /* FIXME
-        case TNodeBinaryExpression_logic_and:
-            ecode = block_add_ilstat(blk, il2stat_make(
-                        il2_land, *sym, lresult, rresult));
-            break;
-        case TNodeBinaryExpression_logic_or:
-            ecode = block_add_ilstat(blk, il2stat_make(
-                        il2_lor, *sym, lresult, rresult));
-            break;
-            */
         default:
             ASSERT(0, "Unknown node type");
             break;
     }
     return ecode;
+}
+
+static ErrorCode cg_logical_and_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
+    ErrorCode ecode;
+
+    /* Short-circuit logical and */
+
+    Symbol* label_false;
+    Symbol* label_end;
+    if ((ecode = symtab_add_label(il2->stab, &label_false)) != ec_noerr) return ecode;;
+    if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;;
+
+    for (int i = 0; i < tnode_count_child(node); ++i) {
+        TNode* child = tnode_child(node, i);
+
+        Symbol* child_result;
+        if ((ecode = call_cg(il2, &child_result, child, blk)) != ec_noerr) return ecode;
+
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_jz, label_false, child_result))) != ec_noerr) return ecode;
+    }
+
+    if ((ecode = symtab_add_temporary(
+                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+
+    /* True */
+    if ((ecode = block_add_ilstat(blk, il2stat_make2(
+                        il2_mov, *sym, symtab_constant_one(il2->stab)))) != ec_noerr) return ecode;
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_jmp, label_end))) != ec_noerr) return ecode;
+
+    /* False */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_false))) != ec_noerr) return ecode;
+    if ((ecode = block_add_ilstat(blk, il2stat_make2(
+                        il2_mov, *sym, symtab_constant_zero(il2->stab)))) != ec_noerr) return ecode;
+
+    /* End */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
+    return ec_noerr;
+}
+
+static ErrorCode cg_logical_or_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
+    ErrorCode ecode;
+
+    /* Short-circuit logical or */
+
+    Symbol* label_true;
+    Symbol* label_end;
+    if ((ecode = symtab_add_label(il2->stab, &label_true)) != ec_noerr) return ecode;;
+    if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;;
+
+    for (int i = 0; i < tnode_count_child(node); ++i) {
+        TNode* child = tnode_child(node, i);
+
+        Symbol* child_result;
+        if ((ecode = call_cg(il2, &child_result, child, blk)) != ec_noerr) return ecode;
+
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_jnz, label_true, child_result))) != ec_noerr) return ecode;
+    }
+
+    if ((ecode = symtab_add_temporary(
+                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+
+    /* False */
+    if ((ecode = block_add_ilstat(blk, il2stat_make2(
+                        il2_mov, *sym, symtab_constant_zero(il2->stab)))) != ec_noerr) return ecode;
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_jmp, label_end))) != ec_noerr) return ecode;
+
+    /* True */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_true))) != ec_noerr) return ecode;
+    if ((ecode = block_add_ilstat(blk, il2stat_make2(
+                        il2_mov, *sym, symtab_constant_one(il2->stab)))) != ec_noerr) return ecode;
+
+    /* End */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
+    return ec_noerr;
 }
 
 static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
@@ -255,9 +337,12 @@ static ErrorCode cg_function_definition(IL2Gen* il2, TNode* node) {
 
     Block* blk;
     if ((ecode = cfg_new_block(il2->cfg, &blk)) != ec_noerr) return ecode;
+    if ((ecode = symtab_push_scope(il2->stab)) != ec_noerr) return ecode;
 
     if ((ecode = cg_compound_statement(
                     il2, compound_stat, blk)) != ec_noerr) return ecode;
+
+    symtab_pop_scope(il2->stab);
     return ec_noerr;
 }
 

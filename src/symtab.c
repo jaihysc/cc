@@ -14,6 +14,10 @@ ErrorCode symtab_construct(Symtab* stab) {
     symbol_construct(&sym_0, "0", type_int); /* Index 0 */
     if (!hvec_push_back(&stab->constant, sym_0)) return ec_badalloc;
 
+    Symbol sym_1;
+    symbol_construct(&sym_1, "1", type_int); /* Index 0 */
+    if (!hvec_push_back(&stab->constant, sym_1)) return ec_badalloc;
+
     stab->scopes = NULL;
     stab->scopes_size = 0;
     stab->scopes_capacity = 0;
@@ -225,7 +229,13 @@ ErrorCode symtab_add_label(Symtab* stab, Symbol** sym_ptr) {
 }
 
 Symbol* symtab_constant_zero(Symtab* stab) {
+    ASSERT(stab != NULL, "Symtab is null");
     return &hvec_at(&stab->constant, 0);
+}
+
+Symbol* symtab_constant_one(Symtab* stab) {
+    ASSERT(stab != NULL, "Symtab is null");
+    return &hvec_at(&stab->constant, 1);
 }
 
 void debug_print_symtab(Symtab* stab) {

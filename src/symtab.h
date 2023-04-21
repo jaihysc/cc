@@ -101,6 +101,8 @@ ErrorCode symtab_add_label(Symtab* stab, Symbol** symid_ptr);
 /* Returns the constant 0 */
 Symbol* symtab_constant_zero(Symtab* stab);
 
+/* Returns the constant 1 */
+Symbol* symtab_constant_one(Symtab* stab);
 
 /* Debug */
 

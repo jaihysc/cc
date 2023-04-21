@@ -142,6 +142,9 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
         case tt_binary_expression:
             node->data.binary_expression = *(TNodeBinaryExpression*)data;
             break;
+        case tt_logical_or_expression:
+        case tt_logical_and_expression:
+            break;
         case tt_assignment_expression:
             node->data.assignment_expression = *(TNodeAssignmentExpression*)data;
             break;
@@ -299,39 +302,33 @@ static void debug_tnode_walk(
                         break;
                     case TNodeBinaryExpression_sub:
                         LOG("(-)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_mul:
                         LOG("(*)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_div:
                         LOG("(/)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_mod:
                         LOG("(%)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_l:
                         LOG("(<)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_g:
                         LOG("(>)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_le:
                         LOG("(<=)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_ge:
                         LOG("(>=)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_e:
                         LOG("(==)");
-                            break;
+                        break;
                     case TNodeBinaryExpression_ne:
                         LOG("(!=)");
-                            break;
-                    case TNodeBinaryExpression_logic_and:
-                        LOG("(&&)");
-                            break;
-                    case TNodeBinaryExpression_logic_or:
-                        LOG("(||)");
                         break;
                     default:
                         ASSERT(0, "Unimplemented");

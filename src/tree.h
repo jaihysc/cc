@@ -44,8 +44,6 @@ typedef struct {
         TNodeBinaryExpression_ge,
         TNodeBinaryExpression_e,
         TNodeBinaryExpression_ne,
-        TNodeBinaryExpression_logic_and,
-        TNodeBinaryExpression_logic_or,
     } type;
 } TNodeBinaryExpression;
 
@@ -113,6 +111,8 @@ typedef union {
                                            \
     TNODE_TYPE(unary_expression)           \
     TNODE_TYPE(binary_expression)          \
+    TNODE_TYPE(logical_or_expression)      \
+    TNODE_TYPE(logical_and_expression)     \
     TNODE_TYPE(assignment_expression)      \
     TNODE_TYPE(expression)                 \
                                            \

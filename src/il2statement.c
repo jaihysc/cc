@@ -6,12 +6,12 @@
 const char* il2_string[] = {INSTRUCTIONS};
 #undef INSTRUCTION
 
-const char* il2_str(ILIns ins) {
-    ASSERT(ins >= 0, "Invalid ILIns");
+const char* il2_str(IL2Ins ins) {
+    ASSERT(ins >= 0, "Invalid IL2Ins");
     return il2_string[ins];
 }
 
-ILIns il2_from_str(const char* str) {
+IL2Ins il2_from_str(const char* str) {
     return strbinfind(
            str,
            strlength(str),
@@ -19,7 +19,7 @@ ILIns il2_from_str(const char* str) {
            ARRAY_SIZE(il2_string));
 }
 
-int il2_isjump(ILIns ins) {
+int il2_isjump(IL2Ins ins) {
     switch (ins) {
         case il2_jmp:
         case il2_jnz:
@@ -30,7 +30,7 @@ int il2_isjump(ILIns ins) {
     }
 }
 
-int il2_incfg(ILIns ins) {
+int il2_incfg(IL2Ins ins) {
     switch (ins) {
         case il2_def:
         case il2_func:
@@ -41,14 +41,14 @@ int il2_incfg(ILIns ins) {
     }
 }
 
-IL2Statement il2stat_make0(ILIns ins) {
+IL2Statement il2stat_make0(IL2Ins ins) {
     IL2Statement stat;
     stat.ins = ins;
     stat.argc = 0;
     return stat;
 }
 
-IL2Statement il2stat_make1(ILIns ins, Symbol* a0) {
+IL2Statement il2stat_make1(IL2Ins ins, Symbol* a0) {
     IL2Statement stat;
     stat.ins = ins;
     stat.arg[0] = a0;
@@ -56,7 +56,7 @@ IL2Statement il2stat_make1(ILIns ins, Symbol* a0) {
     return stat;
 }
 
-IL2Statement il2stat_make2(ILIns ins, Symbol* a0, Symbol* a1) {
+IL2Statement il2stat_make2(IL2Ins ins, Symbol* a0, Symbol* a1) {
     IL2Statement stat;
     stat.ins = ins;
     stat.arg[0] = a0;
@@ -65,7 +65,7 @@ IL2Statement il2stat_make2(ILIns ins, Symbol* a0, Symbol* a1) {
     return stat;
 }
 
-IL2Statement il2stat_make(ILIns ins, Symbol* a0, Symbol* a1, Symbol* a2) {
+IL2Statement il2stat_make(IL2Ins ins, Symbol* a0, Symbol* a1, Symbol* a2) {
     IL2Statement stat;
     stat.ins = ins;
     stat.arg[0] = a0;
@@ -75,7 +75,7 @@ IL2Statement il2stat_make(ILIns ins, Symbol* a0, Symbol* a1, Symbol* a2) {
     return stat;
 }
 
-ILIns il2stat_ins(const IL2Statement* stat) {
+IL2Ins il2stat_ins(const IL2Statement* stat) {
     ASSERT(stat != NULL, "IL2Statement is null");
     return stat->ins;
 }

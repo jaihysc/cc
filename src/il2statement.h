@@ -33,44 +33,44 @@
     INSTRUCTION(sub)
 
 #define INSTRUCTION(name__) il2_ ## name__,
-typedef enum {il2_none = -1, INSTRUCTIONS} ILIns;
+typedef enum {il2_none = -1, INSTRUCTIONS} IL2Ins;
 #undef INSTRUCTION
 
-/* Returns string for ILIns */
-const char* il2_str(ILIns ins);
+/* Returns string for IL2Ins */
+const char* il2_str(IL2Ins ins);
 
 /* Converts string to IlIns, il_none if not found */
-ILIns il2_from_str(const char* str);
+IL2Ins il2_from_str(const char* str);
 
 /* Returns 1 if the instruction is a jump instruction
    0 otherwise */
-int il2_isjump(ILIns ins);
+int il2_isjump(IL2Ins ins);
 
 /* Returns 1 if the instruction should be included
    as part of the control flow graph,
    0 otherwise */
-int il2_incfg(ILIns ins);
+int il2_incfg(IL2Ins ins);
 
 typedef struct {
-    ILIns ins;
+    IL2Ins ins;
     Symbol* arg[MAX_IL2_ARGS];
     int argc;
 } IL2Statement;
 
 /* Makes IL2 statement with given arguments */
-IL2Statement il2stat_make0(ILIns ins);
+IL2Statement il2stat_make0(IL2Ins ins);
 
 /* Makes IL2 statement with given arguments */
-IL2Statement il2stat_make1(ILIns ins, Symbol* a0);
+IL2Statement il2stat_make1(IL2Ins ins, Symbol* a0);
 
 /* Makes IL2 statement with given arguments */
-IL2Statement il2stat_make2(ILIns ins, Symbol* a0, Symbol* a1);
+IL2Statement il2stat_make2(IL2Ins ins, Symbol* a0, Symbol* a1);
 
 /* Makes IL2 statement with given arguments */
-IL2Statement il2stat_make(ILIns ins, Symbol* a0, Symbol* a1, Symbol* a2);
+IL2Statement il2stat_make(IL2Ins ins, Symbol* a0, Symbol* a1, Symbol* a2);
 
-/* Returns ILIns for IL statement */
-ILIns il2stat_ins(const IL2Statement* stat);
+/* Returns IL2Ins for IL statement */
+IL2Ins il2stat_ins(const IL2Statement* stat);
 
 /* Returns arg at index i for IL statement */
 Symbol* il2stat_arg(const IL2Statement* stat, int i);

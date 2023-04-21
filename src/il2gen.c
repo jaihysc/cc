@@ -295,6 +295,7 @@ static ErrorCode cg_logical_or_expression(IL2Gen* il2, Symbol** sym, TNode* node
 
 static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
     ErrorCode ecode;
+    TNodeAssignmentExpression* data = (TNodeAssignmentExpression*)tnode_data(node);
     TNode* lchild = tnode_child(node, 0);
     TNode* rchild = tnode_child(node, 1);
 
@@ -303,6 +304,47 @@ static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node
 
     Symbol* rresult;
     if ((ecode = call_cg(il2, &rresult, rchild, blk)) != ec_noerr) return ecode;
+
+    /* FIXME
+    cg_com_type_rtol(p, opl_id, &opr_id); */
+
+    if (data->type == TNodeAssignmentExpression_assign) {
+        /* Assignment */
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_mov, lresult, rresult))) != ec_noerr) return ecode;
+    }
+    else {
+        /* Compound assignment */
+        IL2Ins ins;
+        switch (data->type) {
+            case TNodeAssignmentExpression_mul:
+                ins = il2_mul;
+                break;
+            case TNodeAssignmentExpression_div:
+                ins = il2_div;
+                break;
+            case TNodeAssignmentExpression_mod:
+                ins = il2_mod;
+                break;
+            case TNodeAssignmentExpression_add:
+                ins = il2_add;
+                break;
+            case TNodeAssignmentExpression_sub:
+                ins = il2_sub;
+                break;
+            default:
+                ASSERT(0, "Unimplemented");
+                break;
+        }
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make(
+                            ins, lresult, lresult, rresult))) != ec_noerr) return ecode;
+    }
+
+    /* Left side holds results of expression */
+    *sym = lresult;
+
     return ec_noerr;
 }
 

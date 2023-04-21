@@ -290,10 +290,16 @@ static ErrorCode cg_expression(IL2Gen* il2, TNode* node, Block* blk) {
 
 static ErrorCode cg_declaration(IL2Gen* il2, TNode* node, Block* blk) {
     ErrorCode ecode;
+    TNodeIdentifier* identifier = (TNodeIdentifier*)tnode_data(tnode_child(node, 2));
     TNode* initializer = tnode_child(node, 3);
 
-    Symbol* sym;
-    if ((ecode = call_cg(il2, &sym, initializer, blk)) != ec_noerr) return ecode;
+    Symbol* result;
+    if ((ecode = call_cg(il2, &result, initializer, blk)) != ec_noerr) return ecode;
+
+    /* Save the result */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make2(
+                        il2_mov, identifier->symbol, result))) != ec_noerr) return ecode;
     return ec_noerr;
 }
 

@@ -114,7 +114,6 @@ typedef union {
     TNODE_TYPE(logical_or_expression)      \
     TNODE_TYPE(logical_and_expression)     \
     TNODE_TYPE(assignment_expression)      \
-    TNODE_TYPE(expression)                 \
                                            \
     TNODE_TYPE(declaration)                \
     TNODE_TYPE(declaration_specifiers)     \
@@ -185,6 +184,11 @@ void tnode_set(TNode* node, TNodeType tt, void* data);
 /* For the subtree starting at node,
    remove each node if provided cmp function returns 1 */
 ErrorCode tnode_remove_if(TNode* node, int (*cmp)(TNode*));
+
+/* For the subtree starting at node's child at idx,
+   remove each node if provided cmp function returns 1.
+   negative to index backwards (-1 means last child, -2 second last) */
+ErrorCode tnode_remove_ifi(TNode* node, int i, int (*cmp)(TNode*));
 
 typedef struct {
     TNode* root;

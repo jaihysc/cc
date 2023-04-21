@@ -148,8 +148,6 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
         case tt_assignment_expression:
             node->data.assignment_expression = *(TNodeAssignmentExpression*)data;
             break;
-        case tt_expression:
-            break;
 
         /* 6.7 Declarators */
         case tt_declaration:
@@ -181,6 +179,48 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
     }
 }
 
+/* Remove the ith child of node
+   The index i is adjusted as in a loop, the same index has to be rescanned
+   if the child was removed */
+static ErrorCode do_remove(TNode* node, int* i) {
+    ASSERT(node != NULL, "Node is null");
+    ErrorCode ecode;
+
+    TNode* child = node->child[*i];
+
+    if (child->child_count == 0) {
+        /* Shuffle the nodes forward */
+        for (int j = *i; j < node->child_count - 1; ++j) {
+            node->child[j] = node->child[j + 1];
+        }
+        --node->child_count;
+        --*i; /* Since next node moved forwards, index must move forwards */
+    }
+    else {
+        /* Replace child with child's first child */
+        node->child[*i] = child->child[0];
+
+        /* Add remaining child's children to this node */
+        for (int j = 1; j < child->child_count; ++j) {
+            if ((ecode = tnode_attach(
+                            node, child->child[j])) != ec_noerr) return ecode;
+        }
+        /* Swap the children into the right position
+           e.g., A -> B -> D, E
+                      C
+           becomes A-> D
+                       E
+                       C */
+        for (int j = node->child_count - 1; j - child->child_count + 1 != *i; --j) {
+            TNode* tmp = node->child[j];
+            node->child[j] = node->child[j - child->child_count + 1];
+            node->child[j - child->child_count + 1] = tmp;
+        }
+    }
+    tnode_destruct_members(child);
+    return ec_noerr;
+}
+
 ErrorCode tnode_remove_if(TNode* node, int (*cmp)(TNode*)) {
     ASSERT(node != NULL, "Node is null");
     ErrorCode ecode;
@@ -192,36 +232,29 @@ ErrorCode tnode_remove_if(TNode* node, int (*cmp)(TNode*)) {
         if ((ecode = tnode_remove_if(child, cmp)) != ec_noerr) return ecode;
 
         if (!cmp(child)) continue;
-        if (child->child_count == 0) {
-            /* Shuffle the nodes forward */
-            for (int j = i; j < node->child_count - 1; ++j) {
-                node->child[j] = node->child[j + 1];
-            }
-            --node->child_count;
-            --i; /* Since next node moved forwards, index must move forwards */
-        }
-        else {
-            /* Replace child with child's first child */
-            node->child[i] = child->child[0];
+        if ((ecode = do_remove(node, &i)) != ec_noerr) return ecode;
+    }
+    return ec_noerr;
+}
 
-            /* Add remaining child's children to this node */
-            for (int j = 1; j < child->child_count; ++j) {
-                if ((ecode = tnode_attach(
-                                node, child->child[j])) != ec_noerr) return ecode;
-            }
-            /* Swap the children into the right position
-               e.g., A -> B -> D, E
-                          C
-               becomes A-> D
-                           E
-                           C */
-            for (int j = node->child_count - 1; j - child->child_count + 1 != i; --j) {
-                TNode* tmp = node->child[j];
-                node->child[j] = node->child[j - child->child_count + 1];
-                node->child[j - child->child_count + 1] = tmp;
-            }
-        }
-        tnode_destruct_members(child);
+ErrorCode tnode_remove_ifi(TNode* node, int i, int (*cmp)(TNode*)) {
+    ASSERT(node != NULL, "Node is null");
+    ErrorCode ecode;
+
+    if (i < 0) {
+        i = node->child_count + i;
+        ASSERT(i >= 0, "Reverse Index out of range");
+    }
+    else {
+        ASSERT(i < node->child_count, "Index out of range");
+    }
+
+    TNode* child = node->child[i];
+    ASSERT(child != NULL, "TNode child is NULL");
+    if ((ecode = tnode_remove_if(child, cmp)) != ec_noerr) return ecode;
+
+    if (cmp(child)) {
+        if ((ecode = do_remove(node, &i)) != ec_noerr) return ecode;
     }
     return ec_noerr;
 }

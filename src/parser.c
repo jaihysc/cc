@@ -1091,29 +1091,21 @@ static ErrorCode parse_expression(Parser* p, TNode* parent, int* matched) {
     ErrorCode ecode;
     *matched = 0;
 
-    int attached_node = 0;
-    TNode* node;
-    if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
-    tnode_set(node, tt_expression, NULL);
-
     int has_match;
     if ((ecode = parse_assignment_expression(
-                    p, node, &has_match)) != ec_noerr) goto exit;
-    if (has_match) {
-        if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
-        *matched = 1;
-        attached_node = 1;
-    }
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+
+    *matched = 1;
 
     /* Incomplete */
 
     /* Cleanup the tree by removing unecessary nodes
        We cannot know ahead of time if there will be an operator applied,
        thus it sometimes creates a node, to realize it is not necessary */
-    if ((ecode = tnode_remove_if(node, cmp_remove_tnode)) != ec_noerr) goto exit;
+    if ((ecode = tnode_remove_ifi(parent, -1, cmp_remove_tnode)) != ec_noerr) goto exit;
 
 exit:
-    if (!attached_node) tnode_destruct(node);
     PARSE_FUNC_END();
     return ecode;
 }

@@ -58,6 +58,9 @@ typedef struct {
 } IL2Statement;
 
 /* Makes IL2 statement with given arguments */
+IL2Statement il2stat_make0(ILIns ins);
+
+/* Makes IL2 statement with given arguments */
 IL2Statement il2stat_make1(ILIns ins, Symbol* a0);
 
 /* Makes IL2 statement with given arguments */

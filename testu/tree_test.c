@@ -158,6 +158,26 @@ static void DeleteLeaf(CuTest* tc) {
     tree_destruct(&tree);
 }
 
+static void DeleteStartAtIndex(CuTest* tc) {
+    Tree tree;
+    CuAssertIntEquals(tc, tree_construct(&tree), ec_noerr);
+
+    TNode* n1_1;
+    tnode_alloca(&n1_1, tree_root(&tree));
+    TNode* n1_2;
+    tnode_alloca(&n1_2, tree_root(&tree));
+    TNode* n1_3;
+    tnode_alloca(&n1_3, tree_root(&tree));
+
+    tnode_remove_ifi(tree_root(&tree), -2, cmp_func3);
+
+    CuAssertIntEquals(tc, tnode_count_child(tree_root(&tree)), 2);
+    CuAssertPtrEquals(tc, tnode_child(tree_root(&tree), 0), n1_1);
+    CuAssertPtrEquals(tc, tnode_child(tree_root(&tree), 1), n1_3);
+
+    tree_destruct(&tree);
+}
+
 static void ReplaceChild(CuTest* tc) {
     Tree tree;
     CuAssertIntEquals(tc, tree_construct(&tree), ec_noerr);
@@ -193,6 +213,7 @@ CuSuite* TreeGetSuite() {
     SUITE_ADD_TEST(suite, DeleteMultipleChild);
     SUITE_ADD_TEST(suite, DeleteMultipleChild2);
     SUITE_ADD_TEST(suite, DeleteLeaf);
+    SUITE_ADD_TEST(suite, DeleteStartAtIndex);
     SUITE_ADD_TEST(suite, ReplaceChild);
     return suite;
 }

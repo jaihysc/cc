@@ -22,7 +22,6 @@ static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Bl
 static ErrorCode cg_logical_and_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_logical_or_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
-static ErrorCode cg_expression(IL2Gen* il2, TNode* node, Block* blk);
 /* 6.7 Declarators */
 static ErrorCode cg_declaration(IL2Gen* il2, TNode* node, Block* blk);
 /* 6.8 Statements and blocks */
@@ -277,17 +276,6 @@ static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node
     return ec_noerr;
 }
 
-static ErrorCode cg_expression(IL2Gen* il2, TNode* node, Block* blk) {
-    ErrorCode ecode;
-    for (int i = 0; i < tnode_count_child(node); ++i) {
-        TNode* child = tnode_child(node, i);
-
-        Symbol* sym;
-        if ((ecode = call_cg(il2, &sym, child, blk)) != ec_noerr) return ecode;
-    }
-    return ec_noerr;
-}
-
 static ErrorCode cg_declaration(IL2Gen* il2, TNode* node, Block* blk) {
     ErrorCode ecode;
     TNodeIdentifier* identifier = (TNodeIdentifier*)tnode_data(tnode_child(node, 2));
@@ -306,19 +294,17 @@ static ErrorCode cg_declaration(IL2Gen* il2, TNode* node, Block* blk) {
 static ErrorCode cg_compound_statement(IL2Gen* il2, TNode* node, Block* blk) {
     ErrorCode ecode;
     for (int i = 0; i < tnode_count_child(node); ++i) {
+        Symbol* result;
         TNode* child = tnode_child(node, i);
         switch (tnode_type(child)) {
             case tt_declaration:
                 ecode = cg_declaration(il2, child, blk);
                 break;
-            case tt_expression:
-                ecode = cg_expression(il2, child, blk);
-                break;
             case tt_jump_statement:
                 ecode = cg_jump_statement(il2, child, blk);
                 break;
             default:
-                ASSERT(0, "Unknown node type");
+                ecode = call_cg(il2, &result, child, blk);
                 break;
         }
         if (ecode != ec_noerr) return ecode;
@@ -327,6 +313,31 @@ static ErrorCode cg_compound_statement(IL2Gen* il2, TNode* node, Block* blk) {
 }
 
 static ErrorCode cg_jump_statement(IL2Gen* il2, TNode* node, Block* blk) {
+    ErrorCode ecode;
+    TNodeJumpStatement* jump = (TNodeJumpStatement*)tnode_data(node);
+
+    if (jump->type == TNodeJumpStatement_break) {
+    }
+    else if (jump->type == TNodeJumpStatement_continue) {
+    }
+    else if (jump->type == TNodeJumpStatement_return) {
+        if (tnode_count_child(node) == 1) {
+            /* Has something to return */
+            TNode* child = tnode_child(node, 0);
+
+            Symbol* result;
+            call_cg(il2, &result, child, blk);
+
+            if ((ecode = block_add_ilstat(
+                            blk, il2stat_make1(
+                                il2_ret, result))) != ec_noerr) return ecode;
+        }
+        else {
+            /* Nothing to return */
+            if ((ecode = block_add_ilstat(
+                            blk, il2stat_make0(il2_ret))) != ec_noerr) return ecode;
+        }
+    }
     return ec_noerr;
 }
 

@@ -41,6 +41,13 @@ int il2_incfg(ILIns ins) {
     }
 }
 
+IL2Statement il2stat_make0(ILIns ins) {
+    IL2Statement stat;
+    stat.ins = ins;
+    stat.argc = 0;
+    return stat;
+}
+
 IL2Statement il2stat_make1(ILIns ins, Symbol* a0) {
     IL2Statement stat;
     stat.ins = ins;

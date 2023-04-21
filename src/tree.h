@@ -123,6 +123,7 @@ typedef union {
                                            \
     TNODE_TYPE(compound_statement)         \
     TNODE_TYPE(block_item)                 \
+    TNODE_TYPE(selection_statement)        \
     TNODE_TYPE(jump_statement)             \
                                            \
     TNODE_TYPE(function_definition)

@@ -26,6 +26,7 @@ static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node
 static ErrorCode cg_declaration(IL2Gen* il2, TNode* node, Block* blk);
 /* 6.8 Statements and blocks */
 static ErrorCode cg_compound_statement(IL2Gen* il2, TNode* node, Block* blk);
+static ErrorCode cg_selection_statement(IL2Gen* il2, TNode* node, Block* blk);
 static ErrorCode cg_jump_statement(IL2Gen* il2, TNode* node, Block* blk);
 /* 6.9 External definitions */
 static ErrorCode cg_function_definition(IL2Gen* il2, TNode* node);
@@ -62,6 +63,35 @@ static ErrorCode call_cg(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
             break;
         default:
             ASSERT(0, "Unknown node type");
+            break;
+    }
+    return ecode;
+}
+
+/* Calls the appropriate cg_ based on the type of the TNode type */
+static ErrorCode call_cgs(IL2Gen* il2, TNode* node, Block* blk) {
+    ASSERT(il2 != NULL, "IL2Gen is null");
+    ASSERT(node != NULL, "TNode is null");
+    ASSERT(blk != NULL, "Block is null");
+
+    ErrorCode ecode;
+    Symbol* sym; /* Not used, discards result from call_cg */
+    switch (tnode_type(node)) {
+        case tt_declaration:
+            ecode = cg_declaration(il2, node, blk);
+            break;
+        case tt_compound_statement:
+            ecode = cg_compound_statement(il2, node, blk);
+            break;
+        case tt_selection_statement:
+            ecode = cg_selection_statement(il2, node, blk);
+            break;
+        case tt_jump_statement:
+            ecode = cg_jump_statement(il2, node, blk);
+            break;
+        default:
+            /* Evaluate and discard symbol */
+            ecode = call_cg(il2, &sym, node, blk);
             break;
     }
     return ecode;
@@ -292,24 +322,73 @@ static ErrorCode cg_declaration(IL2Gen* il2, TNode* node, Block* blk) {
 }
 
 static ErrorCode cg_compound_statement(IL2Gen* il2, TNode* node, Block* blk) {
-    ErrorCode ecode;
+    ErrorCode ecode = ec_noerr;
     for (int i = 0; i < tnode_count_child(node); ++i) {
-        Symbol* result;
         TNode* child = tnode_child(node, i);
-        switch (tnode_type(child)) {
-            case tt_declaration:
-                ecode = cg_declaration(il2, child, blk);
-                break;
-            case tt_jump_statement:
-                ecode = cg_jump_statement(il2, child, blk);
-                break;
-            default:
-                ecode = call_cg(il2, &result, child, blk);
-                break;
-        }
-        if (ecode != ec_noerr) return ecode;
+        if ((ecode = call_cgs(il2, child, blk)) != ec_noerr) return ecode;
     }
     return ecode;
+}
+
+static ErrorCode cg_selection_statement(IL2Gen* il2, TNode* node, Block* blk) {
+    /* Generate as follows: (if only, no else):
+       evaluate expression
+       jz false
+         code when true
+       false: */
+    /* Generate as follows: (if else):
+       evaluate expression
+       jz false
+         code when true
+         jmp end
+       false:
+         code when false
+       end: */
+    ErrorCode ecode;
+
+    TNode* expr = tnode_child(node, 0);
+    TNode* statement_true = tnode_child(node, 1);
+    TNode* statement_false = NULL;
+    if (tnode_count_child(node) == 3) {
+        statement_false = tnode_child(node, 2);
+    }
+
+    Symbol* label_false;
+    Symbol* label_end;
+    if ((ecode = symtab_add_label(il2->stab, &label_false)) != ec_noerr) return ecode;
+    if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;
+
+    /* Evaluate expression */
+    Symbol* expr_result;
+    if ((ecode = call_cg(il2, &expr_result, expr, blk)) != ec_noerr) return ecode;
+
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make2(
+                        il2_jz, label_false, expr_result))) != ec_noerr) return ecode;
+
+    /* Statement when true */
+    if ((ecode = call_cgs(il2, statement_true, blk)) != ec_noerr) return ecode;
+
+    /* Has else: jump past statement when false after statement when true */
+    if (statement_false != NULL) {
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make1(
+                            il2_jmp, label_end))) != ec_noerr) return ecode;
+    }
+
+    /* Jump here when false */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_false))) != ec_noerr) return ecode;
+
+    /* Statement when false */
+    if (statement_false != NULL) {
+        if ((ecode = call_cgs(il2, statement_false, blk)) != ec_noerr) return ecode;
+
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
+    }
+
+    return ec_noerr;
 }
 
 static ErrorCode cg_jump_statement(IL2Gen* il2, TNode* node, Block* blk) {
@@ -394,8 +473,14 @@ ErrorCode il2_write(IL2Gen* il2, const char* filepath) {
     /* Dirty hack to output
        In the future the Cfg gets directly fed to the assembly generator */
 
+    /* Write the addresses of the pointers to give them unique names */
+
     /* Write symbol table
        skip the first 2 as that is argc, argv */
+    if (hvec_size(&il2->stab->symbol) < 2) goto exit;
+    Symbol* argc = &hvec_at(&il2->stab->symbol, 0);
+    Symbol* argv = &hvec_at(&il2->stab->symbol, 1);
+
     for (int i = 2; i < hvec_size(&il2->stab->symbol); ++i) {
         Symbol* sym = &hvec_at(&il2->stab->symbol, i);
         Type type = symbol_type(sym);
@@ -444,11 +529,12 @@ ErrorCode il2_write(IL2Gen* il2, const char* filepath) {
                 break;
         }
 
-        if (fprintf(f, "def %s _Z%s\n", type_str, symbol_token(sym)) < 0) goto exit;
+        if (fprintf(f, "def %s _Z%p\n", type_str, (void*)sym) < 0) goto exit;
     }
 
     /* Write start of function */
-    if (fprintf(f, "func main,i32,i32 _Zargc,i8** _Zargv\n") < 0) goto exit;
+    if (fprintf(f, "func main,i32,i32 _Z%p,i8** _Z%p\n",
+                (void*)argc, (void*)argv) < 0) goto exit;
 
     /* Write IL2 */
     Block* blk = &vec_at(&il2->cfg->blocks, 0);
@@ -472,7 +558,7 @@ ErrorCode il2_write(IL2Gen* il2, const char* filepath) {
                 if (fprintf(f, "%s", symbol_token(arg)) < 0) goto exit;
             }
             else {
-                if (fprintf(f, "_Z%s", symbol_token(arg)) < 0) goto exit;
+                if (fprintf(f, "_Z%p", (void*)arg) < 0) goto exit;
             }
         }
         if (fprintf(f, "\n") < 0) goto exit;

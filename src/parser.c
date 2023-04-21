@@ -1565,15 +1565,19 @@ static ErrorCode parse_statement(Parser* p, TNode* parent, int* matched) {
     *matched = 0;
 
     int has_match;
-    /*
-       TODO
-    if (parse_compound_statement(p, PARSE_CURRENT_NODE)) goto matched;
-    */
+    if ((ecode = parse_compound_statement(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
+
     if ((ecode = parse_expression_statement(
                     p, parent, &has_match)) != ec_noerr) goto exit;
     if (has_match) goto matched;
+
+    if ((ecode = parse_selection_statement(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
+
     /*
-    if (parse_selection_statement(p, PARSE_CURRENT_NODE)) goto matched;
     if (parse_iteration_statement(p, PARSE_CURRENT_NODE)) goto matched;
     */
     if ((ecode = parse_jump_statement(p, parent, &has_match)) != ec_noerr) goto exit;
@@ -1669,90 +1673,71 @@ exit:
     return ecode;
 }
 
-//static ErrorCode parse_selection_statement(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(selection_statement);
-//
-//    /* Generate as follows: (if only, no else):
-//       evaluate expression
-//       jz false
-//         code when true
-//       false: */
-//    /* Generate as follows: (if else):
-//       evaluate expression
-//       jz false
-//         code when true
-//         jmp end
-//       false:
-//         code when false
-//       end: */
-//
-//    /* Validate that the production matches if "if" seen
-//       as it is not possible to backtrack after il generation and
-//       parse tree is cleared */
-//
-//    if (!parse_expect(p, "if")) goto exit;
-//    if (!parse_expect(p, "(")) {
-//        ERRMSG("Expected '('\n");
-//        goto syntaxerr;
-//    }
-//    if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-//        ERRMSG("Expected expession\n");
-//        goto syntaxerr;
-//    }
-//    if (!parse_expect(p, ")")) {
-//        ERRMSG("Expected ')'\n");
-//        goto syntaxerr;
-//    }
-//
-//    SymbolId lab_false_id = cg_make_label(p);
-//
-//    SymbolId exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//    PARSE_TRIM_TREE();
-//    cgil_jz(p, lab_false_id, exp_id);
-//
-//    symtab_push_scope(p);
-//    if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-//        ERRMSG("Expected statement\n");
-//        goto syntaxerr;
-//    }
-//
-//    cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//    PARSE_TRIM_TREE();
-//    symtab_pop_scope(p);
-//
-//    if (parse_expect(p, "else")) {
-//        SymbolId lab_end_id = cg_make_label(p);
-//        cgil_jmp(p, lab_end_id);
-//        cgil_lab(p, lab_false_id);
-//
-//        symtab_push_scope(p);
-//        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-//            ERRMSG("Expected statement\n");
-//            goto syntaxerr;
-//        }
-//
-//        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//        PARSE_TRIM_TREE();
-//        symtab_pop_scope(p);
-//
-//        cgil_lab(p, lab_end_id);
-//    }
-//    else {
-//        cgil_lab(p, lab_false_id);
-//    }
-//
-//    /* Incomplete */
-//
-//    PARSE_MATCHED();
-//    goto exit;
-//
-//syntaxerr:
-//    parser_set_error(p, ec_syntaxerr);
-//
-//exit:
-//    PARSE_FUNC_END();
-//}
-//
+static ErrorCode parse_selection_statement(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(selection_statement);
+    ErrorCode ecode;
+    *matched = 0;
+
+    int has_match;
+    if ((ecode = parse_expect(p, "if", &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+
+    TNode* node;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+    tnode_set(node, tt_selection_statement, NULL);
+
+    /* ( must follow if */
+    if ((ecode = parse_expect(p, "(", &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected '('\n");
+        ecode = ec_syntaxerr;
+        goto exit;
+    }
+
+    /* expression must follow if */
+    if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected expession\n");
+        goto exit;
+    }
+
+    /* ) must follow if */
+    if ((ecode = parse_expect(p, ")", &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected ')'\n");
+        ecode = ec_syntaxerr;
+        goto exit;
+    }
+
+    /* statement must follow if */
+    if ((ecode = parse_statement(p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected statement\n");
+        ecode = ec_syntaxerr;
+        goto exit;
+    }
+
+    *matched = 1;
+
+    /* else optional */
+    if ((ecode = parse_expect(p, "else", &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+
+    /* statement must follow else */
+    if ((ecode = parse_statement(p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) {
+        ERRMSG("Expected statement after else\n");
+        ecode = ec_syntaxerr;
+        goto exit;
+    }
+
+    /* Incomplete */
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
 //static ErrorCode parse_iteration_statement(Parser* p, TNode* parent, int* matched) {
 //    PARSE_FUNC_START(iteration_statement);
 //

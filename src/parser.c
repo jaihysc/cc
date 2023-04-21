@@ -1192,6 +1192,12 @@ static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* mat
             *matched = 1;
         }
         else if (tok_istypespec(token)) {
+            /* Insert a space after the previous token */
+            if (i_tsbuf > 0) {
+                if (i_tsbuf >= TS_STR_MAX_LEN) break;
+                tsbuf[i_tsbuf++] = ' ';
+            }
+
             int i = 0;
             char c;
             while ((c = token[i]) != '\0') {
@@ -1223,6 +1229,11 @@ static ErrorCode parse_declaration_specifiers(Parser* p, TNode* parent, int* mat
         TNodeDeclarationSpecifiers data;
 
         data.ts = ts_from_str(tsbuf);
+        if (data.ts == ts_none) {
+            ERRMSGF("Unrecognized type-specifier '%s'\n", tsbuf);
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
 
         TNode* node;
         if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;

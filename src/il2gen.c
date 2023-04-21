@@ -27,6 +27,9 @@ static ErrorCode cg_declaration(IL2Gen* il2, TNode* node, Block* blk);
 /* 6.8 Statements and blocks */
 static ErrorCode cg_compound_statement(IL2Gen* il2, TNode* node, Block* blk);
 static ErrorCode cg_selection_statement(IL2Gen* il2, TNode* node, Block* blk);
+static ErrorCode cg_while_statement(IL2Gen* il2, TNode* node, Block* blk);
+static ErrorCode cg_do_statement(IL2Gen* il2, TNode* node, Block* blk);
+static ErrorCode cg_for_statement(IL2Gen* il2, TNode* node, Block* blk);
 static ErrorCode cg_jump_statement(IL2Gen* il2, TNode* node, Block* blk);
 /* 6.9 External definitions */
 static ErrorCode cg_function_definition(IL2Gen* il2, TNode* node);
@@ -85,6 +88,15 @@ static ErrorCode call_cgs(IL2Gen* il2, TNode* node, Block* blk) {
             break;
         case tt_selection_statement:
             ecode = cg_selection_statement(il2, node, blk);
+            break;
+        case tt_while_statement:
+            ecode = cg_while_statement(il2, node, blk);
+            break;
+        case tt_do_statement:
+            ecode = cg_do_statement(il2, node, blk);
+            break;
+        case tt_for_statement:
+            ecode = cg_for_statement(il2, node, blk);
             break;
         case tt_jump_statement:
             ecode = cg_jump_statement(il2, node, blk);
@@ -430,6 +442,172 @@ static ErrorCode cg_selection_statement(IL2Gen* il2, TNode* node, Block* blk) {
                         blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
     }
 
+    return ec_noerr;
+}
+
+static ErrorCode cg_while_statement(IL2Gen* il2, TNode* node, Block* blk) {
+    /* Generate as follows:
+       eval expr1
+       jz end
+       loop:
+       statement
+       loop_body_end:
+       eval expr1
+       jnz loop
+       end: */
+    ErrorCode ecode;
+
+    TNode* expr = tnode_child(node, 0);
+    TNode* statement = tnode_child(node, 1);
+
+    Symbol* label_loop;
+    Symbol* label_end;
+    if ((ecode = symtab_add_label(il2->stab, &label_loop)) != ec_noerr) return ecode;
+    if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;
+
+    /* Evaluate expression */
+    Symbol* expr_result;
+    if ((ecode = call_cg(il2, &expr_result, expr, blk)) != ec_noerr) return ecode;
+
+    /* Skip loop if false */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make2(
+                        il2_jz, label_end, expr_result))) != ec_noerr) return ecode;
+
+
+    /* Loop body */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_loop))) != ec_noerr) return ecode;
+
+    if ((ecode = call_cgs(il2, statement, blk)) != ec_noerr) return ecode;
+
+    /* Evaluate expression */
+    if ((ecode = call_cg(il2, &expr_result, expr, blk)) != ec_noerr) return ecode;
+
+    /* Repeat loop while true */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make2(
+                        il2_jnz, label_loop, expr_result))) != ec_noerr) return ecode;
+
+
+    /* End of loop */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
+
+    return ec_noerr;
+}
+
+static ErrorCode cg_do_statement(IL2Gen* il2, TNode* node, Block* blk) {
+    /* Generate as follows:
+       loop:
+       statement
+       loop_body_end:
+       eval expr1
+       jnz loop
+       end: */
+    ErrorCode ecode;
+
+    TNode* statement = tnode_child(node, 0);
+    TNode* expr = tnode_child(node, 1);
+
+    Symbol* label_loop;
+    Symbol* label_end;
+    if ((ecode = symtab_add_label(il2->stab, &label_loop)) != ec_noerr) return ecode;
+    if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;
+
+    /* Loop body */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_loop))) != ec_noerr) return ecode;
+
+    if ((ecode = call_cgs(il2, statement, blk)) != ec_noerr) return ecode;
+
+    /* Evaluate expression */
+    Symbol* expr_result;
+    if ((ecode = call_cg(il2, &expr_result, expr, blk)) != ec_noerr) return ecode;
+
+    /* Repeat loop while true */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make2(
+                        il2_jnz, label_loop, expr_result))) != ec_noerr) return ecode;
+
+    return ec_noerr;
+}
+
+static ErrorCode cg_for_statement(IL2Gen* il2, TNode* node, Block* blk) {
+    /* Generate as follows:
+       expr1 / declaration
+       eval expr2
+       jz end
+       loop:
+       statement
+       loop_body_end:
+       eval expr3
+       jnz loop
+       end: */
+    ErrorCode ecode;
+
+    TNode* decl_expr = tnode_child(node, 0);
+    TNode* expr2 = tnode_child(node, 1);
+    TNode* expr3 = tnode_child(node, 2);
+    TNode* statement = tnode_child(node, 3);
+
+    if (tnode_type(decl_expr) == tt_dummy) decl_expr = NULL;
+    if (tnode_type(expr2) == tt_dummy) expr2 = NULL;
+    if (tnode_type(expr3) == tt_dummy) expr3 = NULL;
+
+    Symbol* label_loop;
+    Symbol* label_end;
+    if ((ecode = symtab_add_label(il2->stab, &label_loop)) != ec_noerr) return ecode;
+    if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;
+
+    Symbol* expr_result;
+
+    /* Evaluate declaration / expression */
+    if (decl_expr) {
+        if ((ecode = call_cgs(il2, tnode_child(node, 0), blk)) != ec_noerr) return ecode;
+    }
+
+
+    /* Evaluate expression2 */
+    if (expr2) {
+        if ((ecode = call_cg(il2, &expr_result, expr2, blk)) != ec_noerr) return ecode;
+
+        /* Skip loop if false */
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_jz, label_end, expr_result))) != ec_noerr) return ecode;
+    }
+
+
+    /* Loop body */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_loop))) != ec_noerr) return ecode;
+
+    if ((ecode = call_cgs(il2, statement, blk)) != ec_noerr) return ecode;
+
+    /* Evaluate expression3 */
+    if (expr3) {
+        if ((ecode = call_cg(il2, &expr_result, expr3, blk)) != ec_noerr) return ecode;
+    }
+
+    if (expr2) {
+        /* Repeat loop while true */
+        if ((ecode = call_cg(il2, &expr_result, expr2, blk)) != ec_noerr) return ecode;
+
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_jnz, label_loop, expr_result))) != ec_noerr) return ecode;
+    }
+    else {
+        /* Always jump if no expression2 */
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make1(il2_jmp, label_loop))) != ec_noerr) return ecode;
+    }
+
+
+    /* End of loop */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
     return ec_noerr;
 }
 

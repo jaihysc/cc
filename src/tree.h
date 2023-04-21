@@ -104,6 +104,7 @@ typedef union {
 /* 6.9 External definitions */
 #define TNODE_TYPES                        \
     TNODE_TYPE(root)                       \
+    TNODE_TYPE(dummy)                      \
                                            \
     TNODE_TYPE(identifier)                 \
     TNODE_TYPE(new_identifier)             \
@@ -124,6 +125,9 @@ typedef union {
     TNODE_TYPE(compound_statement)         \
     TNODE_TYPE(block_item)                 \
     TNODE_TYPE(selection_statement)        \
+    TNODE_TYPE(while_statement)            \
+    TNODE_TYPE(do_statement)               \
+    TNODE_TYPE(for_statement)              \
     TNODE_TYPE(jump_statement)             \
                                            \
     TNODE_TYPE(function_definition)

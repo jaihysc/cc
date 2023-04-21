@@ -124,6 +124,9 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
     ASSERT(node != NULL, "Node is null");
     node->type = tt;
     switch (tt) {
+        case tt_dummy:
+            break;
+
         /* 6.4 Lexical elements */
         case tt_identifier:
             node->data.identifier = *(TNodeIdentifier*)data;
@@ -165,6 +168,9 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
         /* 6.8 Statements and blocks */
         case tt_compound_statement:
         case tt_selection_statement:
+        case tt_while_statement:
+        case tt_do_statement:
+        case tt_for_statement:
             break;
         case tt_jump_statement:
             node->data.jump_statement = *(TNodeJumpStatement*)data;

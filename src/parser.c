@@ -1588,9 +1588,10 @@ static ErrorCode parse_statement(Parser* p, TNode* parent, int* matched) {
                     p, parent, &has_match)) != ec_noerr) goto exit;
     if (has_match) goto matched;
 
-    /*
-    if (parse_iteration_statement(p, PARSE_CURRENT_NODE)) goto matched;
-    */
+    if ((ecode = parse_iteration_statement(
+                    p, parent, &has_match)) != ec_noerr) goto exit;
+    if (has_match) goto matched;
+
     if ((ecode = parse_jump_statement(p, parent, &has_match)) != ec_noerr) goto exit;
     if (has_match) goto matched;
 
@@ -1749,226 +1750,197 @@ exit:
     return ecode;
 }
 
-//static ErrorCode parse_iteration_statement(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(iteration_statement);
-//
-//    if (parse_expect(p, "while")) {
-//        /* Generate as follows:
-//           eval expr1
-//           jz end
-//           loop:
-//           statement
-//           loop_body_end:
-//           eval expr1
-//           jnz loop
-//           end: */
-//        if (!parse_expect(p, "(")) {
-//            ERRMSG("Expected '('\n");
-//            goto syntaxerr;
-//        }
-//        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-//            ERRMSG("Expected expression\n");
-//            goto syntaxerr;
-//        }
-//        if (!parse_expect(p, ")")) {
-//            ERRMSG("Expected ')'\n");
-//            goto syntaxerr;
-//        }
-//
-//        SymbolId lab_loop_id = cg_make_label(p);
-//        SymbolId lab_body_end_id = cg_make_label(p);
-//        SymbolId lab_end_id = cg_make_label(p);
-//        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
-//        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
-//
-//        SymbolId exp_id =
-//            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//        cgil_jz(p, lab_end_id, exp_id);
-//        cgil_lab(p, lab_loop_id);
-//
-//        symtab_push_scope(p);
-//        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-//            ERRMSG("Expected statement\n");
-//            goto syntaxerr;
-//        }
-//        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 1));
-//        symtab_pop_scope(p);
-//        symtab_pop_cat(p, sc_lab_loopbodyend);
-//        symtab_pop_cat(p, sc_lab_loopend);
-//
-//        cgil_lab(p, lab_body_end_id);
-//
-//        exp_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//        cgil_jnz(p, lab_loop_id, exp_id);
-//        cgil_lab(p, lab_end_id);
-//        PARSE_TRIM_TREE();
-//
-//        PARSE_MATCHED();
-//    }
-//    else if (parse_expect(p, "do")) {
-//        /* Generate as follows:
-//           loop:
-//           statement
-//           loop_body_end:
-//           eval expr1
-//           jnz loop
-//           end: */
-//        SymbolId lab_loop_id = cg_make_label(p);
-//        SymbolId lab_body_end_id = cg_make_label(p);
-//        SymbolId lab_end_id = cg_make_label(p);
-//        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
-//        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
-//
-//        cgil_lab(p, lab_loop_id);
-//
-//        symtab_push_scope(p);
-//        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-//            ERRMSG("Expected statement\n");
-//            goto syntaxerr;
-//        }
-//        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//        PARSE_TRIM_TREE();
-//
-//        symtab_pop_scope(p);
-//        symtab_pop_cat(p, sc_lab_loopbodyend);
-//        symtab_pop_cat(p, sc_lab_loopend);
-//
-//        cgil_lab(p, lab_body_end_id);
-//
-//        if (!parse_expect(p, "while")) {
-//            ERRMSG("Expected 'while'\n");
-//            goto syntaxerr;
-//        }
-//        if (!parse_expect(p, "(")) {
-//            ERRMSG("Expected '('\n");
-//            goto syntaxerr;
-//        }
-//        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-//            ERRMSG("Expected expression\n");
-//            goto syntaxerr;
-//        }
-//        if (!parse_expect(p, ")")) {
-//            ERRMSG("Expected ')'\n");
-//            goto syntaxerr;
-//        }
-//        if (!parse_expect(p, ";")) {
-//            ERRMSG("Expected ';'\n");
-//            goto syntaxerr;
-//        }
-//        SymbolId exp_id =
-//            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//        cgil_jnz(p, lab_loop_id, exp_id);
-//        PARSE_TRIM_TREE();
-//
-//        cgil_lab(p, lab_end_id);
-//
-//        PARSE_MATCHED();
-//    }
-//    else if (parse_expect(p, "for")) {
-//        /* Generate as follows:
-//           expr1 / declaration
-//           eval expr2
-//           jz end
-//           loop:
-//           statement
-//           loop_body_end:
-//           expr3
-//           eval expr2
-//           jnz loop
-//           end: */
-//
-//        symtab_push_scope(p); /* Scope for declaration */
-//        if (!parse_expect(p, "(")) {
-//            ERRMSG("Expected '('\n");
-//            goto syntaxerr;
-//        }
-//
-//        /* expression-1 or declaration */
-//        if (parse_expression(p, PARSE_CURRENT_NODE)) {
-//            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//            if (!parse_expect(p, ";")) {
-//                ERRMSG("Expected ';'\n");
-//                goto syntaxerr;
-//            }
-//            PARSE_TRIM_TREE();
-//        }
-//        else if (parse_declaration(p, PARSE_CURRENT_NODE)) {
-//            cg_declaration(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//            PARSE_TRIM_TREE();
-//        }
-//        else {
-//            ERRMSG("Expected expression or declaration\n");
-//            goto syntaxerr;
-//        }
-//
-//        /* expression-2 (Controlling expression)
-//           Stored as child 0 */
-//        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-//            ERRMSG("Expected expession\n");
-//            goto syntaxerr;
-//        }
-//        if (!parse_expect(p, ";")) {
-//            ERRMSG("Expected ';'\n");
-//            goto syntaxerr;
-//        }
-//
-//        /* expression-3
-//           Stored as child 1 */
-//        if (!parse_expression(p, PARSE_CURRENT_NODE)) {
-//            ERRMSG("Expected expession\n");
-//            goto syntaxerr;
-//        }
-//        if (!parse_expect(p, ")")) {
-//            ERRMSG("Expected ')'\n");
-//            goto syntaxerr;
-//        }
-//
-//        SymbolId lab_loop_id = cg_make_label(p);
-//        SymbolId lab_body_end_id = cg_make_label(p);
-//        SymbolId lab_end_id = cg_make_label(p);
-//        symtab_push_cat(p, sc_lab_loopbodyend, lab_body_end_id);
-//        symtab_push_cat(p, sc_lab_loopend, lab_end_id);
-//
-//        SymbolId exp2_id =
-//            cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//        cgil_jz(p, lab_end_id, exp2_id);
-//        cgil_lab(p, lab_loop_id);
-//
-//        symtab_push_scope(p);
-//        if (!parse_statement(p, PARSE_CURRENT_NODE)) {
-//            ERRMSG("Expected statement\n");
-//            goto syntaxerr;
-//        }
-//        cg_statement(p, parse_node_child(PARSE_CURRENT_NODE, 2));
-//        symtab_pop_scope(p);
-//        symtab_pop_cat(p, sc_lab_loopbodyend);
-//        symtab_pop_cat(p, sc_lab_loopend);
-//
-//        cgil_lab(p, lab_body_end_id);
-//
-//        /* expression-3 (At loop end)
-//           expression-2 (Controlling expression) */
-//        cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 1));
-//        exp2_id = cg_expression(p, parse_node_child(PARSE_CURRENT_NODE, 0));
-//        PARSE_TRIM_TREE();
-//        cgil_jnz(p, lab_loop_id, exp2_id);
-//        cgil_lab(p, lab_end_id);
-//
-//        symtab_pop_scope(p); /* Scope for declaration */
-//
-//        PARSE_MATCHED();
-//    }
-//
-//    /* Incomplete */
-//
-//    goto exit;
-//
-//syntaxerr:
-//    parser_set_error(p, ec_syntaxerr);
-//
-//exit:
-//    PARSE_FUNC_END();
-//}
+static ErrorCode parse_iteration_statement(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(iteration_statement);
+    ErrorCode ecode;
+    *matched = 0;
+
+    int has_match;
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+    if (strequ(token, "while")) {
+        lexer_consume(p->lex);
+
+        TNode* node;
+        if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+        tnode_set(node, tt_while_statement, NULL);
+
+        /* ( must follow while */
+        if ((ecode = parse_expect(p, "(", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected '(' after while\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        /* expression must follow */
+        if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected expession after '('\n");
+            goto exit;
+        }
+
+        /* ) must follow */
+        if ((ecode = parse_expect(p, ")", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected ')' after expression\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        /* statement must follow */
+        if ((ecode = parse_statement(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected statement\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        *matched = 1;
+    }
+    else if (strequ(token, "do")) {
+        lexer_consume(p->lex);
+
+        TNode* node;
+        if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+        tnode_set(node, tt_do_statement, NULL);
+
+        /* statement must follow */
+        if ((ecode = parse_statement(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected statement after do\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        /* while must follow */
+        if ((ecode = parse_expect(p, "while", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected 'while' after statement\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        /* ( must follow while */
+        if ((ecode = parse_expect(p, "(", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected '(' after while\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        /* expression must follow */
+        if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected expession after '('\n");
+            goto exit;
+        }
+
+        /* ) must follow */
+        if ((ecode = parse_expect(p, ")", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected ')' after expression\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        /* ; must follow */
+        if ((ecode = parse_expect(p, ";", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected ';' after ')'\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        *matched = 1;
+    }
+    else if (strequ(token, "for")) {
+        lexer_consume(p->lex);
+
+        /* ( must follow for */
+        if ((ecode = parse_expect(p, "(", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected '(' after for\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        TNode* node;
+        if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+        tnode_set(node, tt_for_statement, NULL);
+
+        /* Can either be one of following forms
+           | declaration
+           | expression(opt) ; */
+
+        if ((ecode = parse_declaration(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            /* Not a declaration then must be -> expression(opt) ; */
+            if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;
+            if (!has_match) {
+                TNode* n;
+                if ((ecode = tnode_alloca(&n, node)) != ec_noerr) goto exit;
+                tnode_set(n, tt_dummy, NULL);
+            }
+
+            /* ; must follow */
+            if ((ecode = parse_expect(p, ";", &has_match)) != ec_noerr) goto exit;
+            if (!has_match) {
+                ERRMSG("Expected ';' after expression\n");
+                ecode = ec_syntaxerr;
+                goto exit;
+            }
+        }
+
+        /* Second optional expression */
+        if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            /* Put a dummy node so IL gen can tell this expression omitted */
+            TNode* n;
+            if ((ecode = tnode_alloca(&n, node)) != ec_noerr) goto exit;
+            tnode_set(n, tt_dummy, NULL);
+        }
+
+        /* ; must follow */
+        if ((ecode = parse_expect(p, ";", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected ';' after controlling expression\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        /* Third optional expression */
+        if ((ecode = parse_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            TNode* n;
+            if ((ecode = tnode_alloca(&n, node)) != ec_noerr) goto exit;
+            tnode_set(n, tt_dummy, NULL);
+        }
+
+        /* ) must follow */
+        if ((ecode = parse_expect(p, ")", &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected ')' after expression\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        /* statement must follow */
+        if ((ecode = parse_statement(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected statement after ')'\n");
+            ecode = ec_syntaxerr;
+            goto exit;
+        }
+
+        *matched = 1;
+    }
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
 
 static ErrorCode parse_jump_statement(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(jump_statement);

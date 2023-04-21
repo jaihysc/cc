@@ -9,7 +9,7 @@
 
 #include "../common.h"
 #include "../vec.h"
-#include "../type.h"
+#include "oldtype.h"
 #include "fwddecl.h"
 #include "constant.h"
 #include "ILIns.h"
@@ -351,7 +351,7 @@ static SymbolId symtab_find(Parser* p, const char* name) {
     if (name_isconstant(name)) {
         /* TODO calculate size of constant, assume integer for now */
         Type type;
-        type_construct(&type, ts_int, 0);
+        type_construct(&type, ts_i32, 0);
         SymbolId sym_id = symtab_add(p, type, name);
         symbol_make_constant(symtab_get(p, sym_id));
         return sym_id;
@@ -419,16 +419,16 @@ static SymbolId symtab_add_temporaryr(Parser* p, Register reg) {
     TypeSpecifiers ts;
     switch (reg_bytes(reg)) {
         case 1:
-            ts = ts_schar;
+            ts = ts_i8;
             break;
         case 2:
-            ts = ts_short;
+            ts = ts_i16;
             break;
         case 4:
-            ts = ts_int;
+            ts = ts_i32;
             break;
         case 8:
-            ts = ts_longlong;
+            ts = ts_i64;
             break;
         default:
             ASSERT(0, "Bad byte size");
@@ -1886,7 +1886,7 @@ static void debug_print_symtab(Parser* p) {
     for (int i = 0; i < hvec_size(&p->symbol); ++i) {
         Symbol* sym = &hvec_at(&p->symbol, i);
         Type type = symbol_type(sym);
-        LOGF("  %s", ts_str(type.typespec));
+        LOGF("  %s", type_specifiers_str(type.typespec));
         for (int j = 0; j < type.pointers; ++j) {
             LOG("*");
         }

@@ -26,7 +26,7 @@ all: $(OUTDIR)/parse $(OUTDIR)/asmgen $(OUTDIR)/unittest
 $(OUTDIR)/parse: $(SRCOBJ) $(OBJDIR)/$(SRCDIR)/main.o
 	$(CC) $(SRC_CFLAGS) -o $@ $^
 
-$(OUTDIR)/asmgen: $(SRCDIR)/asmgen/asm_gen.c $(OBJDIR)/$(SRCDIR)/type.o $(OBJDIR)/$(SRCDIR)/vec.o
+$(OUTDIR)/asmgen: $(SRCDIR)/asmgen/asm_gen.c $(OBJDIR)/$(SRCDIR)/vec.o
 	$(CC) $(SRC_CFLAGS) -o $@ $^
 
 $(OUTDIR)/unittest: $(SRCOBJ) $(TESTOBJ)

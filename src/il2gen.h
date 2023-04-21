@@ -18,4 +18,7 @@ ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree);
    The nodes are stored in the tree */
 ErrorCode il2_gen(IL2Gen* il2);
 
+/* Writes il2 to provided file */
+ErrorCode il2_write(IL2Gen* il2, const char* filepath);
+
 #endif

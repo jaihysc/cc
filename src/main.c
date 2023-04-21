@@ -115,14 +115,14 @@ int main(int argc, char** argv) {
     }
     if (flags.output_path == NULL) {
         /* Default to opening imm2 */
-        /* FIXME
-        p.of = fopen("imm2", "w");
-        if (p.of == NULL) {
-            ERRMSG("Failed to open output file\n");
-            rt_code = 1;
-            goto cleanup;
+        const char* path = "imm2";
+
+        flags.output_path = cmalloc((strlength(path) + 1) * sizeof(char));
+        if (flags.output_path == NULL) {
+            ecode = ec_badalloc;
+            goto exit1;
         }
-        */
+        strcopy(path, flags.output_path);
     }
 
     /* Parse source code */
@@ -183,6 +183,8 @@ int main(int argc, char** argv) {
     if (g_debug_print_cfg) {
         debug_print_cfg(&cfg);
     }
+
+    if ((ecode = il2_write(&il2, flags.output_path)) != ec_noerr) goto exit5;
 
 exit5:
     cfg_destruct(&cfg);

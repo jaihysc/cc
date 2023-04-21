@@ -383,3 +383,102 @@ static ErrorCode traverse_tree(IL2Gen* il2, TNode* node) {
 ErrorCode il2_gen(IL2Gen* il2) {
     return traverse_tree(il2, tree_root(il2->tree));
 }
+
+ErrorCode il2_write(IL2Gen* il2, const char* filepath) {
+    FILE* f = fopen("imm2", "w");
+    if (f == NULL) {
+        ERRMSG("Failed to open output file\n");
+        return ec_writefailed;
+    }
+
+    /* Dirty hack to output
+       In the future the Cfg gets directly fed to the assembly generator */
+
+    /* Write symbol table
+       skip the first 2 as that is argc, argv */
+    for (int i = 2; i < hvec_size(&il2->stab->symbol); ++i) {
+        Symbol* sym = &hvec_at(&il2->stab->symbol, i);
+        Type type = symbol_type(sym);
+
+        const char* type_str;
+        switch (type_typespec(&type)) {
+            case ts_void:
+                type_str = "void";
+                break;
+            case ts_char:
+            case ts_schar:
+                type_str = "i8";
+                break;
+            case ts_uchar:
+                type_str = "u8";
+                break;
+            case ts_short:
+                type_str = "i16";
+                break;
+            case ts_ushort:
+                type_str = "u16";
+                break;
+            case ts_int:
+            case ts_long:
+                type_str = "i32";
+                break;
+            case ts_uint:
+            case ts_ulong:
+                type_str = "u32";
+                break;
+            case ts_longlong:
+                type_str = "i64";
+                break;
+            case ts_ulonglong:
+                type_str = "u64";
+                break;
+            case ts_float:
+                type_str = "f32";
+                break;
+            case ts_double:
+            case ts_ldouble:
+                type_str = "f64_";
+                break;
+            default:
+                type_str = "???";
+                break;
+        }
+
+        if (fprintf(f, "def %s _Z%s\n", type_str, symbol_token(sym)) < 0) goto exit;
+    }
+
+    /* Write start of function */
+    if (fprintf(f, "func main,i32,i32 _Zargc,i8** _Zargv\n") < 0) goto exit;
+
+    /* Write IL2 */
+    Block* blk = &vec_at(&il2->cfg->blocks, 0);
+    for (int i = 0; i < block_ilstat_count(blk); ++i) {
+        IL2Statement* stat = block_ilstat(blk, i);
+
+        /* Instruction */
+        if (fprintf(f, "%s ", il2_str(il2stat_ins(stat))) < 0) goto exit;
+
+        for (int j = 0; j < il2stat_argc(stat); ++j) {
+            /* Argument */
+            if (j != 0) {
+                if (fprintf(f, ",") < 0) goto exit;
+            }
+
+            Symbol* arg = il2stat_arg(stat, j);
+            const char* token = symbol_token(arg);
+
+            if ('0' <= token[0] && token[0] <= '9') {
+                /* Is constant */
+                if (fprintf(f, "%s", symbol_token(arg)) < 0) goto exit;
+            }
+            else {
+                if (fprintf(f, "_Z%s", symbol_token(arg)) < 0) goto exit;
+            }
+        }
+        if (fprintf(f, "\n") < 0) goto exit;
+    }
+
+exit:
+    fclose(f);
+    return ec_noerr;
+}

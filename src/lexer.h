@@ -10,6 +10,8 @@
 #include "constant.h"
 #include "errorcode.h"
 
+#define LEXER_LINE_BUF_SIZE 128 // Holds specified number-1 characters
+
 /* Returns 1 if character is part of a punctuator */
 int isofpunctuator(char c);
 
@@ -45,9 +47,14 @@ typedef struct {
     int line_num;
     int char_num;
 
-    /* Last position within input file where production was matched */
-    int last_line_num;
-    int last_char_num;
+    /* Circular buffer for current line */
+    char line_buf[LEXER_LINE_BUF_SIZE];
+    int line_buf_front;
+    int line_buf_end;
+     /* Number of characters which could not be stored in the buffer
+        and was overwritten */
+    int line_buf_overwrote;
+    int last_token_len;
 
     /* The read token is kept here, subsequent calls to lexer_getc()
        will return this.
@@ -71,6 +78,12 @@ ErrorCode lexer_getc(Lexer* lex, const char** tok_ptr);
 
 /* Discard the last read token, next token will be next token in stream */
 void lexer_consume(Lexer* lex);
+
+/* Prints out the current location of the Lexer within the source file
+   Example:
+   73 | void lexer_consume(Lexer* lex);
+      |      ~~~~~~~~~~~~~ */
+void lexer_print_location(Lexer* lex);
 
 #endif
 

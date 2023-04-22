@@ -146,7 +146,8 @@ int main(int argc, char** argv) {
 
     ecode = parse_translation_unit(&p);
     if (ecode != ec_noerr) {
-        ERRMSG("Failed to build parse tree\n");
+        lexer_print_location(&lex);
+        ERRMSG("Failed to build Tree\n");
         goto exit4;
     }
 

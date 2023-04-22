@@ -225,17 +225,31 @@ static void consume_char(Lexer* lex) {
     if (c == '\n') {
         ++lex->line_num;
         lex->char_num = 1;
+
+        lex->line_buf_front = 0;
+        lex->line_buf_end = 0;
+        lex->line_buf_overwrote = 0;
     }
     else {
         ++lex->char_num;
+
+        /* Overwrite the front contents if buffer is full */
+        if ((lex->line_buf_end + 1) % LEXER_LINE_BUF_SIZE == lex->line_buf_front) {
+            lex->line_buf_front = (lex->line_buf_front + 1) % LEXER_LINE_BUF_SIZE;
+            ++lex->line_buf_overwrote;
+        }
+        lex->line_buf[lex->line_buf_end] = c;
+        lex->line_buf_end = (lex->line_buf_end + 1) % LEXER_LINE_BUF_SIZE;
     }
 }
 
 ErrorCode lexer_construct(Lexer* lex, const char* filepath) {
     lex->line_num = 1;
     lex->char_num = 1;
-    lex->last_line_num = 0;
-    lex->last_char_num = 0;
+    lex->line_buf_front = 0;
+    lex->line_buf_end = 0;
+    lex->line_buf_overwrote = 0;
+    lex->last_token_len = 0;
     lex->get_buf[0] = '\0';
 
     lex->rf = fopen(filepath, "r");
@@ -326,6 +340,7 @@ ErrorCode lexer_getc(Lexer* lex, const char** tok_ptr) {
         ++i;
     }
     lex->get_buf[i] = '\0';
+    lex->last_token_len = strlength(lex->get_buf);
 
 exit:
     if (g_debug_print_parse_recursion) {
@@ -342,4 +357,46 @@ void lexer_consume(Lexer* lex) {
     if (g_debug_print_parse_recursion) {
         LOG("^Consumed\n");
     }
+}
+
+void lexer_print_location(Lexer* lex) {
+    char line_num_buf[10];
+    itostr(lex->line_num, line_num_buf);
+    int line_num_len = strlength(line_num_buf);
+
+    /* Set char num to the start of the token */
+    char char_num_buf[10];
+    itostr(lex->char_num - lex->last_token_len, char_num_buf);
+    int char_num_len = strlength(char_num_buf);
+
+    LOGF(" %s:%s | ", line_num_buf, char_num_buf);
+    /* Print out line */
+    for (int i = lex->line_buf_front;
+            i != lex->line_buf_end;
+            i = (i + 1) % LEXER_LINE_BUF_SIZE) {
+        LOGF("%c", lex->line_buf[i]);
+    }
+    LOG("\n");
+
+    for (int i = 0; i < line_num_len + char_num_len + 3; ++i) {
+        LOGF(" ");
+    }
+    LOG("| ");
+    /* Underline token,
+       -last_token_len to start underlining at the beginning of the token
+       -1 as char_num starts at 1, not zero */
+    for (int i = 0;
+            i < lex->char_num - lex->line_buf_overwrote - lex->last_token_len - 1;
+            ++i) {
+        LOG(" ");
+    }
+    /* If token is cut off in the line buffer, limit the underline */
+    int underline_len = lex->last_token_len;
+    if (underline_len > LEXER_LINE_BUF_SIZE - 1) {
+        underline_len = LEXER_LINE_BUF_SIZE - 1;
+    }
+    for (int i = 0; i < underline_len; ++i) {
+        LOG("~");
+    }
+    LOG("\n");
 }

@@ -23,7 +23,17 @@ typedef struct {
 /* 6.5 Expressions */
 typedef struct {
     enum {
+        TNodePostfixExpression_none,
+        TNodePostfixExpression_inc,
+        TNodePostfixExpression_dec,
+    } type;
+} TNodePostfixExpression;
+
+typedef struct {
+    enum {
         TNodeUnaryExpression_none,
+        TNodeUnaryExpression_inc,
+        TNodeUnaryExpression_dec,
         TNodeUnaryExpression_ref,
         TNodeUnaryExpression_deref,
         TNodeUnaryExpression_negate,
@@ -87,6 +97,7 @@ typedef union {
     TNodeNewIdentifier new_identifier;
     TNodeConstant constant;
 
+    TNodePostfixExpression postfix_expression;
     TNodeUnaryExpression unary_expression;
     TNodeBinaryExpression binary_expression;
     TNodeAssignmentExpression assignment_expression;
@@ -110,6 +121,7 @@ typedef union {
     TNODE_TYPE(new_identifier)             \
     TNODE_TYPE(constant)                   \
                                            \
+    TNODE_TYPE(postfix_expression)         \
     TNODE_TYPE(unary_expression)           \
     TNODE_TYPE(binary_expression)          \
     TNODE_TYPE(logical_or_expression)      \

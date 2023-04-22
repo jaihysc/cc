@@ -11,6 +11,11 @@ static int cmp_remove_tnode(TNode* node) {
         TNodeUnaryExpression* n = (TNodeUnaryExpression*)tnode_data(node);
         return n->type == TNodeUnaryExpression_none;
     }
+    /* Do not remove postfix expressions with an operator */
+    if (tnode_type(node) == tt_postfix_expression) {
+        TNodePostfixExpression* n = (TNodePostfixExpression*)tnode_data(node);
+        return n->type == TNodePostfixExpression_none;
+    }
     return tnode_count_child(node) == 1;
 }
 
@@ -70,7 +75,6 @@ static ErrorCode parse_hexadecimal_constant(Parser*, TNode* parent, int* matched
 /* 6.5 Expressions */
 static ErrorCode parse_primary_expression(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_postfix_expression(Parser* p, TNode* parent, int* matched);
-static ErrorCode parse_postfix_expression_2(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_argument_expression_list(Parser*, TNode* parent, int* matched);
 static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_cast_expression(Parser* p, TNode* parent, int* matched);
@@ -409,83 +413,63 @@ exit:
     return ecode;
 }
 
-//static ErrorCode parse_postfix_expression(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(postfix_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    /* Left recursion in C standard is converted to right recursion */
-//    /* postfix-expression
-//       -> primary-expression postfix-expression-2(opt)
-//        | ( type-name ) { initializer-list } postfix-expression-2(opt)
-//        | ( type-name ) { initializer-list , } postfix-expression-2(opt) */
-//    /* postfix-expression-2
-//       -> [ expression ] postfix-expression-2(opt)
-//        | ( argument-expression-list(opt) ) postfix-expression-2(opt)
-//        | . identifier postfix-expression-2(opt)
-//        | -> identifier postfix-expression-2(opt)
-//        | ++ postfix-expression-2(opt)
-//        | -- postfix-expression-2(opt) */
-//
-//    int has_match;
-//    if ((ecode = parse_primary_expression(
-//                    p, parent, &has_match)) != ec_noerr) goto exit;
-//    if (has_match) {
-//        *matched = 1;
-//        /* FIXME
-//        if ((ecode = parse_postfix_expression_2(
-//                        p, parent, &has_match)) != ec_noerr) goto exit;
-//                        */
-//    }
-//
-//    /* Incomplete */
-//
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
-//static ErrorCode parse_postfix_expression_2(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(postfix_expression);
-//    ErrorCode ecode;
-//    *matched = 0;
-//
-//    /* Array subscript */
-//    if (parse_expect(p, "[")) {
-//        if (!parse_expression(p, parent)) goto exit;
-//        if (!parse_expect(p, "]")) goto exit;
-//        PARSE_MATCHED();
-//
-//        parse_postfix_expression_2(p, parent);
-//    }
-//    /* Function call */
-//    else if (parse_expect(p, "(")) {
-//        if (!parse_argument_expression_list(p, parent)) goto exit;
-//        if (!parse_expect(p, ")")) goto exit;
-//        PARSE_MATCHED();
-//
-//        parse_postfix_expression_2(p, parent);
-//    }
-//    /* Postfix increment, decrement */
-//    else if (parse_expect(p, "++")) {
-//        tree_attach_token(p, parent, "++");
-//        PARSE_MATCHED();
-//
-//        parse_postfix_expression_2(p, parent);
-//    }
-//    else if (parse_expect(p, "--")) {
-//        tree_attach_token(p, parent, "--");
-//        PARSE_MATCHED();
-//
-//        parse_postfix_expression_2(p, parent);
-//    }
-//
-//    /* Incomplete */
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-//
+static ErrorCode parse_postfix_expression(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(postfix_expression);
+    ErrorCode ecode;
+    *matched = 0;
+
+    TNodePostfixExpression data;
+    data.type = TNodePostfixExpression_none;
+
+    TNode* node;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+
+    int has_match;
+    if ((ecode = parse_primary_expression(
+                    p, node, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+    *matched = 1;
+
+
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+
+    ///* Array subscript */
+    //if (parse_expect(p, "[")) {
+    //    if (!parse_expression(p, parent)) goto exit;
+    //    if (!parse_expect(p, "]")) goto exit;
+    //    PARSE_MATCHED();
+
+    //    parse_postfix_expression_2(p, parent);
+    //}
+    ///* Function call */
+    //else if (parse_expect(p, "(")) {
+    //    if (!parse_argument_expression_list(p, parent)) goto exit;
+    //    if (!parse_expect(p, ")")) goto exit;
+    //    PARSE_MATCHED();
+
+    //    parse_postfix_expression_2(p, parent);
+    //}
+
+    /* Postfix increment, decrement */
+    if (strequ(token, "++")) {
+        data.type = TNodePostfixExpression_inc;
+        lexer_consume(p->lex);
+    }
+    else if (strequ(token, "--")) {
+        data.type = TNodePostfixExpression_dec;
+        lexer_consume(p->lex);
+    }
+
+    tnode_set(node, tt_postfix_expression, &data);
+
+    /* Incomplete */
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
 //static ErrorCode parse_argument_expression_list(Parser* p, TNode* parent, int* matched) {
 //    /* Left recursion in C standard is converted to right recursion
 //       argument-expression-list
@@ -515,8 +499,6 @@ static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) 
     ErrorCode ecode;
     *matched = 0;
 
-    /* Recursive as unary-operator needs a cast-expression, not a unary-expression */
-
     int attached_node = 0;
     TNode* node;
     if ((ecode = tnode_alloc(&node)) != ec_noerr) goto exit;
@@ -530,12 +512,26 @@ static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) 
     int has_match;
     /* Prefix increment, decrement */
     if (strequ(token, "++")) {
+        data.type = TNodeUnaryExpression_inc;
         lexer_consume(p->lex);
-        /* Incomplete */
+
+        if ((ecode = parse_unary_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected unary-expression\n");
+            goto exit;
+        }
+        *matched = 1;
     }
     else if (strequ(token, "--")) {
+        data.type = TNodeUnaryExpression_dec;
         lexer_consume(p->lex);
-        /* Incomplete */
+
+        if ((ecode = parse_unary_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (!has_match) {
+            ERRMSG("Expected unary-expression\n");
+            goto exit;
+        }
+        *matched = 1;
     }
     else if (strequ(token, "&")) {
         data.type = TNodeUnaryExpression_ref;
@@ -568,7 +564,7 @@ static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) 
         *matched = 1;
     }
     else {
-        if ((ecode = parse_primary_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if ((ecode = parse_postfix_expression(p, node, &has_match)) != ec_noerr) goto exit;
         if (has_match) *matched = 1;
     }
 

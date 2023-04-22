@@ -17,6 +17,7 @@ ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree) {
 static ErrorCode cg_identifier(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_constant(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 /* 6.5 Expressions */
+static ErrorCode cg_postfix_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_logical_and_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
@@ -48,6 +49,9 @@ static ErrorCode call_cg(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
             break;
         case tt_constant:
             ecode = cg_constant(il2, sym, node, blk);
+            break;
+        case tt_postfix_expression:
+            ecode = cg_postfix_expression(il2, sym, node, blk);
             break;
         case tt_unary_expression:
             ecode = cg_unary_expression(il2, sym, node, blk);
@@ -121,6 +125,59 @@ static ErrorCode cg_constant(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk)
     return ec_noerr;
 }
 
+static ErrorCode cg_postfix_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
+    ErrorCode ecode;
+
+    TNodePostfixExpression* data = (TNodePostfixExpression*)tnode_data(node);
+    TNode* child = tnode_child(node, 0);
+
+    Symbol* result;
+    if ((ecode = call_cg(il2, &result, child, blk)) != ec_noerr) return ecode;
+
+    /* FIXME take common type */
+    if ((ecode = symtab_add_temporary(
+                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+
+    switch (data->type) {
+        case TNodePostfixExpression_inc:
+            {
+                /* Save original in temporary */
+                if ((ecode = block_add_ilstat(
+                                blk, il2stat_make2(
+                                    il2_mov, *sym, result))) != ec_noerr) return ecode;
+
+                /* Increment current */
+                if ((ecode = block_add_ilstat(
+                                blk, il2stat_make(
+                                    il2_add,
+                                    result,
+                                    result,
+                                    symtab_constant_one(il2->stab)))) != ec_noerr) return ecode;
+            }
+            break;
+        case TNodePostfixExpression_dec:
+            {
+                /* Save original in temporary */
+                if ((ecode = block_add_ilstat(
+                                blk, il2stat_make2(
+                                    il2_mov, *sym, result))) != ec_noerr) return ecode;
+
+                /* Decrement current */
+                if ((ecode = block_add_ilstat(
+                                blk, il2stat_make(
+                                    il2_sub,
+                                    result,
+                                    result,
+                                    symtab_constant_one(il2->stab)))) != ec_noerr) return ecode;
+            }
+            break;
+        default:
+            ASSERT(0, "Unknown node type");
+            break;
+    }
+    return ecode;
+}
+
 static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
     ErrorCode ecode;
     TNodeUnaryExpression* data = (TNodeUnaryExpression*)tnode_data(node);
@@ -134,6 +191,16 @@ static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Blo
                     il2->stab, sym, type_int)) != ec_noerr) return ecode;
 
     switch (data->type) {
+        case TNodeUnaryExpression_inc:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_add, child_result, child_result, symtab_constant_one(il2->stab)));
+            *sym = child_result;
+            break;
+        case TNodeUnaryExpression_dec:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_sub, child_result, child_result, symtab_constant_one(il2->stab)));
+            *sym = child_result;
+            break;
         case TNodeUnaryExpression_ref:
             ecode = block_add_ilstat(blk, il2stat_make2(
                         il2_mad, *sym, child_result));

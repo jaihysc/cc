@@ -139,6 +139,9 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
             break;
 
         /* 6.5 Expressions */
+        case tt_postfix_expression:
+            node->data.postfix_expression = *(TNodePostfixExpression*)data;
+            break;
         case tt_unary_expression:
             node->data.unary_expression = *(TNodeUnaryExpression*)data;
             break;
@@ -317,17 +320,48 @@ static void debug_tnode_walk(
             break;
 
         /* 6.5 Expressions */
+        case tt_postfix_expression:
+            {
+                TNodePostfixExpression* data = (TNodePostfixExpression*)&node->data;
+                switch (data->type) {
+                    case TNodePostfixExpression_none:
+                        break;
+                    case TNodePostfixExpression_inc:
+                        LOG("(++ post)");
+                        break;
+                    case TNodePostfixExpression_dec:
+                        LOG("(-- post)");
+                        break;
+                    default:
+                        ASSERT(0, "Unimplemented");
+                        break;
+                }
+            }
+            break;
         case tt_unary_expression:
             {
                 TNodeUnaryExpression* data = (TNodeUnaryExpression*)&node->data;
-                if (data->type == TNodeUnaryExpression_ref) {
-                    LOG("(& ref)");
-                }
-                else if (data->type == TNodeUnaryExpression_deref) {
-                    LOG("(* deref)");
-                }
-                else if (data->type == TNodeUnaryExpression_negate) {
-                    LOG("(!)");
+                switch (data->type) {
+                    case TNodeUnaryExpression_none:
+                        break;
+                    case TNodeUnaryExpression_inc:
+                        LOG("(++ pre)");
+                        break;
+                    case TNodeUnaryExpression_dec:
+                        LOG("(-- pre)");
+                        break;
+                    case TNodeUnaryExpression_ref:
+                        LOG("(& ref)");
+                        break;
+                    case TNodeUnaryExpression_deref:
+                        LOG("(* deref)");
+                        break;
+                    case TNodeUnaryExpression_negate:
+                        LOG("(!)");
+                        break;
+                    default:
+                        ASSERT(0, "Unimplemented");
+                        break;
                 }
             }
             break;

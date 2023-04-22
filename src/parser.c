@@ -509,6 +509,7 @@ static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) 
     const char* token;
     if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
+    int expect_cast_expr = 0;
     int has_match;
     /* Prefix increment, decrement */
     if (strequ(token, "++")) {
@@ -546,26 +547,35 @@ static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) 
     else if (strequ(token, "*")) {
         data.type = TNodeUnaryExpression_deref;
         lexer_consume(p->lex);
-        if ((ecode = parse_cast_expression(p, node, &has_match)) != ec_noerr) goto exit;
-        if (!has_match) {
-            ERRMSG("Expected cast-expression\n");
-            goto exit;
-        }
-        *matched = 1;
+        expect_cast_expr = 1;
+    }
+    else if (strequ(token, "+")) {
+        data.type = TNodeUnaryExpression_pos;
+        lexer_consume(p->lex);
+        expect_cast_expr = 1;
+    }
+    else if (strequ(token, "-")) {
+        data.type = TNodeUnaryExpression_neg;
+        lexer_consume(p->lex);
+        expect_cast_expr = 1;
     }
     else if (strequ(token, "!")) {
         data.type = TNodeUnaryExpression_negate;
         lexer_consume(p->lex);
+        expect_cast_expr = 1;
+    }
+    else {
+        if ((ecode = parse_postfix_expression(p, node, &has_match)) != ec_noerr) goto exit;
+        if (has_match) *matched = 1;
+    }
+
+    if (expect_cast_expr) {
         if ((ecode = parse_cast_expression(p, node, &has_match)) != ec_noerr) goto exit;
         if (!has_match) {
             ERRMSG("Expected cast-expression\n");
             goto exit;
         }
         *matched = 1;
-    }
-    else {
-        if ((ecode = parse_postfix_expression(p, node, &has_match)) != ec_noerr) goto exit;
-        if (has_match) *matched = 1;
     }
 
     /* Incomplete */

@@ -261,6 +261,13 @@ static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Blo
             ecode = block_add_ilstat(blk, il2stat_make2(
                         il2_not, *sym, child_result));
             break;
+        case TNodeUnaryExpression_pos:
+            *sym = child_result;
+            break;
+        case TNodeUnaryExpression_neg:
+            ecode = block_add_ilstat(blk, il2stat_make(
+                        il2_sub, *sym, symtab_constant_zero(il2->stab), child_result));
+            break;
         default:
             ASSERT(0, "Unknown node type");
             break;

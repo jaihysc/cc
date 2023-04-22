@@ -356,6 +356,12 @@ static void debug_tnode_walk(
                     case TNodeUnaryExpression_deref:
                         LOG("(* deref)");
                         break;
+                    case TNodeUnaryExpression_pos:
+                        LOG("(+ positive)");
+                        break;
+                    case TNodeUnaryExpression_neg:
+                        LOG("(- negative)");
+                        break;
                     case TNodeUnaryExpression_negate:
                         LOG("(!)");
                         break;

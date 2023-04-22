@@ -36,6 +36,8 @@ typedef struct {
         TNodeUnaryExpression_dec,
         TNodeUnaryExpression_ref,
         TNodeUnaryExpression_deref,
+        TNodeUnaryExpression_pos,
+        TNodeUnaryExpression_neg,
         TNodeUnaryExpression_negate,
     } type;
 } TNodeUnaryExpression;

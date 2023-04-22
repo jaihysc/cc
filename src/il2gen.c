@@ -35,6 +35,56 @@ static ErrorCode cg_jump_statement(IL2Gen* il2, TNode* node, Block* blk);
 /* 6.9 External definitions */
 static ErrorCode cg_function_definition(IL2Gen* il2, TNode* node);
 
+/* If left and right are different types, right operand is converted
+   to type of left operand and the value of the provided right operand
+   is changed to a temporary which has the same type as the left operand */
+static ErrorCode cg_com_type_rtol(IL2Gen* il2, Symbol* opl, Symbol** opr, Block* blk) {
+    ErrorCode ecode;
+    if (!type_equal(symbol_type(opl), symbol_type(*opr))) {
+        Symbol* promoted_sym;
+        if ((ecode = symtab_add_temporary(
+                        il2->stab, &promoted_sym, symbol_type(opl))) != ec_noerr) return ecode;
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_mtc, promoted_sym, *opr))) != ec_noerr) return ecode;
+        *opr = promoted_sym;
+    }
+    return ec_noerr;
+}
+
+/* A common type is calculated with op1 and op2, if necessary both
+   are converted to the common type and the provided op1 op2 changed
+   to temporaries holding op1 and op2 as common type
+   The common type is stored at the provided pointer */
+static ErrorCode cg_com_type_lr(
+        IL2Gen* il2, Type* type_ptr, Symbol** op1, Symbol** op2, Block* blk) {
+    ErrorCode ecode;
+    Type com_type = type_common(
+            type_promotion(symbol_type(*op1)),
+            type_promotion(symbol_type(*op2)));
+    *type_ptr = com_type;
+
+    if (!type_equal(symbol_type(*op1), com_type)) {
+        Symbol* promoted_sym;
+        if ((ecode = symtab_add_temporary(
+                        il2->stab, &promoted_sym, com_type)) != ec_noerr) return ecode;
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_mtc, promoted_sym, *op1))) != ec_noerr) return ecode;
+        *op1 = promoted_sym;
+    }
+    if (!type_equal(symbol_type(*op2), com_type)) {
+        Symbol* promoted_sym;
+        if ((ecode = symtab_add_temporary(
+                        il2->stab, &promoted_sym, com_type)) != ec_noerr) return ecode;
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_mtc, promoted_sym, *op2))) != ec_noerr) return ecode;
+        *op2 = promoted_sym;
+    }
+    return ec_noerr;
+}
+
 /* Calls the appropriate cg_ based on the type of the TNode type */
 static ErrorCode call_cg(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
     ASSERT(il2 != NULL, "IL2Gen is null");
@@ -134,9 +184,8 @@ static ErrorCode cg_postfix_expression(IL2Gen* il2, Symbol** sym, TNode* node, B
     Symbol* result;
     if ((ecode = call_cg(il2, &result, child, blk)) != ec_noerr) return ecode;
 
-    /* FIXME take common type */
     if ((ecode = symtab_add_temporary(
-                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+                    il2->stab, sym, symbol_type(result))) != ec_noerr) return ecode;
 
     switch (data->type) {
         case TNodePostfixExpression_inc:
@@ -186,9 +235,8 @@ static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Blo
     Symbol* child_result;
     if ((ecode = call_cg(il2, &child_result, child, blk)) != ec_noerr) return ecode;
 
-    /* FIXME take common type */
     if ((ecode = symtab_add_temporary(
-                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+                    il2->stab, sym, symbol_type(child_result))) != ec_noerr) return ecode;
 
     switch (data->type) {
         case TNodeUnaryExpression_inc:
@@ -232,9 +280,26 @@ static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Bl
     Symbol* rresult;
     if ((ecode = call_cg(il2, &rresult, rchild, blk)) != ec_noerr) return ecode;
 
-    /* FIXME take common type */
+    Type com_type;
+    if ((ecode = cg_com_type_lr(
+                    il2, &com_type, &lresult, &rresult, blk)) != ec_noerr) return ecode;
+
+    /* Relational and equality operators always have int as their result */
+    switch (data->type) {
+        case TNodeBinaryExpression_l:
+        case TNodeBinaryExpression_g:
+        case TNodeBinaryExpression_le:
+        case TNodeBinaryExpression_ge:
+        case TNodeBinaryExpression_e:
+        case TNodeBinaryExpression_ne:
+            com_type = type_int;
+            break;
+        default:
+            break;
+    }
+
     if ((ecode = symtab_add_temporary(
-                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+                    il2->stab, sym, com_type)) != ec_noerr) return ecode;
 
     switch (data->type) {
         case TNodeBinaryExpression_add:
@@ -384,8 +449,9 @@ static ErrorCode cg_assignment_expression(IL2Gen* il2, Symbol** sym, TNode* node
     Symbol* rresult;
     if ((ecode = call_cg(il2, &rresult, rchild, blk)) != ec_noerr) return ecode;
 
-    /* FIXME
-    cg_com_type_rtol(p, opl_id, &opr_id); */
+    /* Convert right to type of left */
+    if ((ecode = cg_com_type_rtol(
+                    il2, lresult, &rresult, blk)) != ec_noerr) return ecode;
 
     if (data->type == TNodeAssignmentExpression_assign) {
         /* Assignment */
@@ -434,6 +500,10 @@ static ErrorCode cg_declaration(IL2Gen* il2, TNode* node, Block* blk) {
 
     Symbol* result;
     if ((ecode = call_cg(il2, &result, initializer, blk)) != ec_noerr) return ecode;
+
+    /* Convert right to type of left */
+    if ((ecode = cg_com_type_rtol(
+                    il2, identifier->symbol, &result, blk)) != ec_noerr) return ecode;
 
     /* Save the result */
     if ((ecode = block_add_ilstat(

@@ -1615,7 +1615,7 @@ static ErrorCode parse_compound_statement(Parser* p, TNode* parent, int* matched
     if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
     tnode_set(node, tt_compound_statement, NULL);
 
-    symtab_push_scope(p->symtab);
+    if ((ecode = symtab_push_scope(p->symtab)) != ec_noerr) goto exit;
     /* block-item-list nodes are not needed for il generation */
     do {
         if ((ecode = parse_block_item(p, node, &has_match)) != ec_noerr) goto exit;
@@ -1854,6 +1854,9 @@ static ErrorCode parse_iteration_statement(Parser* p, TNode* parent, int* matche
     else if (strequ(token, "for")) {
         lexer_consume(p->lex);
 
+        /* New scope for the declaration */
+        if ((ecode = symtab_push_scope(p->symtab)) != ec_noerr) goto exit;
+
         /* ( must follow for */
         if ((ecode = parse_expect(p, "(", &has_match)) != ec_noerr) goto exit;
         if (!has_match) {
@@ -1929,6 +1932,8 @@ static ErrorCode parse_iteration_statement(Parser* p, TNode* parent, int* matche
             ecode = ec_syntaxerr;
             goto exit;
         }
+
+        symtab_pop_scope(p->symtab);
 
         *matched = 1;
     }

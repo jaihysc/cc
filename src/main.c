@@ -152,10 +152,6 @@ int main(int argc, char** argv) {
 
     symtab_pop_scope(&symtab);
     ASSERT(symtab.scopes_size == 0, "Scopes not empty on parse end");
-    for (int i = 0; i < sc_count; ++i) {
-        ASSERTF(vec_size(&symtab.cat[i]) == 0,
-                "Symbol category stack %d not empty on parse end", i);
-    }
 
     if (g_debug_print_tree) {
         LOG("Remaining ");
@@ -179,6 +175,10 @@ int main(int argc, char** argv) {
     }
 
     symtab_pop_scope(&symtab);
+    for (int i = 0; i < sc_count; ++i) {
+        ASSERTF(vec_size(&symtab.cat[i]) == 0,
+                "Symbol category stack %d not empty on parse end", i);
+    }
 
     if (g_debug_print_cfg) {
         debug_print_cfg(&cfg);

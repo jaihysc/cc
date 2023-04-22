@@ -528,9 +528,16 @@ static ErrorCode cg_while_statement(IL2Gen* il2, TNode* node, Block* blk) {
     TNode* statement = tnode_child(node, 1);
 
     Symbol* label_loop;
+    Symbol* label_body_end;
     Symbol* label_end;
     if ((ecode = symtab_add_label(il2->stab, &label_loop)) != ec_noerr) return ecode;
+    if ((ecode = symtab_add_label(il2->stab, &label_body_end)) != ec_noerr) return ecode;
     if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;
+
+    if ((ecode = symtab_push_cat(
+                    il2->stab, sc_lab_loopbodyend, label_body_end)) != ec_noerr) return ecode;
+    if ((ecode = symtab_push_cat(
+                    il2->stab, sc_lab_loopend, label_end)) != ec_noerr) return ecode;
 
     /* Evaluate expression */
     Symbol* expr_result;
@@ -548,6 +555,10 @@ static ErrorCode cg_while_statement(IL2Gen* il2, TNode* node, Block* blk) {
 
     if ((ecode = call_cgs(il2, statement, blk)) != ec_noerr) return ecode;
 
+    /* End of loop body */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_body_end))) != ec_noerr) return ecode;
+
     /* Evaluate expression */
     if ((ecode = call_cg(il2, &expr_result, expr, blk)) != ec_noerr) return ecode;
 
@@ -560,6 +571,9 @@ static ErrorCode cg_while_statement(IL2Gen* il2, TNode* node, Block* blk) {
     /* End of loop */
     if ((ecode = block_add_ilstat(
                     blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
+
+    symtab_pop_cat(il2->stab, sc_lab_loopbodyend);
+    symtab_pop_cat(il2->stab, sc_lab_loopend);
 
     return ec_noerr;
 }
@@ -578,15 +592,26 @@ static ErrorCode cg_do_statement(IL2Gen* il2, TNode* node, Block* blk) {
     TNode* expr = tnode_child(node, 1);
 
     Symbol* label_loop;
+    Symbol* label_body_end;
     Symbol* label_end;
     if ((ecode = symtab_add_label(il2->stab, &label_loop)) != ec_noerr) return ecode;
+    if ((ecode = symtab_add_label(il2->stab, &label_body_end)) != ec_noerr) return ecode;
     if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;
+
+    if ((ecode = symtab_push_cat(
+                    il2->stab, sc_lab_loopbodyend, label_body_end)) != ec_noerr) return ecode;
+    if ((ecode = symtab_push_cat(
+                    il2->stab, sc_lab_loopend, label_end)) != ec_noerr) return ecode;
 
     /* Loop body */
     if ((ecode = block_add_ilstat(
                     blk, il2stat_make1(il2_lab, label_loop))) != ec_noerr) return ecode;
 
     if ((ecode = call_cgs(il2, statement, blk)) != ec_noerr) return ecode;
+
+    /* End of loop body */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_body_end))) != ec_noerr) return ecode;
 
     /* Evaluate expression */
     Symbol* expr_result;
@@ -596,6 +621,14 @@ static ErrorCode cg_do_statement(IL2Gen* il2, TNode* node, Block* blk) {
     if ((ecode = block_add_ilstat(
                     blk, il2stat_make2(
                         il2_jnz, label_loop, expr_result))) != ec_noerr) return ecode;
+
+
+    /* End of loop */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
+
+    symtab_pop_cat(il2->stab, sc_lab_loopbodyend);
+    symtab_pop_cat(il2->stab, sc_lab_loopend);
 
     return ec_noerr;
 }
@@ -623,9 +656,16 @@ static ErrorCode cg_for_statement(IL2Gen* il2, TNode* node, Block* blk) {
     if (tnode_type(expr3) == tt_dummy) expr3 = NULL;
 
     Symbol* label_loop;
+    Symbol* label_body_end;
     Symbol* label_end;
     if ((ecode = symtab_add_label(il2->stab, &label_loop)) != ec_noerr) return ecode;
+    if ((ecode = symtab_add_label(il2->stab, &label_body_end)) != ec_noerr) return ecode;
     if ((ecode = symtab_add_label(il2->stab, &label_end)) != ec_noerr) return ecode;
+
+    if ((ecode = symtab_push_cat(
+                    il2->stab, sc_lab_loopbodyend, label_body_end)) != ec_noerr) return ecode;
+    if ((ecode = symtab_push_cat(
+                    il2->stab, sc_lab_loopend, label_end)) != ec_noerr) return ecode;
 
     Symbol* expr_result;
 
@@ -652,6 +692,10 @@ static ErrorCode cg_for_statement(IL2Gen* il2, TNode* node, Block* blk) {
 
     if ((ecode = call_cgs(il2, statement, blk)) != ec_noerr) return ecode;
 
+    /* End of loop body */
+    if ((ecode = block_add_ilstat(
+                    blk, il2stat_make1(il2_lab, label_body_end))) != ec_noerr) return ecode;
+
     /* Evaluate expression3 */
     if (expr3) {
         if ((ecode = call_cg(il2, &expr_result, expr3, blk)) != ec_noerr) return ecode;
@@ -675,6 +719,10 @@ static ErrorCode cg_for_statement(IL2Gen* il2, TNode* node, Block* blk) {
     /* End of loop */
     if ((ecode = block_add_ilstat(
                     blk, il2stat_make1(il2_lab, label_end))) != ec_noerr) return ecode;
+
+    symtab_pop_cat(il2->stab, sc_lab_loopbodyend);
+    symtab_pop_cat(il2->stab, sc_lab_loopend);
+
     return ec_noerr;
 }
 
@@ -683,8 +731,14 @@ static ErrorCode cg_jump_statement(IL2Gen* il2, TNode* node, Block* blk) {
     TNodeJumpStatement* jump = (TNodeJumpStatement*)tnode_data(node);
 
     if (jump->type == TNodeJumpStatement_break) {
+        Symbol* label = symtab_last_cat(il2->stab, sc_lab_loopend);
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make1(il2_jmp, label))) != ec_noerr) return ecode;
     }
     else if (jump->type == TNodeJumpStatement_continue) {
+        Symbol* label = symtab_last_cat(il2->stab, sc_lab_loopbodyend);
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make1(il2_jmp, label))) != ec_noerr) return ecode;
     }
     else if (jump->type == TNodeJumpStatement_return) {
         if (tnode_count_child(node) == 1) {

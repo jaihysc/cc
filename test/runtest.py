@@ -184,24 +184,32 @@ def main():
     # Only run tests with provided names if set
     filter_tests = args.t
 
-    # Tests are located where the python file is
+    # Tests are located in subdirectories from where the python file is
     test_dir = os.path.dirname(sys.argv[0])
     log(f'Test directory: {test_dir}')
 
     programs = []
-    with os.scandir(test_dir) as it:
-        for entry in it:
-            if entry.name.endswith('.c'):
-                name = entry.name.removesuffix('.c')
+    for root, dirs, files in os.walk(test_dir):
+        for dirname in dirs:
+            if dirname == '__pycache__':
+                continue
 
-                if filter_tests and name not in filter_tests:
-                    continue
+            test_subdir = os.path.join(root, dirname)
+            log(test_subdir)
 
-                # Look for matching python file
-                py_name = name + '.py'
-                prog = run_py_file(name, f'{test_dir}/{entry.name}', f'{test_dir}/{py_name}')
-                if prog != None:
-                    programs.append(prog)
+            with os.scandir(test_subdir) as it:
+                for entry in it:
+                    if entry.name.endswith('.c'):
+                        name = entry.name.removesuffix('.c')
+
+                        if filter_tests and name not in filter_tests:
+                            continue
+
+                        # Look for matching python file
+                        py_name = name + '.py'
+                        prog = run_py_file(f'{test_subdir}/{name}', f'{test_subdir}/{entry.name}', f'{test_subdir}/{py_name}')
+                        if prog != None:
+                            programs.append(prog)
 
     # Keep the program objects, check success and failures in the objects
 

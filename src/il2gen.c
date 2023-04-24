@@ -882,7 +882,7 @@ ErrorCode il2_gen(IL2Gen* il2) {
 }
 
 ErrorCode il2_write(IL2Gen* il2, const char* filepath) {
-    FILE* f = fopen("imm2", "w");
+    FILE* f = fopen(filepath, "w");
     if (f == NULL) {
         ERRMSG("Failed to open output file\n");
         return ec_writefailed;

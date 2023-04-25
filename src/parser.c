@@ -98,11 +98,11 @@ static ErrorCode parse_init_declarator_list(Parser* p, TNode* parent, int* match
 static ErrorCode parse_init_declarator(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_declarator(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_direct_declarator(Parser* p, TNode* parent, int* matched);
+static ErrorCode parse_pointer(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_parameter_type_list(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_parameter_declaration(Parser* p, TNode* parent, int* matched);
 static ErrorCode parse_type_name(Parser*, TNode* parent, int* matched);
-static ErrorCode parse_abstract_declarator(Parser*, TNode* parent, int* matched);
 static ErrorCode parse_initializer(Parser* p, TNode* parent, int* matched);
 /* 6.8 Statements and blocks */
 static ErrorCode parse_statement(Parser* p, TNode* parent, int* matched);
@@ -114,7 +114,6 @@ static ErrorCode parse_iteration_statement(Parser* p, TNode* parent, int* matche
 static ErrorCode parse_jump_statement(Parser* p, TNode* parent, int* matched);
 /* 6.9 External definitions */
 static ErrorCode parse_external_declaration(Parser* p, TNode* parent, int* matched);
-static ErrorCode parse_function_definition(Parser* p, TNode* parent, int* matched);
 /* Helpers */
 static ErrorCode parse_expect(Parser* p, const char* match_token, int* matched);
 
@@ -597,18 +596,35 @@ static ErrorCode parse_cast_expression(Parser* p, TNode* parent, int* matched) {
     ErrorCode ecode;
     *matched = 0;
 
-    /* This comes first as the below consumes ( */
-    if ((ecode = parse_unary_expression(p, parent, matched)) != ec_noerr) goto exit;
+    TNode* node;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+    tnode_set(node, tt_cast_expression, NULL);
 
-    /*
-    if (parse_expect(p, "(")) {
-        if (!parse_type_name(p, parent)) goto exit;
-        if (!parse_expect(p, ")")) goto exit;
-        if (!parse_cast_expression(p, parent)) goto exit;
+    int has_match;
+    const char* token;
+    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
+    if (strequ(token, "(")) {
+        if ((ecode = lexer_getc2(p->lex, &token)) != ec_noerr) goto exit;
+        if (tok_istypespec(token)) {
+            lexer_consume(p->lex); /* Consume ( */
 
-        PARSE_MATCHED();
+            if ((ecode = parse_type_name(p, node, &has_match)) != ec_noerr) goto exit;
+            if (!has_match) {
+                ERRMSG("Expected type-name\n");
+                ecode = ec_syntaxerr;
+                goto exit;
+            }
+
+            if ((ecode = parse_expect(p, ")", &has_match)) != ec_noerr) goto exit;
+            if (!has_match) {
+                ERRMSG("Expected ')'\n");
+                ecode = ec_syntaxerr;
+                goto exit;
+            }
+        }
     }
-    */
+
+    if ((ecode = parse_unary_expression(p, node, matched)) != ec_noerr) goto exit;
 
 exit:
     PARSE_FUNC_END();
@@ -1300,53 +1316,13 @@ exit:
     return ecode;
 }
 
-//static ErrorCode parse_specifier_qualifier_list(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(specifier_qualifier_list);
-//    ErrorCode ecode = ec_noerr;
-//    *matched = 0;
-//
-//    const char* token;
-//    if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
-//
-//    if (tok_istypespec(token)) {
-//        // TODO
-//        *matched = 1;
-//        /* parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE, &has_match); */
-//
-//        /* Incomplete */
-//    }
-//    else if (tok_istypequal(token)) {
-//        // TODO
-//        *matched = 1;
-//        /* parse_specifier_qualifier_list(p, PARSE_CURRENT_NODE, &has_match); */
-//
-//        /* Incomplete */
-//    }
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
-
 static ErrorCode parse_declarator(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(declarator);
     ErrorCode ecode = ec_noerr;
     *matched = 0;
 
     int matched_ptr;
-    int pointers = 0;
-    while (1) {
-        if ((ecode = parse_expect(p, "*", &matched_ptr)) != ec_noerr) goto exit;
-        if (matched_ptr) ++pointers;
-        else break;
-    }
-
-    TNode* node;
-    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
-
-    TNodePointer data;
-    data.pointers = pointers;
-    tnode_set(node, tt_pointer, &data);
+    if ((ecode = parse_pointer(p, parent, &matched_ptr)) != ec_noerr) goto exit;
 
     int matched_dirdecl;
     if ((ecode = parse_direct_declarator(p, parent, &matched_dirdecl)) != ec_noerr) goto exit;
@@ -1407,6 +1383,35 @@ static ErrorCode parse_direct_declarator(Parser* p, TNode* parent, int* matched)
             goto exit;
         }
     }
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
+
+static ErrorCode parse_pointer(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(pointer);
+    ErrorCode ecode = ec_noerr;
+    *matched = 0;
+
+    int has_match;
+    int pointers = 0;
+    while (1) {
+        if ((ecode = parse_expect(p, "*", &has_match)) != ec_noerr) goto exit;
+        if (has_match) ++pointers;
+        else break;
+    }
+
+    /* It is more convenient to always attach a pointer node and have
+       pointers=0, than having to decide if a pointer exists */
+    TNode* node;
+    if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+
+    TNodePointer data;
+    data.pointers = pointers;
+    tnode_set(node, tt_pointer, &data);
+
+    *matched = 1;
 
 exit:
     PARSE_FUNC_END();
@@ -1507,46 +1512,29 @@ exit:
     return ecode;
 }
 
-//static ErrorCode parse_type_name(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(type_name);
-//    ErrorCode ecode = ec_noerr;
-//    *matched = 0;
-//
-//    int has_match;
-//    if ((ecode = parse_specifier_qualifier_list(
-//                    p, parent, &has_match)) != ec_noerr) goto exit;
-//    if (!has_match) goto exit;
-//
-//    if ((ecode = parse_abstract_declarator(
-//                    p, parent, &has_match)) != ec_noerr) goto exit;
-//    *matched = 1;
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
+static ErrorCode parse_type_name(Parser* p, TNode* parent, int* matched) {
+    PARSE_FUNC_START(type_name);
+    ErrorCode ecode;
+    *matched = 0;
 
-//static ErrorCode parse_abstract_declarator(Parser* p, TNode* parent, int* matched) {
-//    PARSE_FUNC_START(abstract_declarator);
-//    ErrorCode ecode = ec_noerr;
-//    *matched = 0;
-//
-//    int matched_ptr;
-//    int pointers = 0;
-//    while (1) {
-//        if ((ecode = parse_expect(p, "*", &matched_ptr)) != ec_noerr) goto exit;
-//        if (matched_ptr) ++pointers;
-//        else break;
-//    }
-//
-//    /* Incomplete */
-//
-//    *matched = 1;
-//
-//exit:
-//    PARSE_FUNC_END();
-//    return ecode;
-//}
+    /* Use declaration-specifiers instead of specifier-qualifier-list to reuse code
+       Originally
+       type-name -> specifier-qualifier-list abstract-declarator(opt) */
+    int has_match;
+    if ((ecode = parse_declaration_specifiers(p, parent, &has_match)) != ec_noerr) goto exit;
+    if (!has_match) goto exit;
+
+    if ((ecode = parse_pointer(p, parent, &has_match)) != ec_noerr) goto exit;
+
+    /* TODO
+    if ((ecode = parse_abstract_declarator(
+                    p, parent, &has_match)) != ec_noerr) goto exit; */
+    *matched = 1;
+
+exit:
+    PARSE_FUNC_END();
+    return ecode;
+}
 
 static ErrorCode parse_initializer(Parser* p, TNode* parent, int* matched) {
     PARSE_FUNC_START(initializer);

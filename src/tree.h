@@ -125,6 +125,7 @@ typedef union {
                                            \
     TNODE_TYPE(postfix_expression)         \
     TNODE_TYPE(unary_expression)           \
+    TNODE_TYPE(cast_expression)            \
     TNODE_TYPE(binary_expression)          \
     TNODE_TYPE(logical_or_expression)      \
     TNODE_TYPE(logical_and_expression)     \

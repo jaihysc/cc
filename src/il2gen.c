@@ -19,6 +19,7 @@ static ErrorCode cg_constant(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk)
 /* 6.5 Expressions */
 static ErrorCode cg_postfix_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
+static ErrorCode cg_cast_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_logical_and_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
 static ErrorCode cg_logical_or_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk);
@@ -105,6 +106,9 @@ static ErrorCode call_cg(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
             break;
         case tt_unary_expression:
             ecode = cg_unary_expression(il2, sym, node, blk);
+            break;
+        case tt_cast_expression:
+            ecode = cg_cast_expression(il2, sym, node, blk);
             break;
         case tt_binary_expression:
             ecode = cg_binary_expression(il2, sym, node, blk);
@@ -272,6 +276,29 @@ static ErrorCode cg_unary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Blo
             ASSERT(0, "Unknown node type");
             break;
     }
+    return ec_noerr;
+}
+
+static ErrorCode cg_cast_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
+    ErrorCode ecode;
+    TNodeDeclarationSpecifiers* declspec =
+        (TNodeDeclarationSpecifiers*)tnode_data(tnode_child(node, 0));
+    TNodePointer* pointer = (TNodePointer*)tnode_data(tnode_child(node, 1));
+    TNode* expr = tnode_child(node, 2);
+
+    if ((ecode = call_cg(il2, sym, expr, blk)) != ec_noerr) return ecode;
+
+    Type type;
+    type_construct(&type, declspec->ts, pointer->pointers);
+    if (!type_equal(type, symbol_type(*sym))) {
+        Symbol* expr_result = *sym;
+        if ((ecode = symtab_add_temporary(
+                        il2->stab, sym, type)) != ec_noerr) return ecode;
+        if ((ecode = block_add_ilstat(
+                        blk, il2stat_make2(
+                            il2_mtc, *sym, expr_result))) != ec_noerr) return ecode;
+    }
+
     return ec_noerr;
 }
 

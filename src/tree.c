@@ -145,6 +145,8 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
         case tt_unary_expression:
             node->data.unary_expression = *(TNodeUnaryExpression*)data;
             break;
+        case tt_cast_expression:
+            break;
         case tt_binary_expression:
             node->data.binary_expression = *(TNodeBinaryExpression*)data;
             break;

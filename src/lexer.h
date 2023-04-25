@@ -51,16 +51,25 @@ typedef struct {
     char line_buf[LEXER_LINE_BUF_SIZE];
     int line_buf_front;
     int line_buf_end;
-     /* Number of characters which could not be stored in the buffer
-        and was overwritten */
-    int line_buf_overwrote;
-    int last_token_len;
+
+    /* Location of primary and secondary tokens */
+    int primary_line_num;
+    int primary_char_num;
+    int primary_length;
+
+    int secondary_line_num;
+    int secondary_char_num;
+    int secondary_length;
 
     /* The read token is kept here, subsequent calls to lexer_getc()
        will return this.
        When lexer_consume() is called, the next call to lexer_getc()
-       will fill this buffer with a new token */
-    char get_buf[MAX_TOKEN_LEN + 1];
+       will fill this buffer with a new token
+       2 buffers for 2 token lookahead */
+    char get_buf[2][MAX_TOKEN_LEN + 1];
+    /* Index in get_buf for primary buffer (next token) */
+    int primary;
+    int secondary;
 } Lexer;
 
 /* Initializes lexer lexer object at memory
@@ -75,6 +84,12 @@ void lexer_destruct(Lexer* lex);
    The token is blank (just a null terminator)
    if end of file is reached or error happened */
 ErrorCode lexer_getc(Lexer* lex, const char** tok_ptr);
+
+/* Reads token after next (c = char*)
+   The pointer to token is stored the the provided pointer
+   The token is blank (just a null terminator)
+   if end of file is reached or error happened */
+ErrorCode lexer_getc2(Lexer* lex, const char** tok_ptr);
 
 /* Discard the last read token, next token will be next token in stream */
 void lexer_consume(Lexer* lex);

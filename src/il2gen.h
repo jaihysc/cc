@@ -6,10 +6,11 @@
 #include "symtab.h"
 #include "tree.h"
 
-typedef struct {
-    Cfg* cfg;
-    Symtab* stab;
-    Tree* tree;
+typedef struct
+{
+	Cfg* cfg;
+	Symtab* stab;
+	Tree* tree;
 } IL2Gen;
 
 ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree);

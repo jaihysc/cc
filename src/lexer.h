@@ -39,37 +39,38 @@ int tok_isfuncspec(const char* str);
 /* Returns 1 if token c string is an identifier */
 int tok_isidentifier(const char* str);
 
-typedef struct {
-    /* Input file */
-    FILE* rf;
+typedef struct
+{
+	/* Input file */
+	FILE* rf;
 
-    /* Tracks position within input file for error messages */
-    int line_num;
-    int char_num;
+	/* Tracks position within input file for error messages */
+	int line_num;
+	int char_num;
 
-    /* Circular buffer for current line */
-    char line_buf[LEXER_LINE_BUF_SIZE];
-    int line_buf_front;
-    int line_buf_end;
+	/* Circular buffer for current line */
+	char line_buf[LEXER_LINE_BUF_SIZE];
+	int line_buf_front;
+	int line_buf_end;
 
-    /* Location of primary and secondary tokens */
-    int primary_line_num;
-    int primary_char_num;
-    int primary_length;
+	/* Location of primary and secondary tokens */
+	int primary_line_num;
+	int primary_char_num;
+	int primary_length;
 
-    int secondary_line_num;
-    int secondary_char_num;
-    int secondary_length;
+	int secondary_line_num;
+	int secondary_char_num;
+	int secondary_length;
 
-    /* The read token is kept here, subsequent calls to lexer_getc()
-       will return this.
-       When lexer_consume() is called, the next call to lexer_getc()
-       will fill this buffer with a new token
-       2 buffers for 2 token lookahead */
-    char get_buf[2][MAX_TOKEN_LEN + 1];
-    /* Index in get_buf for primary buffer (next token) */
-    int primary;
-    int secondary;
+	/* The read token is kept here, subsequent calls to lexer_getc()
+	   will return this.
+	   When lexer_consume() is called, the next call to lexer_getc()
+	   will fill this buffer with a new token
+	   2 buffers for 2 token lookahead */
+	char get_buf[2][MAX_TOKEN_LEN + 1];
+	/* Index in get_buf for primary buffer (next token) */
+	int primary;
+	int secondary;
 } Lexer;
 
 /* Initializes lexer lexer object at memory
@@ -97,8 +98,7 @@ void lexer_consume(Lexer* lex);
 /* Prints out the current location of the Lexer within the source file
    Example:
    73 | void lexer_consume(Lexer* lex);
-      |      ~~~~~~~~~~~~~ */
+	  |      ~~~~~~~~~~~~~ */
 void lexer_print_location(Lexer* lex);
 
 #endif
-

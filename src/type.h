@@ -12,24 +12,28 @@
    schar = signed char
    uchar = unsigned char */
 #define TYPE_SPECIFIERS       \
-    TYPE_SPECIFIER(void)      \
-    TYPE_SPECIFIER(char)      \
-    TYPE_SPECIFIER(schar)     \
-    TYPE_SPECIFIER(uchar)     \
-    TYPE_SPECIFIER(short)     \
-    TYPE_SPECIFIER(ushort)    \
-    TYPE_SPECIFIER(int)       \
-    TYPE_SPECIFIER(uint)      \
-    TYPE_SPECIFIER(long)      \
-    TYPE_SPECIFIER(ulong)     \
-    TYPE_SPECIFIER(longlong)  \
-    TYPE_SPECIFIER(ulonglong) \
-    TYPE_SPECIFIER(float)     \
-    TYPE_SPECIFIER(double)    \
-    TYPE_SPECIFIER(ldouble)
-#define TYPE_SPECIFIER(name__) ts_ ## name__,
+	TYPE_SPECIFIER(void)      \
+	TYPE_SPECIFIER(char)      \
+	TYPE_SPECIFIER(schar)     \
+	TYPE_SPECIFIER(uchar)     \
+	TYPE_SPECIFIER(short)     \
+	TYPE_SPECIFIER(ushort)    \
+	TYPE_SPECIFIER(int)       \
+	TYPE_SPECIFIER(uint)      \
+	TYPE_SPECIFIER(long)      \
+	TYPE_SPECIFIER(ulong)     \
+	TYPE_SPECIFIER(longlong)  \
+	TYPE_SPECIFIER(ulonglong) \
+	TYPE_SPECIFIER(float)     \
+	TYPE_SPECIFIER(double)    \
+	TYPE_SPECIFIER(ldouble)
+#define TYPE_SPECIFIER(name__) ts_##name__,
 /* ts_none for indicating error */
-typedef enum {ts_none = -1, TYPE_SPECIFIERS ts_count} TypeSpecifiers;
+typedef enum
+{
+	ts_none = -1,
+	TYPE_SPECIFIERS ts_count
+} TypeSpecifiers;
 #undef TYPE_SPECIFIER
 
 /* Converts a type specifier to string */
@@ -39,18 +43,19 @@ const char* ts_str(TypeSpecifiers typespec);
    ts_none if invalid */
 TypeSpecifiers ts_from_str(const char* str);
 
-typedef struct {
-    /* 0 = Standard types, e.g., int, float, long long*
-       1 = Function */
-    int category;
+typedef struct
+{
+	/* 0 = Standard types, e.g., int, float, long long*
+	   1 = Function */
+	int category;
 
-    TypeSpecifiers typespec;
-    int pointers;
+	TypeSpecifiers typespec;
+	int pointers;
 
-    /* Arrays */
-    int dimension; /* Dimension of array, e.g., [123][321] has dimension 2 */
-    int size[1]; /* Number of elements for each dimension */
-    /* FIXME assume dimension 1 arrays for now to get something implemented */
+	/* Arrays */
+	int dimension; /* Dimension of array, e.g., [123][321] has dimension 2 */
+	int size[1];   /* Number of elements for each dimension */
+				   /* FIXME assume dimension 1 arrays for now to get something implemented */
 } Type;
 
 /* Constructs a type at given location */
@@ -92,7 +97,7 @@ int type_dimension(const Type* type);
 
 /* Adds a dimension to the type
    size: Number of elements the dimension can hold in total
-         e.g., int[10][60] has count 600 */
+		 e.g., int[10][60] has count 600 */
 void type_add_dimension(Type* type, int size);
 
 /* Returns the number of elements held in the dimension at index i */
@@ -144,15 +149,13 @@ int type_signed(TypeSpecifiers typespec);
 int type_unsigned(TypeSpecifiers typespec);
 
 /* Returns 1 if the given signed type can represent to given unsigned type */
-int type_signed_represent_unsigned(
-        TypeSpecifiers sign, TypeSpecifiers unsign);
+int type_signed_represent_unsigned(TypeSpecifiers sign, TypeSpecifiers unsign);
 
 /* Returns the unsigned type for the given signed type */
 TypeSpecifiers type_unsign_signed(TypeSpecifiers typespec);
 
 /* Helper for type_common to calculate the common TypeSpecifiers */
-TypeSpecifiers type_common_ts(
-        TypeSpecifiers lhs, TypeSpecifiers rhs);
+TypeSpecifiers type_common_ts(TypeSpecifiers lhs, TypeSpecifiers rhs);
 
 /* Applies the C 6.3.1.8 Usual arithmetic conversions to obtain a common real
    type for the operands and result */

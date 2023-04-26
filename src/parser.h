@@ -6,14 +6,14 @@
 #include "symtab.h"
 #include "tree.h"
 
-typedef struct {
-    Lexer* lex;
-    Symtab* symtab;
-    Tree* tree;
+typedef struct
+{
+	Lexer* lex;
+	Symtab* symtab;
+	Tree* tree;
 } Parser;
 
-ErrorCode parser_construct(
-        Parser* p, Lexer* lex, Symtab* symtab, Tree* tree);
+ErrorCode parser_construct(Parser* p, Lexer* lex, Symtab* symtab, Tree* tree);
 
 /* Parse a translation unit,
    reads from Lexer,

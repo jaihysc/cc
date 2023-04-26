@@ -11,17 +11,18 @@
 /* Blocks are formed by partitioning il statements according to the rules:
    1. Control always enters at the start of the block
    2. Control always leaves at the last statement or end of the block */
-typedef struct {
-    /* Labels at the entry of this block */
-    vec_t(Symbol*) labels;
-    vec_t(IL2Statement) il_stats;
+typedef struct
+{
+	/* Labels at the entry of this block */
+	vec_t(Symbol*) labels;
+	vec_t(IL2Statement) il_stats;
 
-    /* At most 2 options:
-       1. Flow through to next block
-       2. Jump at end
-       Is offset (in Block) from current location, cannot use pointer
-       as container holding Block may resize */
-    int next[MAX_BLOCK_LINK];
+	/* At most 2 options:
+	   1. Flow through to next block
+	   2. Jump at end
+	   Is offset (in Block) from current location, cannot use pointer
+	   as container holding Block may resize */
+	int next[MAX_BLOCK_LINK];
 } Block;
 
 ErrorCode block_construct(Block* blk);
@@ -52,8 +53,9 @@ void block_link(Block* blk, Block* next);
 /* Returns pointer to ith next block */
 Block* block_next(Block* blk, int i);
 
-typedef struct {
-    vec_t(Block) blocks;
+typedef struct
+{
+	vec_t(Block) blocks;
 } Cfg;
 
 ErrorCode cfg_construct(Cfg* cfg);

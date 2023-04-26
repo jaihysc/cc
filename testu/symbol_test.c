@@ -3,63 +3,54 @@
 #include "symbol.h"
 
 static void SymbolConstruct(CuTest* tc) {
-    Type type;
-    type_construct(&type, ts_int, 0);
+	Type type;
+	type_construct(&type, ts_int, 0);
 
-    Symbol sym;
-    CuAssertIntEquals(
-            tc,
-            symbol_construct(&sym, "abc", &type),
-            ec_noerr
-    );
+	Symbol sym;
+	CuAssertIntEquals(tc, symbol_construct(&sym, "abc", &type), ec_noerr);
 
-    CuAssertStrEquals(tc, symbol_token(&sym), "abc");
+	CuAssertStrEquals(tc, symbol_token(&sym), "abc");
 
-    symbol_destruct(&sym);
-    type_destruct(&type);
+	symbol_destruct(&sym);
+	type_destruct(&type);
 }
 
 static void SymbolNameTooLong(CuTest* tc) {
-    const char* long_name =
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz"
-        "abcdefghijklmnopqrstuvwxyz";
+	const char* long_name = "abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz"
+							"abcdefghijklmnopqrstuvwxyz";
 
-    Type type;
-    type_construct(&type, ts_int, 0);
+	Type type;
+	type_construct(&type, ts_int, 0);
 
-    Symbol sym;
-    CuAssertIntEquals(
-            tc,
-            symbol_construct(&sym, long_name, &type),
-            ec_symbol_nametoolong
-    );
+	Symbol sym;
+	CuAssertIntEquals(tc, symbol_construct(&sym, long_name, &type), ec_symbol_nametoolong);
 
-    CuAssertStrEquals(tc, symbol_token(&sym), "");
+	CuAssertStrEquals(tc, symbol_token(&sym), "");
 
-    type_destruct(&type);
+	type_destruct(&type);
 }
 
 CuSuite* SymbolGetSuite() {
-    CuSuite* suite = CuSuiteNew();
-    SUITE_ADD_TEST(suite, SymbolConstruct);
-    SUITE_ADD_TEST(suite, SymbolNameTooLong);
-    return suite;
+	CuSuite* suite = CuSuiteNew();
+	SUITE_ADD_TEST(suite, SymbolConstruct);
+	SUITE_ADD_TEST(suite, SymbolNameTooLong);
+	return suite;
 }

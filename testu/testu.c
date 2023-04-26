@@ -28,10 +28,10 @@ int RunAllTests(void) {
 	printf("%s\n", output->buffer);
 	int failCount = suite->failCount;
 
-    CuSuiteDelete(suite);
-    CuStringDelete(output);
+	CuSuiteDelete(suite);
+	CuStringDelete(output);
 
-    return failCount;
+	return failCount;
 }
 
 int main(void) {

@@ -8,32 +8,36 @@
 
 /* See strbinfind for ordering requirements */
 #define INSTRUCTIONS  \
-    INSTRUCTION(add)  \
-    INSTRUCTION(call) \
-    INSTRUCTION(ce)   \
-    INSTRUCTION(cl)   \
-    INSTRUCTION(cle)  \
-    INSTRUCTION(cne)  \
-    INSTRUCTION(def)  \
-    INSTRUCTION(div)  \
-    INSTRUCTION(func) \
-    INSTRUCTION(jmp)  \
-    INSTRUCTION(jnz)  \
-    INSTRUCTION(jz)   \
-    INSTRUCTION(lab)  \
-    INSTRUCTION(mad)  \
-    INSTRUCTION(mfi)  \
-    INSTRUCTION(mod)  \
-    INSTRUCTION(mov)  \
-    INSTRUCTION(mtc)  \
-    INSTRUCTION(mti)  \
-    INSTRUCTION(mul)  \
-    INSTRUCTION(not)  \
-    INSTRUCTION(ret)  \
-    INSTRUCTION(sub)
+	INSTRUCTION(add)  \
+	INSTRUCTION(call) \
+	INSTRUCTION(ce)   \
+	INSTRUCTION(cl)   \
+	INSTRUCTION(cle)  \
+	INSTRUCTION(cne)  \
+	INSTRUCTION(def)  \
+	INSTRUCTION(div)  \
+	INSTRUCTION(func) \
+	INSTRUCTION(jmp)  \
+	INSTRUCTION(jnz)  \
+	INSTRUCTION(jz)   \
+	INSTRUCTION(lab)  \
+	INSTRUCTION(mad)  \
+	INSTRUCTION(mfi)  \
+	INSTRUCTION(mod)  \
+	INSTRUCTION(mov)  \
+	INSTRUCTION(mtc)  \
+	INSTRUCTION(mti)  \
+	INSTRUCTION(mul)  \
+	INSTRUCTION(not ) \
+	INSTRUCTION(ret)  \
+	INSTRUCTION(sub)
 
-#define INSTRUCTION(name__) il2_ ## name__,
-typedef enum {il2_none = -1, INSTRUCTIONS} IL2Ins;
+#define INSTRUCTION(name__) il2_##name__,
+typedef enum
+{
+	il2_none = -1,
+	INSTRUCTIONS
+} IL2Ins;
 #undef INSTRUCTION
 
 /* Returns string for IL2Ins */
@@ -51,10 +55,11 @@ int il2_isjump(IL2Ins ins);
    0 otherwise */
 int il2_incfg(IL2Ins ins);
 
-typedef struct {
-    IL2Ins ins;
-    Symbol* arg[MAX_IL2_ARGS];
-    int argc;
+typedef struct
+{
+	IL2Ins ins;
+	Symbol* arg[MAX_IL2_ARGS];
+	int argc;
 } IL2Statement;
 
 /* Makes IL2 statement with given arguments */

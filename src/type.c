@@ -63,35 +63,75 @@ TypeSpecifiers ts_from_str(const char* str) {
 }
 
 ErrorCode type_construct(Type* type, TypeSpecifiers ts, int pointers) {
-	type->category = 0;
-	type->typespec = ts;
+	ASSERT(type != NULL, "Type is null");
+	type->category = TypeCategory_standard;
+	type->data.standard.typespec = ts;
 	type->pointers = pointers;
 	type->dimension = 0;
 	type->size[0] = 0;
 	return ec_noerr;
 }
 
-ErrorCode type_constructf(Type* type, const Type* ret_type) {
-	*type = *ret_type;
-	type->category = 1;
+ErrorCode type_constructf(Type* type, const Type* ret_type, int pointers) {
+	ASSERT(type != NULL, "Type is null");
+	ASSERT(pointers > 0, "Function types should have at least 1 pointer");
+
+	ErrorCode ecode;
+	type->category = TypeCategory_function;
+
+	type->data.function.return_type = cmalloc(sizeof(Type));
+	if (type->data.function.return_type == NULL) return ec_badalloc;
+	if ((ecode = type_copy(ret_type, type->data.function.return_type)) != ec_noerr) return ecode;
+
+	type->pointers = pointers;
+	type->dimension = 0;
+	type->size[0] = 0;
 	return ec_noerr;
 }
 
-void type_destruct(Type* type) {}
+void type_destruct(Type* type) {
+	ASSERT(type != NULL, "Type is null");
+	if (type->category == TypeCategory_function) {
+		type_destruct(type->data.function.return_type);
+		cfree(type->data.function.return_type);
+	}
+}
 
 ErrorCode type_copy(const Type* type, Type* dest) {
-	*dest = *type;
+	ASSERT(type != NULL, "Type is null");
+	ErrorCode ecode;
+	dest->category = type->category;
+
+	if (type->category == TypeCategory_standard) {
+		dest->data.standard.typespec = type->data.standard.typespec;
+	}
+	else if (type->category == TypeCategory_function) {
+		dest->data.function.return_type = cmalloc(sizeof(Type));
+		if (dest->data.function.return_type == NULL) return ec_badalloc;
+		if ((ecode = type_copy(type->data.function.return_type, dest->data.function.return_type)) != ec_noerr)
+			return ecode;
+	}
+	else {
+		ASSERT(0, "Unrecognized category");
+	}
+
+	dest->pointers = type->pointers;
+
+	dest->dimension = type->dimension;
+	dest->size[0] = type->size[0];
 	return ec_noerr;
 }
 
 TypeSpecifiers type_typespec(const Type* type) {
 	ASSERT(type != NULL, "Type is null");
-	return type->typespec;
+	ASSERT(type->category == TypeCategory_standard, "Expected standard type");
+	return type->data.standard.typespec;
 }
 
 void type_set_typespec(Type* type, TypeSpecifiers typespec) {
 	ASSERT(type != NULL, "Type is null");
-	type->typespec = typespec;
+	ASSERT(type->category == TypeCategory_standard, "Expected standard type");
+	type->data.standard.typespec = typespec;
 }
 
 int type_pointer(const Type* type) {
@@ -148,23 +188,35 @@ int type_dimension_size(const Type* type, int i) {
 	return type->size[i];
 }
 
-int type_is_function(const Type* type) {
-	return type->category == 1;
+int type_is_standard(const Type* type) {
+	ASSERT(type != NULL, "Type is null");
+	return type->category == TypeCategory_standard;
 }
 
-ErrorCode type_return(const Type* type, Type* dest) {
-	ASSERT(0, "unimplemented");
-	return ec_noerr;
+int type_is_function(const Type* type) {
+	ASSERT(type != NULL, "Type is null");
+	return type->category == TypeCategory_function;
+}
+
+Type* type_return(Type* type) {
+	ASSERT(type != NULL, "Type is null");
+	ASSERT(type->category == TypeCategory_function, "Expected function type");
+	return type->data.function.return_type;
 }
 
 int type_bytes(const Type* type) {
-	ASSERT(type->typespec != ts_none, "Invalid type specifiers");
+	ASSERT(type != NULL, "Type is null");
 
 	if (type->pointers > 0) {
 		return 8;
 	}
+
+	ASSERT(type->category == TypeCategory_standard, "Expected standard type");
+	TypeSpecifiers ts = type->data.standard.typespec;
+	ASSERT(ts != ts_none, "Invalid type specifiers");
+
 	int bytes = 0;
-	switch (type->typespec) {
+	switch (ts) {
 	case ts_void:
 		bytes = 0;
 		break;
@@ -211,9 +263,23 @@ int type_bytes(const Type* type) {
 }
 
 int type_equal(const Type* lhs, const Type* rhs) {
-	if (lhs->typespec != rhs->typespec) {
-		return 0;
+	ASSERT(lhs != NULL, "Type is null");
+	ASSERT(rhs != NULL, "Type is null");
+
+	if (lhs->category != rhs->category) return 0;
+
+	if (lhs->category == TypeCategory_standard) {
+		if (lhs->data.standard.typespec != rhs->data.standard.typespec) {
+			return 0;
+		}
 	}
+	else if (lhs->category == TypeCategory_function) {
+		if (!type_equal(lhs->data.function.return_type, rhs->data.function.return_type)) return 0;
+	}
+	else {
+		ASSERT(0, "Unrecognized category");
+	}
+
 	if (lhs->pointers != rhs->pointers) {
 		return 0;
 	}

@@ -43,13 +43,25 @@ const char* ts_str(TypeSpecifiers typespec);
    ts_none if invalid */
 TypeSpecifiers ts_from_str(const char* str);
 
-typedef struct
+typedef struct Type
 {
-	/* 0 = Standard types, e.g., int, float, long long*
-	   1 = Function */
-	int category;
+	enum
+	{
+		TypeCategory_standard,
+		TypeCategory_function,
+	} category;
 
-	TypeSpecifiers typespec;
+	union
+	{
+		struct
+		{
+			TypeSpecifiers typespec;
+		} standard;
+		struct
+		{
+			struct Type* return_type;
+		} function;
+	} data;
 	int pointers;
 
 	/* Arrays */
@@ -62,7 +74,7 @@ typedef struct
 ErrorCode type_construct(Type* type, TypeSpecifiers ts, int pointers);
 
 /* Constructs a function type at the given location */
-ErrorCode type_constructf(Type* type, const Type* ret_type);
+ErrorCode type_constructf(Type* type, const Type* ret_type, int pointers);
 
 void type_destruct(Type* type);
 
@@ -103,15 +115,14 @@ void type_add_dimension(Type* type, int size);
 /* Returns the number of elements held in the dimension at index i */
 int type_dimension_size(const Type* type, int i);
 
-
-/* Function types */
-
+/* Returns 1 if given type is a standard type, 0 if not */
+int type_is_standard(const Type* type);
 
 /* Returns 1 if given type is a function, 0 if not */
 int type_is_function(const Type* type);
 
 /* Returns the return type of given function type */
-ErrorCode type_return(const Type* type, Type* dest);
+Type* type_return(Type* type);
 
 /* Number of bytes this type takes up
    For arrays, the element count are part of the type's size */

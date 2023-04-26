@@ -265,12 +265,23 @@ void debug_print_symtab(Symtab* stab) {
 		for (int j = 0; j < symbols_size; ++j) {
 			Symbol* sym = vec_at(&stab->scopes[i], j);
 			Type* type = symbol_type(sym);
-			LOGF("    %d %s", j, ts_str(type_typespec(type)));
 
-			for (int k = 0; k < type_pointer(type); ++k) {
-				LOG("*");
+			LOGF("    %d ", j);
+			if (type_is_standard(type)) {
+				LOGF("%s", ts_str(type_typespec(type)));
+				for (int k = 0; k < type_pointer(type); ++k) {
+					LOG("*");
+				}
+				LOGF(" %s\n", symbol_token(sym));
 			}
-			LOGF(" %s\n", symbol_token(sym));
+			else if (type_is_function(type)) {
+				Type* return_type = type_return(type);
+				LOGF("%s (", ts_str(type_typespec(return_type)));
+				for (int k = 0; k < type_pointer(type); ++k) {
+					LOG("*");
+				}
+				LOGF("%s)\n", symbol_token(sym));
+			}
 		}
 	}
 

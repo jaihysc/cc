@@ -847,6 +847,8 @@ ErrorCode il2_write(IL2Gen* il2, const char* filepath) {
 		Symbol* sym = &hvec_at(&il2->stab->symbol, i);
 		Type* type = symbol_type(sym);
 
+		if (!type_is_standard(type)) continue;
+
 		const char* type_str;
 		switch (type_typespec(type)) {
 		case ts_void:

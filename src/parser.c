@@ -2012,6 +2012,29 @@ static ErrorCode parse_external_declaration(Parser* p, TNode* parent, int* match
 	if (type == tt_parameter_type_list) {
 		/* function-definition */
 
+		/* Construct return type */
+		TNodeDeclarationSpecifiers* declspec = (TNodeDeclarationSpecifiers*)tnode_data(tnode_child(node, 0));
+		TNodePointer* pointer = (TNodePointer*)tnode_data(tnode_child(node, 1));
+		TNodeNewIdentifier* identifier = (TNodeNewIdentifier*)tnode_data(tnode_child(node, 2));
+
+		Type return_type;
+		if ((ecode = type_construct(&return_type, declspec->ts, pointer->pointers)) != ec_noerr) goto exit;
+
+		/* Construct function type */
+		Type function_type;
+		if ((ecode = type_constructf(&function_type, &return_type, 1)) != ec_noerr) {
+			type_destruct(&return_type);
+			goto exit;
+		}
+
+		/* Save function symbol */
+		Symbol* sym;
+		ecode = symtab_add(p->symtab, &sym, identifier->token, &function_type);
+		type_destruct(&function_type);
+		type_destruct(&return_type);
+		if (ecode != ec_noerr) goto exit;
+
+		/* Parse function body */
 		if ((ecode = parse_compound_statement(p, node, &has_match)) != ec_noerr) goto exit;
 		if (!has_match) {
 			ERRMSG("Expected compound-statement\n");

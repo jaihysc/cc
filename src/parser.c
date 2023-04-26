@@ -16,6 +16,9 @@ static int cmp_remove_tnode(TNode* node) {
 		TNodePostfixExpression* n = (TNodePostfixExpression*)tnode_data(node);
 		return n->type == TNodePostfixExpression_none;
 	}
+	if (tnode_type(node) == tt_argument_expression_list) {
+		return 0;
+	}
 	return tnode_count_child(node) == 1;
 }
 
@@ -422,7 +425,6 @@ static ErrorCode parse_postfix_expression(Parser* p, TNode* parent, int* matched
 	if (!has_match) goto exit;
 	*matched = 1;
 
-
 	const char* token;
 	if ((ecode = lexer_getc(p->lex, &token)) != ec_noerr) goto exit;
 
@@ -434,14 +436,25 @@ static ErrorCode parse_postfix_expression(Parser* p, TNode* parent, int* matched
 
 	//    parse_postfix_expression_2(p, parent);
 	//}
-	///* Function call */
-	// else if (parse_expect(p, "(")) {
-	//     if (!parse_argument_expression_list(p, parent)) goto exit;
-	//     if (!parse_expect(p, ")")) goto exit;
-	//     PARSE_MATCHED();
+	/* Function call */
+	if (strequ(token, "(")) {
+		data.type = TNodePostfixExpression_call;
+		lexer_consume(p->lex);
 
-	//    parse_postfix_expression_2(p, parent);
-	//}
+		if ((ecode = parse_argument_expression_list(p, node, &has_match)) != ec_noerr) goto exit;
+		if (!has_match) {
+			ERRMSG("Expected argument-expression-list\n");
+			ecode = ec_syntaxerr;
+			goto exit;
+		}
+
+		if ((ecode = parse_expect(p, ")", &has_match)) != ec_noerr) goto exit;
+		if (!has_match) {
+			ERRMSG("Expected ')'\n");
+			ecode = ec_syntaxerr;
+			goto exit;
+		}
+	}
 
 	/* Postfix increment, decrement */
 	if (strequ(token, "++")) {
@@ -462,29 +475,36 @@ exit:
 	return ecode;
 }
 
-// static ErrorCode parse_argument_expression_list(Parser* p, TNode* parent, int* matched) {
-//     /* Left recursion in C standard is converted to right recursion
-//        argument-expression-list
-//        -> assignment-expression
-//         | assignment-expression , argument-expression-list */
-//     PARSE_FUNC_START(argument_expression_list);
-//     ErrorCode ecode;
-//     *matched = 0;
-//
-//     if (parse_assignment_expression(p, parent)) {
-//         if (parse_expect(p, ",")) {
-//             if (parse_argument_expression_list(p, parent)) {
-//                 PARSE_MATCHED();
-//             }
-//         }
-//         else {
-//             PARSE_MATCHED();
-//         }
-//     }
-//
-//     PARSE_FUNC_END();
-//     return ecode;
-// }
+static ErrorCode parse_argument_expression_list(Parser* p, TNode* parent, int* matched) {
+	PARSE_FUNC_START(argument_expression_list);
+	ErrorCode ecode;
+	*matched = 0;
+
+	TNode* node;
+	if ((ecode = tnode_alloca(&node, parent)) != ec_noerr) goto exit;
+	tnode_set(node, tt_argument_expression_list, NULL);
+
+	int has_match;
+	if ((ecode = parse_assignment_expression(p, node, &has_match)) != ec_noerr) goto exit;
+	if (!has_match) goto exit;
+	*matched = 1;
+
+	if ((ecode = parse_expect(p, ",", &has_match)) != ec_noerr) goto exit;
+	while (has_match) {
+		if ((ecode = parse_assignment_expression(p, node, &has_match)) != ec_noerr) goto exit;
+		if (!has_match) {
+			ERRMSG("Expected assignment-expression\n");
+			ecode = ec_syntaxerr;
+			goto exit;
+		}
+
+		if ((ecode = parse_expect(p, ",", &has_match)) != ec_noerr) goto exit;
+	}
+
+exit:
+	PARSE_FUNC_END();
+	return ecode;
+}
 
 static ErrorCode parse_unary_expression(Parser* p, TNode* parent, int* matched) {
 	PARSE_FUNC_START(unary_expression);

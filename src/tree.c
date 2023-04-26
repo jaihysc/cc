@@ -142,6 +142,8 @@ void tnode_set(TNode* node, TNodeType tt, void* data) {
 	case tt_postfix_expression:
 		node->data.postfix_expression = *(TNodePostfixExpression*)data;
 		break;
+	case tt_argument_expression_list:
+		break;
 	case tt_unary_expression:
 		node->data.unary_expression = *(TNodeUnaryExpression*)data;
 		break;
@@ -327,6 +329,9 @@ static void debug_tnode_walk(Tree* tree, TNode* node, char* branch, int i_branch
 			break;
 		case TNodePostfixExpression_dec:
 			LOG("(-- post)");
+			break;
+		case TNodePostfixExpression_call:
+			LOG("(call)");
 			break;
 		default:
 			ASSERT(0, "Unimplemented");

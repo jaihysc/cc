@@ -31,6 +31,7 @@ typedef struct
 		TNodePostfixExpression_none,
 		TNodePostfixExpression_inc,
 		TNodePostfixExpression_dec,
+		TNodePostfixExpression_call,
 	} type;
 } TNodePostfixExpression;
 
@@ -131,36 +132,37 @@ typedef union
 /* 6.7 Declarators */
 /* 6.8 Statements and blocks */
 /* 6.9 External definitions */
-#define TNODE_TYPES                    \
-	TNODE_TYPE(root)                   \
-	TNODE_TYPE(dummy)                  \
-                                       \
-	TNODE_TYPE(identifier)             \
-	TNODE_TYPE(new_identifier)         \
-	TNODE_TYPE(constant)               \
-                                       \
-	TNODE_TYPE(postfix_expression)     \
-	TNODE_TYPE(unary_expression)       \
-	TNODE_TYPE(cast_expression)        \
-	TNODE_TYPE(binary_expression)      \
-	TNODE_TYPE(logical_or_expression)  \
-	TNODE_TYPE(logical_and_expression) \
-	TNODE_TYPE(assignment_expression)  \
-                                       \
-	TNODE_TYPE(declaration)            \
-	TNODE_TYPE(declaration_specifiers) \
-	TNODE_TYPE(pointer)                \
-	TNODE_TYPE(parameter_type_list)    \
-	TNODE_TYPE(parameter_list)         \
-                                       \
-	TNODE_TYPE(compound_statement)     \
-	TNODE_TYPE(block_item)             \
-	TNODE_TYPE(selection_statement)    \
-	TNODE_TYPE(while_statement)        \
-	TNODE_TYPE(do_statement)           \
-	TNODE_TYPE(for_statement)          \
-	TNODE_TYPE(jump_statement)         \
-                                       \
+#define TNODE_TYPES                      \
+	TNODE_TYPE(root)                     \
+	TNODE_TYPE(dummy)                    \
+                                         \
+	TNODE_TYPE(identifier)               \
+	TNODE_TYPE(new_identifier)           \
+	TNODE_TYPE(constant)                 \
+                                         \
+	TNODE_TYPE(postfix_expression)       \
+	TNODE_TYPE(argument_expression_list) \
+	TNODE_TYPE(unary_expression)         \
+	TNODE_TYPE(cast_expression)          \
+	TNODE_TYPE(binary_expression)        \
+	TNODE_TYPE(logical_or_expression)    \
+	TNODE_TYPE(logical_and_expression)   \
+	TNODE_TYPE(assignment_expression)    \
+                                         \
+	TNODE_TYPE(declaration)              \
+	TNODE_TYPE(declaration_specifiers)   \
+	TNODE_TYPE(pointer)                  \
+	TNODE_TYPE(parameter_type_list)      \
+	TNODE_TYPE(parameter_list)           \
+                                         \
+	TNODE_TYPE(compound_statement)       \
+	TNODE_TYPE(block_item)               \
+	TNODE_TYPE(selection_statement)      \
+	TNODE_TYPE(while_statement)          \
+	TNODE_TYPE(do_statement)             \
+	TNODE_TYPE(for_statement)            \
+	TNODE_TYPE(jump_statement)           \
+                                         \
 	TNODE_TYPE(function_definition)
 
 #define TNODE_TYPE(name__) tt_##name__,

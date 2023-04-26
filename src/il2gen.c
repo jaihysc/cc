@@ -211,6 +211,11 @@ static ErrorCode cg_postfix_expression(IL2Gen* il2, Symbol** sym, TNode* node, B
 			ec_noerr)
 			return ecode;
 	} break;
+	case TNodePostfixExpression_call:
+	{
+		/* TODO */
+		break;
+	}
 	default:
 		ASSERT(0, "Unknown node type");
 		break;

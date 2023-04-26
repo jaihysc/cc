@@ -640,7 +640,6 @@ static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* 
 	int has_match;
 	if ((ecode = parse_cast_expression(p, node, &has_match)) != ec_noerr) goto exit;
 	if (!has_match) goto exit;
-	attached_node = 1;
 
 	while (1) {
 		/* Parse operator */
@@ -677,6 +676,7 @@ static ErrorCode parse_multiplicative_expression(Parser* p, TNode* parent, int* 
 
 	if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
 	tnode_set(node, tt_binary_expression, &data);
+	attached_node = 1;
 
 	*matched = 1;
 
@@ -702,7 +702,6 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
 	int has_match;
 	if ((ecode = parse_multiplicative_expression(p, node, &has_match)) != ec_noerr) goto exit;
 	if (!has_match) goto exit;
-	attached_node = 1;
 
 	while (1) {
 		/* Parse operator */
@@ -735,6 +734,7 @@ static ErrorCode parse_additive_expression(Parser* p, TNode* parent, int* matche
 
 	if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
 	tnode_set(node, tt_binary_expression, &data);
+	attached_node = 1;
 
 	*matched = 1;
 
@@ -774,7 +774,6 @@ static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matc
 	int has_match;
 	if ((ecode = parse_shift_expression(p, node, &has_match)) != ec_noerr) goto exit;
 	if (!has_match) goto exit;
-	attached_node = 1;
 
 	while (1) {
 		/* Parse operator */
@@ -815,6 +814,7 @@ static ErrorCode parse_relational_expression(Parser* p, TNode* parent, int* matc
 
 	if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
 	tnode_set(node, tt_binary_expression, &data);
+	attached_node = 1;
 
 	*matched = 1;
 
@@ -840,7 +840,6 @@ static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matche
 	int has_match;
 	if ((ecode = parse_relational_expression(p, node, &has_match)) != ec_noerr) goto exit;
 	if (!has_match) goto exit;
-	attached_node = 1;
 
 	while (1) {
 		/* Parse operator */
@@ -873,6 +872,7 @@ static ErrorCode parse_equality_expression(Parser* p, TNode* parent, int* matche
 
 	if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;
 	tnode_set(node, tt_binary_expression, &data);
+	attached_node = 1;
 
 	*matched = 1;
 

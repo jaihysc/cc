@@ -24,6 +24,8 @@ typedef struct {
 
     /* Holds all constants symbols ever added */
     hvec_t(Symbol) constant;
+    Type type_int;
+    Type type_label;
 
     /* First scope is most global
        First symbol element is earliest in occurrence
@@ -81,15 +83,15 @@ Symbol* symtab_find(Symtab* stab, const char* token);
    Stores Symbol* of added symbol at pointer,
    or ec_symtab_dupname if it already exists */
 ErrorCode symtab_add(Symtab* stab, Symbol** sym_ptr,
-        const char* token, Type type);
+        const char* token, Type* type);
 
 /* Adds constant to symbol table
    Stores Symbol* of added constant at pointer */
 ErrorCode symtab_add_constant(Symtab* stab, Symbol** sym_ptr,
-        const char* token, Type type);
+        const char* token, Type* type);
 
 /* Creates a new temporary for the current scope in symbol table */
-ErrorCode symtab_add_temporary(Symtab* stab, Symbol** symid_ptr, Type type);
+ErrorCode symtab_add_temporary(Symtab* stab, Symbol** symid_ptr, Type* type);
 
 /* Creates a new label for the current scope in symbol table */
 ErrorCode symtab_add_label(Symtab* stab, Symbol** symid_ptr);
@@ -103,6 +105,9 @@ Symbol* symtab_constant_zero(Symtab* stab);
 
 /* Returns the constant 1 */
 Symbol* symtab_constant_one(Symtab* stab);
+
+/* Returns the type int */
+Type* symtab_type_int(Symtab* stab);
 
 /* Debug */
 

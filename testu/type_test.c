@@ -8,6 +8,8 @@ void TypeConstruct(CuTest* tc) {
 
     CuAssertTrue(tc, type_typespec(&type) == ts_uint);
     CuAssertTrue(tc, type_pointer(&type) == 1);
+
+    type_destruct(&type);
 }
 
 void TypeSpecifierFromString(CuTest* tc) {

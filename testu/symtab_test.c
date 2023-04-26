@@ -4,12 +4,12 @@
 
 static void AddSymbol(CuTest* tc) {
     Symtab stab;
-    symtab_construct(&stab);
+    CuAssertTrue(tc, symtab_construct(&stab) == ec_noerr);
 
     CuAssertIntEquals(tc, symtab_push_scope(&stab), ec_noerr);
 
     Symbol* sym;
-    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "ee", type_int), ec_noerr);
+    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "ee", symtab_type_int(&stab)), ec_noerr);
 
     CuAssertPtrNotNull(tc, sym);
     CuAssertStrEquals(tc, symbol_token(sym), "ee");
@@ -19,25 +19,25 @@ static void AddSymbol(CuTest* tc) {
 
 static void DuplicateSymbol(CuTest* tc) {
     Symtab stab;
-    symtab_construct(&stab);
+    CuAssertTrue(tc, symtab_construct(&stab) == ec_noerr);
 
     CuAssertIntEquals(tc, symtab_push_scope(&stab), ec_noerr);
 
     Symbol* sym;
-    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "abc", type_int), ec_noerr);
-    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "abc", type_int), ec_symtab_dupname);
+    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "abc", symtab_type_int(&stab)), ec_noerr);
+    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "abc", symtab_type_int(&stab)), ec_symtab_dupname);
 
     symtab_destruct(&stab);
 }
 
 static void FindSymbol(CuTest* tc) {
     Symtab stab;
-    symtab_construct(&stab);
+    CuAssertTrue(tc, symtab_construct(&stab) == ec_noerr);
 
     CuAssertIntEquals(tc, symtab_push_scope(&stab), ec_noerr);
 
     Symbol* sym;
-    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "llvm", type_int), ec_noerr);
+    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "llvm", symtab_type_int(&stab)), ec_noerr);
 
     Symbol* found = symtab_find(&stab, "llvm");
 
@@ -48,16 +48,16 @@ static void FindSymbol(CuTest* tc) {
 
 static void AccessSymbolOutOfScope(CuTest* tc) {
     Symtab stab;
-    symtab_construct(&stab);
+    CuAssertTrue(tc, symtab_construct(&stab) == ec_noerr);
 
     CuAssertIntEquals(tc, symtab_push_scope(&stab), ec_noerr);
     Symbol* sym;
-    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "symbol", type_int), ec_noerr);
+    CuAssertIntEquals(tc, symtab_add(&stab, &sym, "symbol", symtab_type_int(&stab)), ec_noerr);
     symtab_pop_scope(&stab);
 
     CuAssertIntEquals(tc, symtab_push_scope(&stab), ec_noerr);
     Symbol* sym2;
-    CuAssertIntEquals(tc, symtab_add(&stab, &sym2, "symbol2", type_int), ec_noerr);
+    CuAssertIntEquals(tc, symtab_add(&stab, &sym2, "symbol2", symtab_type_int(&stab)), ec_noerr);
     symtab_pop_scope(&stab);
 
     /* Scope popped, can still access via the symbol id, but not name */
@@ -75,10 +75,10 @@ static void AccessSymbolOutOfScope(CuTest* tc) {
 
 static void AddConstant(CuTest* tc) {
     Symtab stab;
-    symtab_construct(&stab);
+    CuAssertTrue(tc, symtab_construct(&stab) == ec_noerr);
 
     Symbol* sym = NULL;
-    symtab_add_constant(&stab, &sym, "1234", type_int);
+    symtab_add_constant(&stab, &sym, "1234", symtab_type_int(&stab));
 
     CuAssertPtrNotNull(tc, sym);
     CuAssertStrEquals(tc, symbol_token(sym), "1234");
@@ -88,7 +88,7 @@ static void AddConstant(CuTest* tc) {
 
 static void ConstantZero(CuTest* tc) {
     Symtab stab;
-    symtab_construct(&stab);
+    CuAssertTrue(tc, symtab_construct(&stab) == ec_noerr);
 
     Symbol* sym = symtab_constant_zero(&stab);
 

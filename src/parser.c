@@ -256,7 +256,10 @@ static ErrorCode parse_decimal_constant(Parser* p, TNode* parent, int* matched) 
 
     Symbol* sym;
     if ((ecode = symtab_add_constant(
-                    p->symtab, &sym, token, type_int)) != ec_noerr) goto exit;
+                    p->symtab,
+                    &sym,
+                    token,
+                    symtab_type_int(p->symtab))) != ec_noerr) goto exit;
 
     TNodeConstant data;
     data.symbol = sym;
@@ -304,7 +307,10 @@ static ErrorCode parse_octal_constant(Parser* p, TNode* parent, int* matched) {
 
     Symbol* sym;
     if ((ecode = symtab_add_constant(
-                    p->symtab, &sym, token, type_int)) != ec_noerr) goto exit;
+                    p->symtab,
+                    &sym,
+                    token,
+                    symtab_type_int(p->symtab))) != ec_noerr) goto exit;
 
     TNodeConstant data;
     data.symbol = sym;
@@ -355,7 +361,10 @@ static ErrorCode parse_hexadecimal_constant(Parser* p, TNode* parent, int* match
 
     Symbol* sym;
     if ((ecode = symtab_add_constant(
-                    p->symtab, &sym, token, type_int)) != ec_noerr) goto exit;
+                    p->symtab,
+                    &sym,
+                    token,
+                    symtab_type_int(p->symtab))) != ec_noerr) goto exit;
 
     TNodeConstant data;
     data.symbol = sym;
@@ -1166,11 +1175,15 @@ static ErrorCode parse_declaration(Parser* p, TNode* parent, int* matched) {
         (TNodeNewIdentifier*)tnode_data(tnode_child(node, 2));
 
     Type type;
-    type_construct(&type, declspec->ts, pointer->pointers);
+    if ((ecode = type_construct(
+                    &type, declspec->ts, pointer->pointers)) != ec_noerr) goto exit;
 
     Symbol* sym;
-    if ((ecode = symtab_add(
-                    p->symtab, &sym, identifier->token, type)) != ec_noerr) goto exit;
+    if ((ecode = symtab_add(p->symtab, &sym, identifier->token, &type)) != ec_noerr) {
+        type_destruct(&type);
+        goto exit;
+    }
+    type_destruct(&type);
 
     /* Replace the new-identifier with identifier as now added to symtab */
     TNode* identifier_node;
@@ -1473,11 +1486,15 @@ static ErrorCode parse_parameter_list(Parser* p, TNode* parent, int* matched) {
             (TNodeNewIdentifier*)tnode_data(tnode_child(node, 2));
 
         Type type;
-        type_construct(&type, declspec->ts, pointer->pointers);
+        if ((ecode = type_construct(
+                        &type, declspec->ts, pointer->pointers)) != ec_noerr) goto exit;
 
         Symbol* sym;
-        if ((ecode = symtab_add(
-                        p->symtab, &sym, identifier->token, type)) != ec_noerr) goto exit;
+        if ((ecode = symtab_add(p->symtab, &sym, identifier->token, &type)) != ec_noerr) {
+            type_destruct(&type);
+            goto exit;
+        }
+        type_destruct(&type);
 
         /* Add to tree */
         if ((ecode = tnode_attach(parent, node)) != ec_noerr) goto exit;

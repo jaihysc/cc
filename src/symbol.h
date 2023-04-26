@@ -31,7 +31,9 @@ struct Symbol {
 };
 
 /* Creates symbol at given memory location */
-ErrorCode symbol_construct(Symbol* sym, const char* token, Type type);
+ErrorCode symbol_construct(Symbol* sym, const char* token, Type* type);
+
+void symbol_destruct(Symbol* sym);
 
 /* Converts symbol to class representing access to memory location
    ptr: Is a symbol which when indexed yields this symbol
@@ -48,10 +50,7 @@ SymbolClass symbol_class(Symbol* sym);
 char* symbol_token(Symbol* sym);
 
 /* Returns type for symbol */
-Type symbol_type(Symbol* sym);
-
-/* Sets type for symbol */
-void symbol_set_type(Symbol* sym, const Type* type);
+Type* symbol_type(Symbol* sym);
 
 /* Returns ValueCategory for symbol */
 ValueCategory symbol_valcat(Symbol* sym);

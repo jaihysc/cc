@@ -2,6 +2,8 @@
 #ifndef TYPE_H
 #define TYPE_H
 
+#include "errorcode.h"
+
 /* Maximum length of declaration specifier string,
    no null terminator */
 #define TS_STR_MAX_LEN 22
@@ -51,23 +53,16 @@ typedef struct {
     /* FIXME assume dimension 1 arrays for now to get something implemented */
 } Type;
 
-/* Returned by relational, equality, logical and, logical or as required by
-   6.5.8.6
-   6.5.9.3
-   6.5.13.3
-   6.5.14.3 */
-extern Type type_int;
-/* Type for labels */
-extern Type type_label;
-/* Type for offsetting pointers */
-extern Type type_ptroffset;
-extern Type type_ptrdiff;
-
 /* Constructs a type at given location */
-void type_construct(Type* type, TypeSpecifiers ts, int pointers);
+ErrorCode type_construct(Type* type, TypeSpecifiers ts, int pointers);
 
 /* Constructs a function type at the given location */
-void type_constructf(Type* type, const Type* ret_type);
+ErrorCode type_constructf(Type* type, const Type* ret_type);
+
+void type_destruct(Type* type);
+
+/* Copys provided type into destination */
+ErrorCode type_copy(const Type* type, Type* dest);
 
 /* Returns type specifiers for Type */
 TypeSpecifiers type_typespec(const Type* type);
@@ -90,7 +85,7 @@ int type_inc_pointer(Type* type);
 void type_dec_indirection(Type* type);
 
 /* Returns Type of what this pointer points to */
-Type type_point_to(const Type* type);
+ErrorCode type_point_to(const Type* type, Type* dest);
 
 /* Returns the dimension of this type */
 int type_dimension(const Type* type);
@@ -111,17 +106,14 @@ int type_dimension_size(const Type* type, int i);
 int type_is_function(const Type* type);
 
 /* Returns the return type of given function type */
-Type type_return(const Type* type);
-
-/* Converts a string into a type */
-Type type_from_str(const char* str);
+ErrorCode type_return(const Type* type, Type* dest);
 
 /* Number of bytes this type takes up
    For arrays, the element count are part of the type's size */
-int type_bytes(Type type);
+int type_bytes(const Type* type);
 
 /* Return 1 if both types are equal, 0 if not */
-int type_equal(Type lhs, Type rhs);
+int type_equal(const Type* lhs, const Type* rhs);
 
 /* Returns the integer conversion rank for a given integer type */
 int type_rank(TypeSpecifiers typespec);
@@ -130,11 +122,11 @@ int type_rank(TypeSpecifiers typespec);
 int type_array(const Type* type);
 
 /* Returns the type of the array / pointer 's element */
-Type type_element(const Type* type);
+ErrorCode type_element(const Type* type, Type* dest);
 
 /* Converts an array of type to pointer to type
    e.g., int[] -> int*, int[2][10] -> int (*)[10] */
-Type type_array_as_pointer(const Type* type);
+ErrorCode type_array_as_pointer(const Type* type, Type* dest);
 
 /* Returns 1 if given type is a pointer type */
 int type_is_pointer(const Type* type);
@@ -143,7 +135,7 @@ int type_is_pointer(const Type* type);
 int type_is_arithmetic(const Type* type);
 
 /* Returns 1 if the provided type is an integer type, 0 if not */
-int type_integral(Type type);
+int type_integral(const Type* type);
 
 /* Returns 1 if the provided type is signed, 0 if not */
 int type_signed(TypeSpecifiers typespec);
@@ -164,10 +156,10 @@ TypeSpecifiers type_common_ts(
 
 /* Applies the C 6.3.1.8 Usual arithmetic conversions to obtain a common real
    type for the operands and result */
-Type type_common(Type type1, Type type2);
+ErrorCode type_common(const Type* type1, const Type* type2, Type* dest);
 
 /* Applies the C 6.3.1.1 integer promotions on the provided type
    if applicable and returns the new type, or the old type if no promotion  */
-Type type_promotion(Type type);
+ErrorCode type_promotion(const Type* type, Type* dest);
 
 #endif

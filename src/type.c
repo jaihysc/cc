@@ -8,11 +8,6 @@
 const char* type_specifiers_str[] = {TYPE_SPECIFIERS};
 #undef TYPE_SPECIFIER
 
-Type type_int = {.typespec = ts_int, .pointers = 0};
-Type type_label = {.typespec = ts_void, .pointers = 0};
-Type type_ptroffset = {.typespec = ts_longlong, .pointers = 0};
-Type type_ptrdiff = {.typespec = ts_longlong, .pointers = 0};
-
 const char* ts_str(TypeSpecifiers typespec) {
     return type_specifiers_str[typespec];
 }
@@ -63,18 +58,28 @@ TypeSpecifiers ts_from_str(const char* str) {
     return ts_none;
 }
 
-void type_construct(
+ErrorCode type_construct(
         Type* type, TypeSpecifiers ts, int pointers) {
     type->category = 0;
     type->typespec = ts;
     type->pointers = pointers;
     type->dimension = 0;
     type->size[0] = 0;
+    return ec_noerr;
 }
 
-void type_constructf(Type* type, const Type* ret_type) {
+ErrorCode type_constructf(Type* type, const Type* ret_type) {
     *type = *ret_type;
     type->category = 1;
+    return ec_noerr;
+}
+
+void type_destruct(Type* type) {
+}
+
+ErrorCode type_copy(const Type* type, Type* dest) {
+    *dest = *type;
+    return ec_noerr;
 }
 
 TypeSpecifiers type_typespec(const Type* type) {
@@ -114,11 +119,14 @@ void type_dec_indirection(Type* type) {
     }
 }
 
-Type type_point_to(const Type* type) {
+ErrorCode type_point_to(const Type* type, Type* dest) {
     ASSERT(type != NULL, "Type is null");
+    ASSERT(0, "unimplemented");
+    /*
     Type t = *type;
     type_dec_indirection(&t);
-    return t;
+    */
+    return ec_noerr;
 }
 
 int type_dimension(const Type* type) {
@@ -143,75 +151,19 @@ int type_is_function(const Type* type) {
     return type->category == 1;
 }
 
-Type type_return(const Type* type) {
-    return *type;
+ErrorCode type_return(const Type* type, Type* dest) {
+    ASSERT(0, "unimplemented");
+    return ec_noerr;
 }
 
-Type type_from_str(const char* str) {
-    Type type;
-    type_construct(&type, ts_none, 0);
+int type_bytes(const Type* type) {
+    ASSERT(type->typespec != ts_none, "Invalid type specifiers");
 
-    /* type at most 4 char, + 1 null terminator */
-    char buf[5];
-    int i = 0;
-    for (; i < 4; ++i) {
-        char c = str[i];
-        if (c == '\0' || c == '*' || c == '[') {
-            break;
-        }
-        buf[i] = c;
-    }
-    /* Insert null terminator so can compare */
-    buf[i] = '\0';
-    for (int j = 0; j < ts_count; ++j) {
-        if (strequ(buf, type_specifiers_str[j])) {
-            type.typespec = j;
-        }
-    }
-    /* Pointers */
-    char c;
-    while ((c = str[i]) == '*') {
-        ++type.pointers;
-        ++i;
-    }
-    /* Arrays */
-    ASSERT(c == '[' || c == '\0', "Expected array or end of string");
-
-    while (c == '[') {
-        /* Start at the character after [
-           e.g., [100]
-                  ^ i_start */
-        int digits = 0;
-        ++i;
-        int i_start = i;
-        while (1) {
-            if (str[i] == ']') {
-                break;
-            }
-            ASSERT(str[i] != '\0', "Expected ]");
-            ++i;
-            ++digits;
-        }
-        int size = strtoi2(str + i_start, digits);
-        type_add_dimension(&type, size);
-
-        /* [100][200]
-               ^ Currently here, advance to next dimension or end of string */
-        ++i;
-        c = str[i];
-    }
-
-    return type;
-}
-
-int type_bytes(Type type) {
-    ASSERT(type.typespec != ts_none, "Invalid type specifiers");
-
-    if (type.pointers > 0) {
+    if (type->pointers > 0) {
         return 8;
     }
     int bytes = 0;
-    switch (type.typespec) {
+    switch (type->typespec) {
         case ts_void:
             bytes = 0;
             break;
@@ -250,19 +202,19 @@ int type_bytes(Type type) {
             bytes = 0;
             break;
     }
-    if (type.dimension > 0) {
-        ASSERT(type.dimension == 1,
+    if (type->dimension > 0) {
+        ASSERT(type->dimension == 1,
             "Only single dimension arrays supported for now");
-        bytes *= type.size[0];
+        bytes *= type->size[0];
     }
     return bytes;
 }
 
-int type_equal(Type lhs, Type rhs) {
-    if (lhs.typespec != rhs.typespec) {
+int type_equal(const Type* lhs, const Type* rhs) {
+    if (lhs->typespec != rhs->typespec) {
         return 0;
     }
-    if (lhs.pointers != rhs.pointers) {
+    if (lhs->pointers != rhs->pointers) {
         return 0;
     }
     return 1;
@@ -297,9 +249,11 @@ int type_array(const Type* type) {
     return type->dimension > 0;
 }
 
-Type type_element(const Type* type) {
+ErrorCode type_element(const Type* type, Type* dest) {
     ASSERT(type_array(type) || type_is_pointer(type),
             "Not an array or pointer");
+    ASSERT(0, "unimplemented");
+    /*
     if (type_array(type)) {
         Type t;
         type_construct(&t, type_typespec(type), 0);
@@ -308,15 +262,21 @@ Type type_element(const Type* type) {
     else {
         return type_point_to(type);
     }
+    */
+    return ec_noerr;
 }
 
-Type type_array_as_pointer(const Type* type) {
+ErrorCode type_array_as_pointer(const Type* type, Type* dest) {
     ASSERT(type != NULL, "Type is null");
     ASSERT(type->dimension, "Expected dimension > 0");
+    ASSERT(0, "unimplemented");
+    /*
     Type t = *type;
     --t.dimension;
     ++t.pointers;
     return t;
+    */
+    return ec_noerr;
 }
 
 int type_is_pointer(const Type* type) {
@@ -332,11 +292,11 @@ int type_is_arithmetic(const Type* type) {
     return 1;
 }
 
-int type_integral(Type type) {
-    if (type_pointer(&type) != 0) {
+int type_integral(const Type* type) {
+    if (type_pointer(type) != 0) {
         return 0;
     }
-    switch (type_typespec(&type)) {
+    switch (type_typespec(type)) {
         case ts_char:
         case ts_schar:
         case ts_uchar:
@@ -527,35 +487,38 @@ case1: /* Both have signed or unsigned types */
     return lhs;
 }
 
-Type type_common(Type type1, Type type2) {
-    ASSERT(type_pointer(&type1) == 0,
+ErrorCode type_common(const Type* type1, const Type* type2, Type* dest) {
+    ASSERT(type_pointer(type1) == 0,
             "Cannot determine common type for pointers");
-    ASSERT(type_pointer(&type2) == 0,
+    ASSERT(type_pointer(type2) == 0,
             "Cannot determine common type for pointers");
+    ErrorCode ecode;
 
-    TypeSpecifiers lhs = type_typespec(&type1);
-    TypeSpecifiers rhs = type_typespec(&type2);
-    /* Can choose type1 or type2 to create the common type */
-    type_set_typespec(&type1, type_common_ts(lhs, rhs));
-    return type1;
+    TypeSpecifiers lhs = type_typespec(type1);
+    TypeSpecifiers rhs = type_typespec(type2);
+
+    if ((ecode = type_construct(
+                    dest, type_common_ts(lhs, rhs), 0)) != ec_noerr) return ecode;
+    return ec_noerr;
 }
 
-Type type_promotion(Type type) {
-    if (!type_integral(type)) {
-        return type;
-    }
+ErrorCode type_promotion(const Type* type, Type* dest) {
+    ErrorCode ecode;
+    if ((ecode = type_copy(type, dest)) != ec_noerr) return ecode;
 
-    switch (type_typespec(&type)) {
+    if (!type_integral(type)) return ec_noerr;
+
+    switch (type_typespec(type)) {
         case ts_char:
         case ts_schar:
         case ts_uchar:
         case ts_short:
         case ts_ushort:
-            type_set_typespec(&type, ts_int);
+            type_set_typespec(dest, ts_int);
             break;
         default:
             break;
     }
-    return type;
+    return ec_noerr;
 }
 

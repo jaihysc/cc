@@ -2,7 +2,8 @@
 
 #include "common.h"
 
-ErrorCode symbol_construct(Symbol* sym, const char* token, Type type) {
+ErrorCode symbol_construct(Symbol* sym, const char* token, Type* type) {
+    ErrorCode ecode;
     sym->class = sl_normal;
 
     // Copy token into symbol
@@ -17,9 +18,13 @@ ErrorCode symbol_construct(Symbol* sym, const char* token, Type type) {
     }
     sym->token[i] = '\0';
 
-    sym->type = type;
+    if ((ecode = type_copy(type, &sym->type)) != ec_noerr) return ecode;
     sym->valcat = vc_none;
     return ec_noerr;
+}
+
+void symbol_destruct(Symbol* sym) {
+    type_destruct(&sym->type);
 }
 
 void symbol_sl_access(Symbol* sym, Symbol* ptr, Symbol* idx) {
@@ -38,14 +43,9 @@ char* symbol_token(Symbol* sym) {
     return sym->token;
 }
 
-Type symbol_type(Symbol* sym) {
+Type* symbol_type(Symbol* sym) {
     ASSERT(sym != NULL, "Symbol is null");
-    return sym->type;
-}
-
-void symbol_set_type(Symbol* sym, const Type* type) {
-    ASSERT(sym != NULL, "Symbol is null");
-    sym->type = *type;
+    return &sym->type;
 }
 
 ValueCategory symbol_valcat(Symbol* sym) {

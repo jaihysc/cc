@@ -60,30 +60,40 @@ static ErrorCode cg_com_type_rtol(IL2Gen* il2, Symbol* opl, Symbol** opr, Block*
 static ErrorCode cg_com_type_lr(
         IL2Gen* il2, Type* type_ptr, Symbol** op1, Symbol** op2, Block* blk) {
     ErrorCode ecode;
-    Type com_type = type_common(
-            type_promotion(symbol_type(*op1)),
-            type_promotion(symbol_type(*op2)));
-    *type_ptr = com_type;
 
-    if (!type_equal(symbol_type(*op1), com_type)) {
+    /* Promote types smaller than int to int */
+    Type t1;
+    Type t2;
+    if ((ecode = type_promotion(symbol_type(*op1), &t1)) != ec_noerr) goto exit1;
+    if ((ecode = type_promotion(symbol_type(*op2), &t2)) != ec_noerr) goto exit2;
+    /* Evaluate common type */
+    if ((ecode = type_common(&t1, &t2, type_ptr)) != ec_noerr) goto exit3;
+
+    if (!type_equal(symbol_type(*op1), type_ptr)) {
         Symbol* promoted_sym;
         if ((ecode = symtab_add_temporary(
-                        il2->stab, &promoted_sym, com_type)) != ec_noerr) return ecode;
+                        il2->stab, &promoted_sym, type_ptr)) != ec_noerr) goto exit3;
         if ((ecode = block_add_ilstat(
                         blk, il2stat_make2(
-                            il2_mtc, promoted_sym, *op1))) != ec_noerr) return ecode;
+                            il2_mtc, promoted_sym, *op1))) != ec_noerr) goto exit3;
         *op1 = promoted_sym;
     }
-    if (!type_equal(symbol_type(*op2), com_type)) {
+    if (!type_equal(symbol_type(*op2), type_ptr)) {
         Symbol* promoted_sym;
         if ((ecode = symtab_add_temporary(
-                        il2->stab, &promoted_sym, com_type)) != ec_noerr) return ecode;
+                        il2->stab, &promoted_sym, type_ptr)) != ec_noerr) goto exit3;
         if ((ecode = block_add_ilstat(
                         blk, il2stat_make2(
-                            il2_mtc, promoted_sym, *op2))) != ec_noerr) return ecode;
+                            il2_mtc, promoted_sym, *op2))) != ec_noerr) goto exit3;
         *op2 = promoted_sym;
     }
-    return ec_noerr;
+
+exit3:
+    type_destruct(&t2);
+exit2:
+    type_destruct(&t1);
+exit1:
+    return ecode;
 }
 
 /* Calls the appropriate cg_ based on the type of the TNode type */
@@ -286,20 +296,25 @@ static ErrorCode cg_cast_expression(IL2Gen* il2, Symbol** sym, TNode* node, Bloc
     TNodePointer* pointer = (TNodePointer*)tnode_data(tnode_child(node, 1));
     TNode* expr = tnode_child(node, 2);
 
-    if ((ecode = call_cg(il2, sym, expr, blk)) != ec_noerr) return ecode;
+    if ((ecode = call_cg(il2, sym, expr, blk)) != ec_noerr) goto exit1;
 
     Type type;
-    type_construct(&type, declspec->ts, pointer->pointers);
-    if (!type_equal(type, symbol_type(*sym))) {
+    if ((ecode = type_construct(
+                    &type, declspec->ts, pointer->pointers)) != ec_noerr) goto exit1;
+
+    if (!type_equal(&type, symbol_type(*sym))) {
         Symbol* expr_result = *sym;
         if ((ecode = symtab_add_temporary(
-                        il2->stab, sym, type)) != ec_noerr) return ecode;
+                        il2->stab, sym, &type)) != ec_noerr) goto exit2;
         if ((ecode = block_add_ilstat(
                         blk, il2stat_make2(
-                            il2_mtc, *sym, expr_result))) != ec_noerr) return ecode;
+                            il2_mtc, *sym, expr_result))) != ec_noerr) goto exit2;
     }
 
-    return ec_noerr;
+exit2:
+    type_destruct(&type);
+exit1:
+    return ecode;
 }
 
 static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Block* blk) {
@@ -314,26 +329,29 @@ static ErrorCode cg_binary_expression(IL2Gen* il2, Symbol** sym, TNode* node, Bl
     Symbol* rresult;
     if ((ecode = call_cg(il2, &rresult, rchild, blk)) != ec_noerr) return ecode;
 
-    Type com_type;
-    if ((ecode = cg_com_type_lr(
-                    il2, &com_type, &lresult, &rresult, blk)) != ec_noerr) return ecode;
-
-    /* Relational and equality operators always have int as their result */
     switch (data->type) {
+        /* Relational and equality operators always have int as their result */
         case TNodeBinaryExpression_l:
         case TNodeBinaryExpression_g:
         case TNodeBinaryExpression_le:
         case TNodeBinaryExpression_ge:
         case TNodeBinaryExpression_e:
         case TNodeBinaryExpression_ne:
-            com_type = type_int;
+            if ((ecode = symtab_add_temporary(
+                            il2->stab, sym, symtab_type_int(il2->stab))) != ec_noerr) return ecode;
             break;
         default:
+            {
+                Type com_type;
+                if ((ecode = cg_com_type_lr(
+                                il2, &com_type, &lresult, &rresult, blk)) != ec_noerr) return ecode;
+                ecode = symtab_add_temporary(il2->stab, sym, &com_type);
+                type_destruct(&com_type);
+                if (ecode != ec_noerr) return ecode;
+            }
             break;
     }
 
-    if ((ecode = symtab_add_temporary(
-                    il2->stab, sym, com_type)) != ec_noerr) return ecode;
 
     switch (data->type) {
         case TNodeBinaryExpression_add:
@@ -409,7 +427,7 @@ static ErrorCode cg_logical_and_expression(IL2Gen* il2, Symbol** sym, TNode* nod
     }
 
     if ((ecode = symtab_add_temporary(
-                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+                    il2->stab, sym, symtab_type_int(il2->stab))) != ec_noerr) return ecode;
 
     /* True */
     if ((ecode = block_add_ilstat(blk, il2stat_make2(
@@ -451,7 +469,7 @@ static ErrorCode cg_logical_or_expression(IL2Gen* il2, Symbol** sym, TNode* node
     }
 
     if ((ecode = symtab_add_temporary(
-                    il2->stab, sym, type_int)) != ec_noerr) return ecode;
+                    il2->stab, sym, symtab_type_int(il2->stab))) != ec_noerr) return ecode;
 
     /* False */
     if ((ecode = block_add_ilstat(blk, il2stat_make2(
@@ -928,10 +946,10 @@ ErrorCode il2_write(IL2Gen* il2, const char* filepath) {
 
     for (int i = 2; i < hvec_size(&il2->stab->symbol); ++i) {
         Symbol* sym = &hvec_at(&il2->stab->symbol, i);
-        Type type = symbol_type(sym);
+        Type* type = symbol_type(sym);
 
         const char* type_str;
-        switch (type_typespec(&type)) {
+        switch (type_typespec(type)) {
             case ts_void:
                 type_str = "void";
                 break;

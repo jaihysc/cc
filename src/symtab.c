@@ -5,17 +5,21 @@
 
 ErrorCode symtab_construct(Symtab* stab) {
     ASSERT(stab != NULL, "Symtab is null");
+    ErrorCode ecode;
 
     hvec_construct(&stab->symbol);
     hvec_construct(&stab->constant);
 
+    if ((ecode = type_construct(&stab->type_int, ts_int, 0)) != ec_noerr) return ecode;
+    if ((ecode = type_construct(&stab->type_label, ts_void, 0)) != ec_noerr) return ecode;
+
     /* Create special constants */
     Symbol sym_0;
-    symbol_construct(&sym_0, "0", type_int); /* Index 0 */
+    symbol_construct(&sym_0, "0", &stab->type_int); /* Index 0 */
     if (!hvec_push_back(&stab->constant, sym_0)) return ec_badalloc;
 
     Symbol sym_1;
-    symbol_construct(&sym_1, "1", type_int); /* Index 0 */
+    symbol_construct(&sym_1, "1", &stab->type_int); /* Index 0 */
     if (!hvec_push_back(&stab->constant, sym_1)) return ec_badalloc;
 
     stab->scopes = NULL;
@@ -43,7 +47,19 @@ void symtab_destruct(Symtab* stab) {
     }
     cfree(stab->scopes);
 
+    type_destruct(&stab->type_label);
+    type_destruct(&stab->type_int);
+
+    for (int i = 0; i < hvec_size(&stab->constant); ++i) {
+        Symbol* sym = &hvec_at(&stab->constant, i);
+        symbol_destruct(sym);
+    }
     hvec_destruct(&stab->constant);
+
+    for (int i = 0; i < hvec_size(&stab->symbol); ++i) {
+        Symbol* sym = &hvec_at(&stab->symbol, i);
+        symbol_destruct(sym);
+    }
     hvec_destruct(&stab->symbol);
 }
 
@@ -148,13 +164,9 @@ Symbol* symtab_find(Symtab* stab, const char* token) {
    Stores Symbol* of added symbol at pointer
    or ec_symtab_dupname if it already exists */
 static ErrorCode symtab_add_scoped(Symtab* stab, Symbol** sym_ptr,
-        int i_scope, const char* token, Type type) {
+        int i_scope, const char* token, Type* type) {
     ASSERT(stab != NULL, "Symtab is null");
     ASSERT(stab->scopes_size > 0, "Invalid scope");
-
-    /* Add to vec of symbols */
-    if (!hvec_push_backu(&stab->symbol)) return ec_badalloc;
-    Symbol* sym = &hvec_back(&stab->symbol);
 
     /* Add to vec of symbols in scope */
     if (token != NULL) {
@@ -166,6 +178,10 @@ static ErrorCode symtab_add_scoped(Symtab* stab, Symbol** sym_ptr,
         }
     }
 
+    /* Add to vec of symbols */
+    if (!hvec_push_backu(&stab->symbol)) return ec_badalloc;
+    Symbol* sym = &hvec_back(&stab->symbol);
+
     if (!vec_push_backu(&stab->scopes[i_scope])) return ec_badalloc;
     vec_back(&stab->scopes[i_scope]) = sym;
 
@@ -175,7 +191,7 @@ static ErrorCode symtab_add_scoped(Symtab* stab, Symbol** sym_ptr,
 }
 
 ErrorCode symtab_add(Symtab* stab, Symbol** sym_ptr,
-        const char* token, Type type) {
+        const char* token, Type* type) {
     ASSERT(stab != NULL, "Symtab is null");
     ASSERT(token != NULL, "token is null");
 
@@ -189,7 +205,7 @@ ErrorCode symtab_add(Symtab* stab, Symbol** sym_ptr,
 }
 
 ErrorCode symtab_add_constant(Symtab* stab, Symbol** sym_ptr,
-        const char* token, Type type) {
+        const char* token, Type* type) {
     ASSERT(stab != NULL, "Symtab is null");
     ASSERT(token != NULL, "token is null");
     ASSERT('0' <= token[0] && token[0] <= '9', "Attempted to add non-constant to symbol table");
@@ -203,7 +219,7 @@ ErrorCode symtab_add_constant(Symtab* stab, Symbol** sym_ptr,
     return ec_noerr;
 }
 
-ErrorCode symtab_add_temporary(Symtab* stab, Symbol** sym_ptr, Type type) {
+ErrorCode symtab_add_temporary(Symtab* stab, Symbol** sym_ptr, Type* type) {
     ASSERT(stab != NULL, "Symtab is null");
     AAPPENDI(token, "__t", stab->temp_num);
     ++stab->temp_num;
@@ -223,7 +239,7 @@ ErrorCode symtab_add_label(Symtab* stab, Symbol** sym_ptr) {
     /* Scope at index 1 is function scope */
     ErrorCode ecode;
     if ((ecode = symtab_add_scoped(
-                    stab, sym_ptr, 1, token, type_label)) != ec_noerr) return ecode;
+                    stab, sym_ptr, 1, token, &stab->type_label)) != ec_noerr) return ecode;
     symbol_set_valcat(*sym_ptr, vc_nlval);
     return ec_noerr;
 }
@@ -238,6 +254,11 @@ Symbol* symtab_constant_one(Symtab* stab) {
     return &hvec_at(&stab->constant, 1);
 }
 
+Type* symtab_type_int(Symtab* stab) {
+    ASSERT(stab != NULL, "Symtab is null");
+    return &stab->type_int;
+}
+
 void debug_print_symtab(Symtab* stab) {
     ASSERT(stab != NULL, "Symtab is null");
 
@@ -250,10 +271,10 @@ void debug_print_symtab(Symtab* stab) {
 
         for (int j = 0; j < symbols_size; ++j) {
             Symbol* sym = vec_at(&stab->scopes[i], j);
-            Type type = symbol_type(sym);
-            LOGF("    %d %s", j, ts_str(type.typespec));
+            Type* type = symbol_type(sym);
+            LOGF("    %d %s", j, ts_str(type_typespec(type)));
 
-            for (int k = 0; k < type.pointers; ++k) {
+            for (int k = 0; k < type_pointer(type); ++k) {
                 LOG("*");
             }
             LOGF(" %s\n", symbol_token(sym));
@@ -263,8 +284,8 @@ void debug_print_symtab(Symtab* stab) {
     LOGF("Constants: [%d]\n", hvec_size(&stab->constant));
     for (int i = 0; i < hvec_size(&stab->constant); ++i) {
         Symbol* sym = &hvec_at(&stab->constant, i);
-        Type type = symbol_type(sym);
-        LOGF("    %d %s", i, ts_str(type.typespec));
+        Type* type = symbol_type(sym);
+        LOGF("    %d %s", i, ts_str(type_typespec(type)));
         LOGF(" %s\n", symbol_token(sym));
     }
 }

@@ -3,14 +3,20 @@
 #include "symbol.h"
 
 static void SymbolConstruct(CuTest* tc) {
+    Type type;
+    type_construct(&type, ts_int, 0);
+
     Symbol sym;
     CuAssertIntEquals(
             tc,
-            symbol_construct(&sym, "abc", type_int),
+            symbol_construct(&sym, "abc", &type),
             ec_noerr
     );
 
     CuAssertStrEquals(tc, symbol_token(&sym), "abc");
+
+    symbol_destruct(&sym);
+    type_destruct(&type);
 }
 
 static void SymbolNameTooLong(CuTest* tc) {
@@ -36,14 +42,19 @@ static void SymbolNameTooLong(CuTest* tc) {
         "abcdefghijklmnopqrstuvwxyz"
         "abcdefghijklmnopqrstuvwxyz";
 
+    Type type;
+    type_construct(&type, ts_int, 0);
+
     Symbol sym;
     CuAssertIntEquals(
             tc,
-            symbol_construct(&sym, long_name, type_int),
+            symbol_construct(&sym, long_name, &type),
             ec_symbol_nametoolong
     );
 
     CuAssertStrEquals(tc, symbol_token(&sym), "");
+
+    type_destruct(&type);
 }
 
 CuSuite* SymbolGetSuite() {

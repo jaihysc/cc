@@ -10,37 +10,21 @@ cd "$(dirname "$0")" || exit 1
 if [ ! -d "out" ]; then
     mkdir out || exit 2
 fi
-if [[ ! -d out/src ]]; then
-    mkdir out/src || exit 2
-fi
-if [[ ! -d out/testu ]]; then
-    mkdir out/testu || exit 2
-fi
-
-cc_flags="-Wall -Wextra -Wshadow -pedantic -Wmissing-prototypes -Wpointer-arith -Wcast-qual -Wswitch-default\
-    -Wswitch -Wbad-function-cast -Wlogical-op -Wredundant-decls -Wconversion -Wsign-conversion -Wdouble-promotion -Wmisleading-indentation\
-    -Wduplicated-cond -Wduplicated-branches -Wunreachable-code -Wuninitialized -Wmaybe-uninitialized -Wundef\
-    -Wno-unused-parameter"
-
-cc_debug_flags="-g"
-cc_release_flags="-O3"
 
 # Build mode
 if [ -z "$1" ]; then
-    # Default to debug mode
-    cc_flags="${cc_flags} ${cc_debug_flags}"
+    build_type="Debug"
 elif [ "$1" = "debug" ]; then
-    cc_flags="${cc_flags} ${cc_debug_flags}"
+    build_type="Debug"
 elif [ "$1" = "release" ]; then
-    cc_flags="${cc_flags} ${cc_release_flags}"
+    build_type="Release"
 else
     help_menu
     exit 10
 fi
 
-export cc_flags
-make
-
-cp "src/cc.sh" out/ || exit 3
+cd out || exit 3
+cmake ../ -DCMAKE_BUID_TYPE="${build_type}" || exit 4
+cmake --build . || exit 5
 
 exit 0

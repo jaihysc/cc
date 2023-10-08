@@ -215,7 +215,10 @@ ErrorCode symtab_add_constant(Symtab* stab, Symbol** sym_ptr, const char* token,
 
 ErrorCode symtab_add_temporary(Symtab* stab, Symbol** sym_ptr, Type* type) {
 	ASSERT(stab != NULL, "Symtab is null");
-	AAPPENDI(token, "__t", stab->temp_num);
+
+	char token[sizeof("__t") + INT_CHAR_BUF];
+	aappendi(token, "__t", stab->temp_num);
+
 	++stab->temp_num;
 
 	ErrorCode ecode;
@@ -226,7 +229,10 @@ ErrorCode symtab_add_temporary(Symtab* stab, Symbol** sym_ptr, Type* type) {
 
 ErrorCode symtab_add_label(Symtab* stab, Symbol** sym_ptr) {
 	ASSERT(stab != NULL, "Symtab is null");
-	AAPPENDI(token, "__l", stab->label_num);
+
+	char token[sizeof("__l") + INT_CHAR_BUF];
+	aappendi(token, "__l", stab->label_num);
+
 	++stab->label_num;
 
 	ASSERT(stab->scopes_size >= 2, "No function scope");

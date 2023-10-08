@@ -18,7 +18,9 @@ static void ParserConstruct(CuTest* tc, Parser* p) {
 	CuAssertIntEquals(tc, parser_construct(p, lex, symtab, tree), ec_noerr);
 }
 
-static void ParserDestruct(CuTest* /*tc*/, Parser* p) {
+static void ParserDestruct(CuTest* tc, Parser* p) {
+	(void)tc;
+
 	tree_destruct(p->tree);
 	cfree(p->tree);
 

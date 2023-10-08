@@ -523,9 +523,7 @@ void debug_print_tree(Tree* tree) {
 
 	LOG("Parse tree:\n");
 	/* 2 characters per node, 200 nodes max */
-	int max_branch = 200 * 2;
-
-	char branch[max_branch];
+	char branch[200 * 2];
 	branch[0] = '\0';
-	debug_tnode_walk(tree, tree->root, branch, 0, max_branch);
+	debug_tnode_walk(tree, tree->root, branch, 0, ARRAY_SIZE(branch));
 }

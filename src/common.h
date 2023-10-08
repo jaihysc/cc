@@ -39,6 +39,8 @@
 /* ============================================================ */
 /* Utility */
 
+#define INT_CHAR_BUF 11 /* Length of buffer for holding integer as string */
+
 /* Checks that the given strings is sorted correctly to
    perform a binary search via strbinfind */
 static inline void strbinfind_validate(const char** strs, int str_count) {
@@ -240,14 +242,13 @@ static inline int strtoi2(const char* str, int len) {
 	return val * sign;
 }
 
-/* Creates a c string on the stack with name,
-   has given prefix string with number appended */
-#define AAPPENDI(name__, prefix__, num__)              \
-	int numlen__ = ichar(num__);                       \
-	char name__[(int)sizeof(prefix__) + numlen__];     \
-	strcopy(prefix__, name__);                         \
-	itostr(num__, name__ + (int)sizeof(prefix__) - 1); \
-	name__[(int)sizeof(prefix__) - 1 + numlen__] = '\0'
+/* Appends prefix and string representation of number into buf, null terminated
+   Assumes sufficient space exists */
+static inline void aappendi(char* buf, const char* prefix, const int num) {
+	strcopy(prefix, buf);
+	itostr(num, buf + (int)sizeof(prefix) - 1);
+	buf[(int)sizeof(prefix) - 1 + ichar(num)] = '\0';
+}
 
 /* Creates a c sring on the stack with name__
    with str1__ and str2__ appended */

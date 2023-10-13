@@ -15,6 +15,8 @@ typedef struct
 
 ErrorCode parser_construct(Parser* p, Lexer* lex, Symtab* symtab, Tree* tree);
 
+void parser_destruct(Parser* p);
+
 /* Parse a translation unit,
    reads from Lexer,
    stores into tree */

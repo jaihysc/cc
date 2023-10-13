@@ -29,6 +29,10 @@ ErrorCode parser_construct(Parser* p, Lexer* lex, Symtab* symtab, Tree* tree) {
 	return ec_noerr;
 }
 
+void parser_destruct(Parser* p) {
+	(void)p;
+}
+
 /* 1. Shows beginning and end of each function, indented with recursion depth
 	  The end is green if the production rule was matched, red if not
    2. Remembers parse tree state to allow backtrack if no match was made

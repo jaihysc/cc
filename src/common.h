@@ -245,9 +245,10 @@ static inline int strtoi2(const char* str, int len) {
 /* Appends prefix and string representation of number into buf, null terminated
    Assumes sufficient space exists */
 static inline void aappendi(char* buf, const char* prefix, const int num) {
+	int prefix_len = strlen(prefix);
 	strcopy(prefix, buf);
-	itostr(num, buf + (int)sizeof(prefix) - 1);
-	buf[(int)sizeof(prefix) - 1 + ichar(num)] = '\0';
+	itostr(num, buf + prefix_len);
+	buf[prefix_len + ichar(num)] = '\0';
 }
 
 /* Creates a c sring on the stack with name__

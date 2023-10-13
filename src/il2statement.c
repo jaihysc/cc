@@ -20,6 +20,7 @@ int il2_isjump(IL2Ins ins) {
 	case il2_jmp:
 	case il2_jnz:
 	case il2_jz:
+	case il2_ret:
 		return 1;
 	default:
 		return 0;

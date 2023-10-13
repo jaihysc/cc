@@ -6,8 +6,8 @@ ErrorCode block_construct(Block* blk) {
 	ASSERT(blk != NULL, "Block is null");
 	vec_construct(&blk->labels);
 	vec_construct(&blk->il_stats);
-	blk->next[0] = 0;
-	blk->next[1] = 0;
+	blk->next[0] = NULL;
+	blk->next[1] = NULL;
 	return ec_noerr;
 }
 
@@ -57,8 +57,8 @@ void block_link(Block* blk, Block* next) {
 	ASSERT(blk != NULL, "Block is null");
 	ASSERT(blk != next, "Cannot link block to self");
 	for (int i = 0; i < MAX_BLOCK_LINK; ++i) {
-		if (blk->next[i] == 0) {
-			blk->next[i] = (int)(next - blk);
+		if (blk->next[i] == NULL) {
+			blk->next[i] = next;
 			return;
 		}
 	}
@@ -70,10 +70,7 @@ Block* block_next(Block* blk, int i) {
 	ASSERT(i >= 0, "Index out of range");
 	ASSERT(i < MAX_BLOCK_LINK, "Index out of range");
 
-	if (blk->next[i] == 0) {
-		return NULL;
-	}
-	return blk + blk->next[i];
+	return blk->next[i];
 }
 
 ErrorCode cfg_construct(Cfg* cfg) {
@@ -88,25 +85,55 @@ void cfg_destruct(Cfg* cfg) {
 
 void cfg_clear(Cfg* cfg) {
 	for (int i = 0; i < vec_size(&cfg->blocks); ++i) {
-		block_destruct(&vec_at(&cfg->blocks, i));
+		Block* blk = vec_at(&cfg->blocks, i);
+		block_destruct(blk);
+		free(blk);
 	}
 	vec_clear(&cfg->blocks);
 }
 
 ErrorCode cfg_new_block(Cfg* cfg, Block** block_ptr) {
 	ErrorCode ecode;
-	if (!vec_push_backu(&cfg->blocks)) return ec_badalloc;
 
-	Block* blk = &vec_back(&cfg->blocks);
-	if ((ecode = block_construct(blk)) != ec_noerr) return ecode;
+	/* Allocate new block */
+	Block* blk = malloc(sizeof(Block));
+	if (blk == NULL) {
+		ecode = ec_badalloc;
+		goto exit1;
+	}
+	if ((ecode = block_construct(blk)) != ec_noerr) goto exit2;
+
+	/* Append block to cfg */
+	if (!vec_push_backu(&cfg->blocks)) {
+		ecode = ec_badalloc;
+		goto exit3;
+	}
+	vec_back(&cfg->blocks) = blk;
 
 	*block_ptr = blk;
+
 	return ec_noerr;
+
+exit3:
+	block_destruct(blk);
+exit2:
+	free(blk);
+exit1:
+	return ecode;
+}
+
+int cfg_block_count(Cfg* cfg) {
+	return vec_size(&cfg->blocks);
+}
+
+/* Returns block in CFG at index */
+Block* cfg_block(Cfg* cfg, int i) {
+	return vec_at(&cfg->blocks, i);
 }
 
 Block* cfg_find_labelled(Cfg* cfg, Symbol* lab) {
 	for (int i = 0; i < vec_size(&cfg->blocks); ++i) {
-		Block* blk = &vec_at(&cfg->blocks, i);
+		Block* blk = vec_at(&cfg->blocks, i);
 		for (int j = 0; j < block_lab_count(blk); ++j) {
 			if (block_lab(blk, j) == lab) {
 				return blk;
@@ -120,7 +147,7 @@ void debug_print_cfg(Cfg* cfg) {
 	LOGF("Control flow graph [%d]\n", vec_size(&cfg->blocks));
 	for (int i = 0; i < vec_size(&cfg->blocks); ++i) {
 		LOGF("  Block %d\n", i);
-		Block* blk = &vec_at(&cfg->blocks, i);
+		Block* blk = vec_at(&cfg->blocks, i);
 
 		/* Labels associated with block */
 		if (block_lab_count(blk) > 0) {
@@ -150,9 +177,16 @@ void debug_print_cfg(Cfg* cfg) {
 
 		/* Print next block index */
 		LOG("    ->");
-		for (int j = 0; j < 2; ++j) {
-			if (block_next(blk, j)) {
-				LOGF(" %ld", block_next(blk, j) - vec_data(&cfg->blocks));
+		for (int j = 0; j < MAX_BLOCK_LINK; ++j) {
+			Block* next_blk = block_next(blk, j);
+			if (next_blk == NULL) continue;
+
+			/* Find index of block matching address */
+			for (int k = 0; k < vec_size(&cfg->blocks); ++k) {
+				if (vec_at(&cfg->blocks, k) == next_blk) {
+					LOGF(" %d", k);
+					break;
+				}
 			}
 		}
 		LOG("\n");

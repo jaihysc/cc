@@ -792,6 +792,33 @@ static ErrorCode cg_jump_statement(IL2Gen* il2, TNode* node, Block* blk) {
 	return ec_noerr;
 }
 
+/* Splits block so control flow only leaves at the end
+   Generated blocks stored in CFG */
+static ErrorCode split_block(IL2Gen* il2, Block* blk) {
+	ErrorCode ecode;
+
+	Block* write_blk; /* Start writing statements here */
+	if ((ecode = cfg_new_block(il2->cfg, &write_blk)) != ec_noerr) return ecode;
+
+	/* Iterate through given block, write statement to new blocks */
+	for (int i = 0; i < block_ilstat_count(blk); ++i) {
+		IL2Statement* ilstat = block_ilstat(blk, i);
+
+		block_add_ilstat(write_blk, *ilstat);
+
+		if (il2_isjump(il2stat_ins(ilstat))) {
+			Block* new_blk;
+			if ((ecode = cfg_new_block(il2->cfg, &new_blk)) != ec_noerr) return ecode;
+
+			block_link(write_blk, new_blk);
+
+			write_blk = new_blk;
+		}
+	}
+
+	return ec_noerr;
+}
+
 static ErrorCode cg_function_definition(IL2Gen* il2, TNode* node) {
 	ErrorCode ecode;
 
@@ -803,14 +830,29 @@ static ErrorCode cg_function_definition(IL2Gen* il2, TNode* node) {
 	*/
 	TNode* compound_stat = tnode_child(node, 4);
 
-	Block* blk;
-	if ((ecode = cfg_new_block(il2->cfg, &blk)) != ec_noerr) return ecode;
-	if ((ecode = symtab_push_scope(il2->stab)) != ec_noerr) return ecode;
+	/* Allocate new block for this function */
+	Block* blk = malloc(sizeof(Block));
+	if (blk == NULL) {
+		ecode = ec_badalloc;
+		goto exit1;
+	}
+	if ((ecode = block_construct(blk)) != ec_noerr) goto exit2;
 
-	if ((ecode = cg_compound_statement(il2, compound_stat, blk)) != ec_noerr) return ecode;
-
+	/* Generate IL2 into block */
+	if ((ecode = symtab_push_scope(il2->stab)) != ec_noerr) goto exit3;
+	if ((ecode = cg_compound_statement(il2, compound_stat, blk)) != ec_noerr) goto exit3;
 	symtab_pop_scope(il2->stab);
-	return ec_noerr;
+
+	/* It is difficult to split while generating the blocks,as cg_selection_statement change must the block of its
+	   caller so new statements go into a different block */
+	split_block(il2, blk);
+
+exit3:
+	block_destruct(blk);
+exit2:
+	free(blk);
+exit1:
+	return ecode;
 }
 
 static ErrorCode traverse_tree(IL2Gen* il2, TNode* node) {
@@ -909,31 +951,34 @@ ErrorCode il2gen_write(IL2Gen* il2, const char* filepath) {
 	if (fprintf(f, "func main,i32,i32 _Z%p,i8** _Z%p\n", (void*)argc, (void*)argv) < 0) goto exit;
 
 	/* Write IL2 */
-	Block* blk = &vec_at(&il2->cfg->blocks, 0);
-	for (int i = 0; i < block_ilstat_count(blk); ++i) {
-		IL2Statement* stat = block_ilstat(blk, i);
+	for (int blk_idx = 0; blk_idx < cfg_block_count(il2->cfg); ++blk_idx) {
+		Block* blk = cfg_block(il2->cfg, blk_idx);
 
-		/* Instruction */
-		if (fprintf(f, "%s ", il2_str(il2stat_ins(stat))) < 0) goto exit;
+		for (int i = 0; i < block_ilstat_count(blk); ++i) {
+			IL2Statement* stat = block_ilstat(blk, i);
 
-		for (int j = 0; j < il2stat_argc(stat); ++j) {
-			/* Argument */
-			if (j != 0) {
-				if (fprintf(f, ",") < 0) goto exit;
+			/* Instruction */
+			if (fprintf(f, "%s ", il2_str(il2stat_ins(stat))) < 0) goto exit;
+
+			for (int j = 0; j < il2stat_argc(stat); ++j) {
+				/* Argument */
+				if (j != 0) {
+					if (fprintf(f, ",") < 0) goto exit;
+				}
+
+				Symbol* arg = il2stat_arg(stat, j);
+				const char* token = symbol_token(arg);
+
+				if ('0' <= token[0] && token[0] <= '9') {
+					/* Is constant */
+					if (fprintf(f, "%s", symbol_token(arg)) < 0) goto exit;
+				}
+				else {
+					if (fprintf(f, "_Z%p", (void*)arg) < 0) goto exit;
+				}
 			}
-
-			Symbol* arg = il2stat_arg(stat, j);
-			const char* token = symbol_token(arg);
-
-			if ('0' <= token[0] && token[0] <= '9') {
-				/* Is constant */
-				if (fprintf(f, "%s", symbol_token(arg)) < 0) goto exit;
-			}
-			else {
-				if (fprintf(f, "_Z%p", (void*)arg) < 0) goto exit;
-			}
+			if (fprintf(f, "\n") < 0) goto exit;
 		}
-		if (fprintf(f, "\n") < 0) goto exit;
 	}
 
 exit:

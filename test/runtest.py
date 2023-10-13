@@ -18,6 +18,10 @@ class Color:
     ERR = '\033[0;1;31m'
     WARN = "\033[0;1;33m"
 
+# Setup color output for Windows terminals
+if sys.platform == 'win32':
+    os.system('color')
+
 def log(msg, color=Color.NONE, end='\n'):
     print(f'{color}{msg}{Color.NONE}', end=end)
 
@@ -185,7 +189,7 @@ def main():
     filter_tests = args.t
 
     # Tests are located in subdirectories from where the python file is
-    test_dir = os.path.dirname(sys.argv[0])
+    test_dir = os.path.dirname(os.path.realpath(__file__))
     log(f'Test directory: {test_dir}')
 
     programs = []

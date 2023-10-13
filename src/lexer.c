@@ -183,33 +183,40 @@ int tok_isidentifier(const char* str) {
 	return 1;
 }
 
+/* Reading characters from input */
+
+static void consume_char(Lexer* lex);
+
 /* Reads in a character from input
-   Does not advance read position */
+   Does not advance read position
+   Returns EOF if end of input */
 static char read_char(Lexer* lex) {
 	/* Perhaps this can be a buffer in the future to reduce system calls */
-	char c = (char)getc(lex->rf);
+	char c = lex->input[lex->input_idx];
+	if (c == '\0') return EOF;
 
-	/* Handle line marker from preprocessor*/
+	/* Handle line marker from preprocessor, of form
+	   # 12345 xxxxxxxx
+	   Assuming the line markers are always of the same form, no checks for end of buffer */
 	if (lex->char_num == 1) {
 		while (c == '#') {
-			getc(lex->rf); /* Consume space */
+			++lex->input_idx; /* Consume space */
 
 			/* Line number */
 			int line_num = 0;
-			while ((c = (char)getc(lex->rf)) != ' ') {
+			while ((c = lex->input[lex->input_idx++]) != ' ') {
 				line_num *= 10;
 				line_num += c - '0';
 			}
 			lex->line_num = line_num;
 
 			/* Consume linemarker */
-			while ((c = (char)getc(lex->rf)) != '\n')
+			while ((c = lex->input[lex->input_idx++]) != '\n')
 				;
-			c = (char)getc(lex->rf); /* First char of next line */
+			c = lex->input[lex->input_idx]; /* First char of next line */
 		}
 	}
 
-	fseek(lex->rf, -1, SEEK_CUR);
 	return c;
 }
 
@@ -217,17 +224,19 @@ static char read_char(Lexer* lex) {
    of character from read_char
    Does not advance read position */
 static char read_char_next(Lexer* lex) {
-	getc(lex->rf);
-	char c = (char)getc(lex->rf);
-	fseek(lex->rf, -2, SEEK_CUR);
+	/* Save current index, read 1 ahead, return to current index */
+	int old_input_idx = lex->input_idx;
+	consume_char(lex);
+	char c = read_char(lex);
+	lex->input_idx = old_input_idx;
+
 	return c;
 }
-
 
 /* Advances read position to next char */
 static void consume_char(Lexer* lex) {
 	/* Move the file position forwards */
-	char c = (char)getc(lex->rf);
+	char c = lex->input[lex->input_idx++];
 
 	if (c == '\n') {
 		++lex->line_num;
@@ -245,7 +254,12 @@ static void consume_char(Lexer* lex) {
 	lex->line_buf_end = (lex->line_buf_end + 1) % LEXER_LINE_BUF_SIZE;
 }
 
-ErrorCode lexer_construct(Lexer* lex, const char* filepath) {
+/* Lexer */
+
+ErrorCode lexer_construct(Lexer* lex, const char* input) {
+	lex->input = input;
+	lex->input_idx = 0;
+
 	lex->line_num = 1;
 	lex->char_num = 1;
 
@@ -265,15 +279,11 @@ ErrorCode lexer_construct(Lexer* lex, const char* filepath) {
 	lex->primary = 0;
 	lex->secondary = 1;
 
-	lex->rf = fopen(filepath, "r");
-	if (lex->rf == NULL) {
-		return ec_lexer_fopenfail;
-	}
 	return ec_noerr;
 }
 
 void lexer_destruct(Lexer* lex) {
-	if (lex->rf != NULL) fclose(lex->rf);
+	(void)lex;
 }
 
 /* Fetches token into specified buffer index */

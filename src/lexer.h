@@ -41,8 +41,10 @@ int tok_isidentifier(const char* str);
 
 typedef struct
 {
-	/* Input file */
-	FILE* rf;
+	/* Input file contents */
+	const char* input;
+	/* Index for reading next input character */
+	int input_idx;
 
 	/* Tracks position within input file for error messages */
 	int line_num;
@@ -73,9 +75,10 @@ typedef struct
 	int secondary;
 } Lexer;
 
-/* Initializes lexer lexer object at memory
+/* Initializes lexer object at memory
+   Processes provided input, memory at input must remain valid for duration of Lexer
    Returns zero if success, non-zero if error */
-ErrorCode lexer_construct(Lexer* lex, const char* filepath);
+ErrorCode lexer_construct(Lexer* lex, const char* input);
 
 /* Destructs lexer object at memory */
 void lexer_destruct(Lexer* lex);

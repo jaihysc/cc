@@ -122,12 +122,33 @@ int main(int argc, char** argv) {
 		strcopy(path, flags.output_path);
 	}
 
+	/* Read input file */
+
+	FILE* input_file = fopen(flags.input_path, "r");
+	if (input_file == NULL) {
+		ERRMSGF("Failed to open input file" TOKEN_COLOR " %s\n", flags.input_path);
+		goto exit1;
+	}
+
+	/* Get file size */
+	if (fseek(input_file, 0L, SEEK_END) != 0) goto exit1a;
+	size_t input_len;
+	if ((input_len = ftell(input_file)) == -1L) goto exit1a;
+	rewind(input_file);
+
+	/* Allocate memory for file */
+	char* input = malloc(input_len);
+	if (input == NULL) goto exit1a;
+
+	/* Read file into memory */
+	if (fread(input, 1, input_len, input_file) != input_len) goto exit1a;
+
 	/* Parse source code */
 
 	Lexer lex;
-	if ((ecode = lexer_construct(&lex, flags.input_path)) != ec_noerr) {
+	if ((ecode = lexer_construct(&lex, input)) != ec_noerr) {
 		ERRMSGF("Failed to open input file" TOKEN_COLOR " %s\n", flags.input_path);
-		goto exit1;
+		goto exit1b;
 	}
 
 	Symtab symtab;
@@ -195,6 +216,10 @@ exit3:
 	symtab_destruct(&symtab);
 exit2:
 	lexer_destruct(&lex);
+exit1b:
+	free(input);
+exit1a:
+	if (input_file != NULL) fclose(input_file);
 exit1:
 	flags_destruct(&flags);
 exit:

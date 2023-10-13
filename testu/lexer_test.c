@@ -2,9 +2,17 @@
 
 #include "lexer.h"
 
+
+static const char* testcode = "float z = 1;\n"
+							  "\n"
+							  "int\n"
+							  "main(int argc, char** argv) {\n"
+							  "    return 1;\n"
+							  "}\n";
+
 static void ReadToken(CuTest* tc) {
 	Lexer lex;
-	CuAssertIntEquals(tc, lexer_construct(&lex, "testu/testcode"), ec_noerr);
+	CuAssertIntEquals(tc, lexer_construct(&lex, testcode), ec_noerr);
 
 	/* Does not consume */
 	const char* token;

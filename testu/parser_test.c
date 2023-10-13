@@ -3,9 +3,14 @@
 #include "common.h"
 #include "parser.h"
 
+static const char* testfunc = "int\n"
+							  "main(int argc, char** argv) {\n"
+							  "    return argc + 1;\n"
+							  "}\n";
+
 static void ParserConstruct(CuTest* tc, Parser* p) {
 	Lexer* lex = cmalloc(sizeof(Lexer));
-	CuAssertIntEquals(tc, lexer_construct(lex, "testu/testfunc"), ec_noerr);
+	CuAssertIntEquals(tc, lexer_construct(lex, testfunc), ec_noerr);
 
 	Symtab* symtab = cmalloc(sizeof(Symtab));
 	CuAssertIntEquals(tc, symtab_construct(symtab), ec_noerr);

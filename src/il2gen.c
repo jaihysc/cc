@@ -9,6 +9,10 @@ ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree) {
 	return ec_noerr;
 }
 
+void il2_destruct(IL2Gen* il2) {
+	(void)il2;
+}
+
 /* Codegen (cg) functions assume the parse tree is valid
    Those accepting Symbol** stores the Symbol* representing the result of the
    operator at the provided location */

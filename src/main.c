@@ -164,12 +164,12 @@ int main(int argc, char** argv) {
 	IL2Gen il2;
 	if ((ecode = il2_construct(&il2, &cfg, &symtab, &tree)) != ec_noerr) goto exit6;
 
-	if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit6;
+	if ((ecode = symtab_push_scope(&symtab)) != ec_noerr) goto exit7;
 
 	ecode = il2_gen(&il2);
 	if (ecode != ec_noerr) {
 		ERRMSG("Failed to generate IL2\n");
-		goto exit6;
+		goto exit7;
 	}
 
 	symtab_pop_scope(&symtab);
@@ -181,8 +181,10 @@ int main(int argc, char** argv) {
 		debug_print_cfg(&cfg);
 	}
 
-	if ((ecode = il2_write(&il2, flags.output_path)) != ec_noerr) goto exit6;
+	if ((ecode = il2_write(&il2, flags.output_path)) != ec_noerr) goto exit7;
 
+exit7:
+	il2_destruct(&il2);
 exit6:
 	cfg_destruct(&cfg);
 exit5:

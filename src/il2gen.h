@@ -15,6 +15,8 @@ typedef struct
 
 ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree);
 
+void il2_destruct(IL2Gen* il2);
+
 /* Converts Tree nodes from parser to IL2 nodes
    The nodes are stored in the tree */
 ErrorCode il2_gen(IL2Gen* il2);

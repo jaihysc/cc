@@ -13,15 +13,15 @@ typedef struct
 	Tree* tree;
 } IL2Gen;
 
-ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree);
+ErrorCode il2gen_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree);
 
-void il2_destruct(IL2Gen* il2);
+void il2gen_destruct(IL2Gen* il2);
 
 /* Converts Tree nodes from parser to IL2 nodes
    The nodes are stored in the tree */
-ErrorCode il2_gen(IL2Gen* il2);
+ErrorCode il2gen_gen(IL2Gen* il2);
 
 /* Writes il2 to provided file */
-ErrorCode il2_write(IL2Gen* il2, const char* filepath);
+ErrorCode il2gen_write(IL2Gen* il2, const char* filepath);
 
 #endif

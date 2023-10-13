@@ -2,14 +2,14 @@
 
 #include "common.h"
 
-ErrorCode il2_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree) {
+ErrorCode il2gen_construct(IL2Gen* il2, Cfg* cfg, Symtab* stab, Tree* tree) {
 	il2->cfg = cfg;
 	il2->stab = stab;
 	il2->tree = tree;
 	return ec_noerr;
 }
 
-void il2_destruct(IL2Gen* il2) {
+void il2gen_destruct(IL2Gen* il2) {
 	(void)il2;
 }
 
@@ -830,11 +830,11 @@ static ErrorCode traverse_tree(IL2Gen* il2, TNode* node) {
 	return ec_noerr;
 }
 
-ErrorCode il2_gen(IL2Gen* il2) {
+ErrorCode il2gen_gen(IL2Gen* il2) {
 	return traverse_tree(il2, tree_root(il2->tree));
 }
 
-ErrorCode il2_write(IL2Gen* il2, const char* filepath) {
+ErrorCode il2gen_write(IL2Gen* il2, const char* filepath) {
 	FILE* f = fopen(filepath, "w");
 	if (f == NULL) {
 		ERRMSG("Failed to open output file\n");

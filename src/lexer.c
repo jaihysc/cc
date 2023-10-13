@@ -293,9 +293,52 @@ static ErrorCode load_buf(Lexer* lex, int idx) {
 	char* buf = lex->get_buf[idx];
 
 	char c = read_char(lex);
-	/* Skip leading whitespace */
-	while (iswhitespace(c = read_char(lex))) {
-		consume_char(lex);
+
+	/* Skip characters which do not form tokens */
+	int skips_chars = 1;
+	while (skips_chars) {
+		/* Skip leading whitespace */
+		if (iswhitespace(c)) {
+			while (iswhitespace(c = read_char(lex))) {
+				consume_char(lex);
+			}
+		}
+		/* Skip /* comments * / */
+		else if (c == '/' && read_char_next(lex) == '*') {
+			while (1) {
+				consume_char(lex);
+				c = read_char(lex);
+
+				if (c == EOF) break;
+				if (c == '*' && read_char_next(lex) == '/') {
+					consume_char(lex); // Consume *
+
+					c = read_char(lex); // Consume /
+					consume_char(lex);
+
+					c = read_char(lex); // Next character to continue processing
+					break;
+				}
+			}
+		}
+		/* Skip // comments */
+		else if (c == '/' && read_char_next(lex) == '/') {
+			while (1) {
+				consume_char(lex);
+				c = read_char(lex);
+
+				if (c == EOF) break;
+				/* Consume the newline to continue processing */
+				if (c == '\n') {
+					consume_char(lex);
+					c = read_char(lex);
+					break;
+				}
+			}
+		}
+		else {
+			skips_chars = 0;
+		}
 	}
 
 	/* Handle punctuators

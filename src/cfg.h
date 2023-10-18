@@ -53,6 +53,7 @@ void block_link(Block* blk, Block* next);
 /* Returns pointer to ith next block */
 Block* block_next(Block* blk, int i);
 
+
 typedef struct
 {
 	vec_t(Block*) blocks;
@@ -78,6 +79,9 @@ Block* cfg_block(Cfg* cfg, int i);
 /* Finds the first block which has the provided label
    Returns null if not found */
 Block* cfg_find_labelled(Cfg* cfg, Symbol* lab);
+
+/* For each branch instruction at end of a block, add block link to the block of branch target */
+void cfg_link_branch_dest(Cfg* cfg);
 
 void debug_print_cfg(Cfg* cfg);
 

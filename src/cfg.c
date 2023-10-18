@@ -143,6 +143,25 @@ Block* cfg_find_labelled(Cfg* cfg, Symbol* lab) {
 	return NULL;
 }
 
+void cfg_link_branch_dest(Cfg* cfg) {
+	for (int blk_idx = 0; blk_idx < cfg_block_count(cfg); ++blk_idx) {
+		Block* blk = cfg_block(cfg, blk_idx);
+		if (block_ilstat_count(blk) == 0) continue;
+
+		IL2Statement* ilstat = block_ilstat(blk, block_ilstat_count(blk) - 1);
+		IL2Ins ins = il2stat_ins(ilstat);
+
+		/* Get label branch instruction goes to
+		   Exclude ret, it does not go to label */
+		if (il2_is_branch(ins) && ins != il2_ret) {
+			Symbol* target_lab = il2stat_arg(ilstat, 0);
+
+			Block* target_blk = cfg_find_labelled(cfg, target_lab);
+			block_link(blk, target_blk);
+		}
+	}
+}
+
 void debug_print_cfg(Cfg* cfg) {
 	LOGF("Control flow graph [%d]\n", vec_size(&cfg->blocks));
 	for (int i = 0; i < vec_size(&cfg->blocks); ++i) {

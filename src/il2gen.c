@@ -878,6 +878,7 @@ exit1:
 	return ecode;
 }
 
+/* Traverses tree and generates cfg */
 static ErrorCode traverse_tree(IL2Gen* il2, TNode* node) {
 	ErrorCode ecode;
 	for (int i = 0; i < tnode_count_child(node); ++i) {
@@ -892,6 +893,9 @@ static ErrorCode traverse_tree(IL2Gen* il2, TNode* node) {
 		}
 		if (ecode != ec_noerr) return ecode;
 	}
+
+	cfg_link_branch_dest(il2->cfg);
+
 	return ec_noerr;
 }
 

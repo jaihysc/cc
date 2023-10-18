@@ -15,11 +15,21 @@ IL2Ins il2_from_str(const char* str) {
 	return strbinfind(str, strlength(str), il2_string, ARRAY_SIZE(il2_string));
 }
 
-int il2_isjump(IL2Ins ins) {
+int il2_is_branch(IL2Ins ins) {
 	switch (ins) {
 	case il2_jmp:
 	case il2_jnz:
 	case il2_jz:
+	case il2_ret:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+int il2_is_unconditional_branch(IL2Ins ins) {
+	switch (ins) {
+	case il2_jmp:
 	case il2_ret:
 		return 1;
 	default:

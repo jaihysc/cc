@@ -803,16 +803,39 @@ static ErrorCode split_block(IL2Gen* il2, Block* blk) {
 	/* Iterate through given block, write statement to new blocks */
 	for (int i = 0; i < block_ilstat_count(blk); ++i) {
 		IL2Statement* ilstat = block_ilstat(blk, i);
+		IL2Ins ins = il2stat_ins(ilstat);
 
-		block_add_ilstat(write_blk, *ilstat);
+		if (il2_incfg(ins)) {
+			block_add_ilstat(write_blk, *ilstat);
+		}
 
-		if (il2_isjump(il2stat_ins(ilstat))) {
+		/* Create new blocks at branches and branch targets */
+		if (il2_is_branch(ins)) {
 			Block* new_blk;
 			if ((ecode = cfg_new_block(il2->cfg, &new_blk)) != ec_noerr) return ecode;
 
-			block_link(write_blk, new_blk);
+			/* Jump statement can jump to label or flow into this new block
+			   thus link previous block to this block.
+
+			   Unconditional branch always jumps to label,
+			   thus no link (control flow) from previous block */
+			if (!il2_is_unconditional_branch(ins)) {
+				block_link(write_blk, new_blk);
+			}
 
 			write_blk = new_blk;
+		}
+		else if (ins == il2_lab) {
+			/* Simplify cfg by making consecutive labels part of one block */
+			if (block_ilstat_count(write_blk) != 0) {
+				Block* new_blk;
+				if ((ecode = cfg_new_block(il2->cfg, &new_blk)) != ec_noerr) return ecode;
+
+				block_link(write_blk, new_blk);
+				write_blk = new_blk;
+			}
+
+			block_add_label(write_blk, il2stat_arg(ilstat, 0));
 		}
 	}
 

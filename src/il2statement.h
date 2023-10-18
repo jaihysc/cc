@@ -46,9 +46,13 @@ const char* il2_str(IL2Ins ins);
 /* Converts string to IlIns, il_none if not found */
 IL2Ins il2_from_str(const char* str);
 
-/* Returns 1 if the instruction is a jump/branch instruction
+/* Returns 1 if the instruction is a branch instruction
    0 otherwise */
-int il2_isjump(IL2Ins ins);
+int il2_is_branch(IL2Ins ins);
+
+/* Returns 1 if the instruction is an unconditional branch instruction
+   0 otherwise */
+int il2_is_unconditional_branch(IL2Ins ins);
 
 /* Returns 1 if the instruction should be included
    as part of the control flow graph,

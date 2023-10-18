@@ -52,6 +52,32 @@ static void ComputeBranchDestination(CuTest* tc) {
 	cfg_destruct(&cfg);
 }
 
+static void RemoveUnreachableBlock(CuTest* tc) {
+	Cfg cfg;
+	CuAssertIntEquals(tc, cfg_construct(&cfg), ec_noerr);
+
+	Block* block1 = NULL;
+	CuAssertIntEquals(tc, cfg_new_block(&cfg, &block1), ec_noerr);
+
+	Block* block2 = NULL;
+	CuAssertIntEquals(tc, cfg_new_block(&cfg, &block2), ec_noerr);
+
+	Block* block3 = NULL;
+	CuAssertIntEquals(tc, cfg_new_block(&cfg, &block3), ec_noerr);
+
+	Block* block4 = NULL;
+	CuAssertIntEquals(tc, cfg_new_block(&cfg, &block4), ec_noerr);
+
+	block_link(block1, block3);
+	block_link(block2, block4);
+
+	cfg_remove_unreachable(&cfg);
+
+	CuAssertPtrEquals(tc, cfg_block_count(&cfg), 2); /* Only block 1 and 3 reachable */
+
+	cfg_destruct(&cfg);
+}
+
 CuSuite* CfgGetSuite() {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, CreateNewBlock);

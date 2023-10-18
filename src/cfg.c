@@ -8,6 +8,7 @@ ErrorCode block_construct(Block* blk) {
 	vec_construct(&blk->il_stats);
 	blk->next[0] = NULL;
 	blk->next[1] = NULL;
+	blk->data = 0;
 	return ec_noerr;
 }
 
@@ -51,6 +52,16 @@ ErrorCode block_add_ilstat(Block* blk, IL2Statement stat) {
 	ASSERT(blk != NULL, "Block is null");
 	if (!vec_push_back(&blk->il_stats, stat)) return ec_badalloc;
 	return ec_noerr;
+}
+
+int block_data(Block* blk) {
+	ASSERT(blk != NULL, "Block is null");
+	return blk->data;
+}
+
+void block_set_data(Block* blk, int data) {
+	ASSERT(blk != NULL, "Block is null");
+	blk->data = data;
 }
 
 void block_link(Block* blk, Block* next) {
@@ -160,6 +171,90 @@ void cfg_link_branch_dest(Cfg* cfg) {
 			block_link(blk, target_blk);
 		}
 	}
+}
+
+ErrorCode cfg_remove_unreachable(Cfg* cfg) {
+	ErrorCode ecode = ec_noerr;
+
+	/* Zero all marks on blocks */
+	for (int blk_idx = 0; blk_idx < cfg_block_count(cfg); ++blk_idx) {
+		Block* blk = cfg_block(cfg, blk_idx);
+		block_set_data(blk, 0);
+	}
+
+	if (cfg_block_count(cfg) == 0) goto exit;
+
+	/* Add the root block in buffer
+	   At a block, add the next blocks to the buffer */
+
+	/* Circular buffer for blocks to traverse */
+	const int blk_buffer_capacity = cfg_block_count(cfg) + 1;
+	Block** blk_buffer = malloc(blk_buffer_capacity * sizeof(Block*));
+	if (blk_buffer == NULL) {
+		ecode = ec_badalloc;
+		goto exit;
+	}
+
+	/* Add root node (first block) */
+	Block* root_block = cfg_block(cfg, 0);
+	blk_buffer[0] = root_block;
+	block_set_data(root_block, 1);
+
+	int blk_buffer_start = 0; /* Index first block */
+	int blk_buffer_end = 1;	  /* 1 past index last block */
+
+	/* Traverse the Cfg, mark the reachable blocks */
+	while (blk_buffer_start != blk_buffer_end) {
+		Block* blk = blk_buffer[blk_buffer_start];
+
+		/* Add the next blocks of this block, to the buffer to be traversed */
+		for (int i = 0; i < MAX_BLOCK_LINK; ++i) {
+			Block* next_blk = block_next(blk, i);
+			if (next_blk == NULL) continue;
+
+			/* Do not traverse next block if it has already been traversed
+			   (cycles arising from loops) */
+			if (block_data(next_blk) == 1) continue;
+
+			/* Mark block as traversed, avoids adding the same block multiple times */
+			block_set_data(next_blk, 1);
+
+			ASSERT(blk_buffer_end + 1 != blk_buffer_start, "Circular buffer out of space");
+			blk_buffer[blk_buffer_end] = next_blk;
+
+			++blk_buffer_end;
+			if (blk_buffer_end >= blk_buffer_capacity) blk_buffer_end = 0;
+		}
+
+		++blk_buffer_start;
+		if (blk_buffer_start >= blk_buffer_capacity) blk_buffer_start = 0;
+	}
+
+	/* Remove the unreachable blocks */
+	int blocks_removed = 0;
+	int write_idx = 0;
+	for (int blk_idx = 0; blk_idx < cfg_block_count(cfg); ++blk_idx) {
+		Block* blk = cfg_block(cfg, blk_idx);
+
+		/* Reachable block, shuffle it up to overwrite unreachable blocks */
+		if (block_data(blk) == 1) {
+			vec_at(&cfg->blocks, write_idx) = vec_at(&cfg->blocks, blk_idx);
+			++write_idx;
+		}
+		else {
+			/* Unreachable, delete the block */
+			block_destruct(blk);
+			free(blk);
+			++blocks_removed;
+		}
+	}
+
+	/* Remove any empty spaces at end of vector arising from the blocks removed */
+	vec_splice(&cfg->blocks, vec_size(&cfg->blocks) - blocks_removed, blocks_removed);
+
+	free(blk_buffer);
+exit:
+	return ecode;
 }
 
 void debug_print_cfg(Cfg* cfg) {

@@ -23,6 +23,9 @@ typedef struct Block
 	   Is offset (in Block) from current location, cannot use pointer
 	   as container holding Block may resize */
 	struct Block* next[MAX_BLOCK_LINK];
+
+	/* Used for temporarily holding data when performing analysis on blocks */
+	int data;
 } Block;
 
 ErrorCode block_construct(Block* blk);
@@ -53,6 +56,11 @@ void block_link(Block* blk, Block* next);
 /* Returns pointer to ith next block */
 Block* block_next(Block* blk, int i);
 
+/* Returns the integer set via block_set_data */
+int block_data(Block* blk);
+
+/* Sets an integer on the block, for temporarily holding data, such as when analyzing the cfg */
+void block_set_data(Block* blk, int data);
 
 typedef struct
 {
@@ -82,6 +90,9 @@ Block* cfg_find_labelled(Cfg* cfg, Symbol* lab);
 
 /* For each branch instruction at end of a block, add block link to the block of branch target */
 void cfg_link_branch_dest(Cfg* cfg);
+
+/* Remove blocks which cannot be reached from the first block in cfg */
+ErrorCode cfg_remove_unreachable(Cfg* cfg);
 
 void debug_print_cfg(Cfg* cfg);
 

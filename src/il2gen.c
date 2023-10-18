@@ -895,6 +895,7 @@ static ErrorCode traverse_tree(IL2Gen* il2, TNode* node) {
 	}
 
 	cfg_link_branch_dest(il2->cfg);
+	if ((ecode = cfg_remove_unreachable(il2->cfg)) != ec_noerr) return ecode;
 
 	return ec_noerr;
 }

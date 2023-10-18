@@ -21,7 +21,4 @@ void il2gen_destruct(IL2Gen* il2);
    The nodes are stored in the tree */
 ErrorCode il2gen_gen(IL2Gen* il2);
 
-/* Writes il2 to provided file */
-ErrorCode il2gen_write(IL2Gen* il2, const char* filepath);
-
 #endif

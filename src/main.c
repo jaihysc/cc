@@ -202,8 +202,6 @@ int main(int argc, char** argv) {
 		debug_print_cfg(&cfg);
 	}
 
-	if ((ecode = il2gen_write(&il2, flags.output_path)) != ec_noerr) goto exit7;
-
 exit7:
 	il2gen_destruct(&il2);
 exit6:

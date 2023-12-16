@@ -45,7 +45,7 @@ static void ParseFunction(CuTest* tc) {
 	ParserDestruct(tc, &p);
 }
 
-CuSuite* ParserGetSuite() {
+CuSuite* ParserGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, ParseFunction);
 	return suite;

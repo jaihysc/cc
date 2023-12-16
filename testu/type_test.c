@@ -140,7 +140,7 @@ void TypeSpecifierFromString(CuTest* tc) {
 	CuAssertTrue(tc, ts_from_str("long long double") == ts_none);
 }
 
-CuSuite* TypeGetSuite() {
+CuSuite* TypeGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, TypeConstruct);
 	SUITE_ADD_TEST(suite, TypeConstructFunction);

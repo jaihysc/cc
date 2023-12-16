@@ -122,7 +122,7 @@ static void SkipComments(CuTest* tc) {
 	lexer_destruct(&lex);
 }
 
-CuSuite* LexerGetSuite() {
+CuSuite* LexerGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, ReadToken);
 	SUITE_ADD_TEST(suite, SkipComments);

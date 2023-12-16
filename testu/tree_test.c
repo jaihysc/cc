@@ -205,7 +205,7 @@ static void ReplaceChild(CuTest* tc) {
 	tree_destruct(&tree);
 }
 
-CuSuite* TreeGetSuite() {
+CuSuite* TreeGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, AttachDetachNode);
 	SUITE_ADD_TEST(suite, DeleteSingleChildNodes);

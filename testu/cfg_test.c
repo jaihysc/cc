@@ -78,7 +78,7 @@ static void RemoveUnreachableBlock(CuTest* tc) {
 	cfg_destruct(&cfg);
 }
 
-CuSuite* CfgGetSuite() {
+CuSuite* CfgGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, CreateNewBlock);
 	SUITE_ADD_TEST(suite, ComputeBranchDestination);

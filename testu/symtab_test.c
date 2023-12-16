@@ -98,7 +98,7 @@ static void ConstantZero(CuTest* tc) {
 	symtab_destruct(&stab);
 }
 
-CuSuite* SymtabGetSuite() {
+CuSuite* SymtabGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, AddSymbol);
 	SUITE_ADD_TEST(suite, DuplicateSymbol);

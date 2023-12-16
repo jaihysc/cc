@@ -48,7 +48,7 @@ static void SymbolNameTooLong(CuTest* tc) {
 	type_destruct(&type);
 }
 
-CuSuite* SymbolGetSuite() {
+CuSuite* SymbolGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, SymbolConstruct);
 	SUITE_ADD_TEST(suite, SymbolNameTooLong);

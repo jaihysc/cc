@@ -73,7 +73,7 @@ static void RemoveUnreachableBlock(CuTest* tc) {
 
 	cfg_remove_unreachable(&cfg);
 
-	CuAssertPtrEquals(tc, cfg_block_count(&cfg), 2); /* Only block 1 and 3 reachable */
+	CuAssertIntEquals(tc, cfg_block_count(&cfg), 2); /* Only block 1 and 3 reachable */
 
 	cfg_destruct(&cfg);
 }
@@ -82,5 +82,6 @@ CuSuite* CfgGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, CreateNewBlock);
 	SUITE_ADD_TEST(suite, ComputeBranchDestination);
+	SUITE_ADD_TEST(suite, RemoveUnreachableBlock);
 	return suite;
 }

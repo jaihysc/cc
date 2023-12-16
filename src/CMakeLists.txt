@@ -9,6 +9,7 @@ add_library(cclib
 	il2statement.c
 	lexer.c
 	parser.c
+	set.c
 	symbol.c
 	symtab.c
 	tree.c

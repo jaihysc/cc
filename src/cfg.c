@@ -333,6 +333,26 @@ void debug_print_cfg(Cfg* cfg) {
 			LOG("\n");
 		}
 
+		/* Print use/def */
+		LOG("    USE:");
+		uint64_t size;
+		void** data = set_data(block_use(blk), &size);
+		for (uint64_t j = 0; j < size; ++j) {
+			Symbol* sym = data[j];
+			LOGF(" %s", symbol_token(sym));
+		}
+		free(data);
+		LOG("\n");
+
+		LOG("    DEF:");
+		data = set_data(block_def(blk), &size);
+		for (uint64_t j = 0; j < size; ++j) {
+			Symbol* sym = data[j];
+			LOGF(" %s", symbol_token(sym));
+		}
+		free(data);
+		LOG("\n");
+
 		/* Print IL instruction and arguments */
 		LOG("    IL:\n");
 		for (int j = 0; j < block_ilstat_count(blk); ++j) {

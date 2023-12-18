@@ -86,6 +86,23 @@ uint64_t set_size(Set* set) {
 	return set->used_nodes;
 }
 
+void** set_data(Set* set, uint64_t* size) {
+	*size = 0;
+	void** results = malloc(set->used_nodes + 1, sizeof(void*));
+	if (results == NULL) return NULL;
+
+	uint64_t j = 0;
+	for (uint64_t i = 0; i < set->number_nodes; ++i) {
+		if (set->nodes[i] != NULL) {
+			results[j] = (void*)set->nodes[i]->key_;
+			++j;
+		}
+	}
+
+	*size = set->used_nodes;
+	return results;
+}
+
 ErrorCode set_union(Set* res, Set* s1, Set* s2) {
 	ASSERT(res->used_nodes == 0, "Set occupied");
 

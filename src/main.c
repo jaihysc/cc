@@ -3,6 +3,7 @@
 #include "common.h"
 
 #include "globals.h"
+#include "il2analysis.h"
 #include "il2gen.h"
 #include "parser.h"
 
@@ -192,6 +193,8 @@ int main(int argc, char** argv) {
 		ERRMSG("Failed to generate IL2\n");
 		goto exit7;
 	}
+
+	if ((ecode = il2analysis_tossa(&cfg)) != ec_noerr) goto exit7;
 
 	symtab_pop_scope(&symtab);
 	for (int i = 0; i < sc_count; ++i) {

@@ -5,6 +5,7 @@ add_library(cclib
 	cfg.c
 	errorcode.c
 	globals.c
+	il2analysis.c
 	il2gen.c
 	il2statement.c
 	lexer.c

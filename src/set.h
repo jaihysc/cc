@@ -66,6 +66,11 @@ int set_contains(Set* set, const void* key);
 /* Return the number of elements in the set */
 uint64_t set_size(Set* set);
 
+/*  Return an array of the elements in the set, size stored in provided pointer
+    Returns NULL, size 0 if failed to allocate memory
+	NOTE: Up to the caller to free the memory */
+void** set_data(Set* set, uint64_t* size);
+
 /*  Set res to the union of s1 and s2
 	res = s1 ∪ s2
 

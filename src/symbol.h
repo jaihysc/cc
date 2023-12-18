@@ -71,4 +71,7 @@ Symbol* symbol_ptr_sym(Symbol* sym);
    The index is always in bytes */
 Symbol* symbol_ptr_index(Symbol* sym);
 
+/* Returns 1 if the symbol is a constant, 0 otherwise */
+int symbol_is_constant(Symbol* sym);
+
 #endif

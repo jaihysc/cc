@@ -98,3 +98,80 @@ int il2stat_argc(const IL2Statement* stat) {
 	ASSERT(stat != NULL, "IL2Statement is null");
 	return stat->argc;
 }
+
+int il2stat_use(const IL2Statement* stat, Symbol** used_symbols) {
+	switch (il2stat_ins(stat)) {
+	case il2_add:
+	case il2_ce:
+	case il2_cl:
+	case il2_cle:
+	case il2_cne:
+	case il2_div:
+	case il2_mod:
+	case il2_mul:
+	case il2_not:
+	case il2_sub:
+		used_symbols[0] = il2stat_arg(stat, 1);
+		used_symbols[1] = il2stat_arg(stat, 2);
+		return 2;
+
+	case il2_mad:
+	case il2_mfi:
+	case il2_mov:
+	case il2_mtc:
+	case il2_mti:
+		used_symbols[0] = il2stat_arg(stat, 1);
+		return 1;
+
+	case il2_ret:
+		used_symbols[0] = il2stat_arg(stat, 0);
+		return 1;
+
+	case il2_call:
+	case il2_def:
+	case il2_func:
+	case il2_jmp:
+	case il2_jnz:
+	case il2_jz:
+	case il2_lab:
+		return 0;
+	default:
+		ASSERT(0, "Unhandled switch");
+	}
+	return 0;
+}
+
+int il2stat_def(const IL2Statement* stat, Symbol** defined_symbols) {
+	switch (il2stat_ins(stat)) {
+	case il2_add:
+	case il2_ce:
+	case il2_cl:
+	case il2_cle:
+	case il2_cne:
+	case il2_div:
+	case il2_mad:
+	case il2_mfi:
+	case il2_mod:
+	case il2_mov:
+	case il2_mtc:
+	case il2_mti:
+	case il2_mul:
+	case il2_not:
+	case il2_sub:
+		defined_symbols[0] = il2stat_arg(stat, 0);
+		return 1;
+
+	case il2_call:
+	case il2_def:
+	case il2_func:
+	case il2_jmp:
+	case il2_jnz:
+	case il2_jz:
+	case il2_lab:
+	case il2_ret:
+		return 0;
+	default:
+		ASSERT(0, "Unhandled switch");
+	}
+	return 0;
+}

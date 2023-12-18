@@ -78,10 +78,46 @@ static void RemoveUnreachableBlock(CuTest* tc) {
 	cfg_destruct(&cfg);
 }
 
+static void ComputeBlockUseDef(CuTest* tc) {
+	Cfg cfg;
+	CuAssertIntEquals(tc, cfg_construct(&cfg), ec_noerr);
+
+	Block* block = NULL;
+	CuAssertIntEquals(tc, cfg_new_block(&cfg, &block), ec_noerr);
+
+	/* Setup types */
+	Type type;
+	CuAssertIntEquals(tc, type_construct(&type, ts_int, 0), ec_noerr);
+
+	Symbol dest;
+	Symbol arg1;
+	Symbol arg2;
+	CuAssertIntEquals(tc, symbol_construct(&dest, "a", &type), ec_noerr);
+	CuAssertIntEquals(tc, symbol_construct(&arg1, "b", &type), ec_noerr);
+	CuAssertIntEquals(tc, symbol_construct(&arg2, "c", &type), ec_noerr);
+
+	/* Add statement to block */
+	CuAssertIntEquals(tc, block_add_ilstat(block, il2stat_make(il2_add, &dest, &arg1, &arg2)), ec_noerr);
+
+	CuAssertIntEquals(tc, cfg_compute_block_use_def(&cfg), ec_noerr);
+	CuAssertTrue(tc, set_contains(block_def(block), &dest));
+	CuAssertTrue(tc, set_contains(block_use(block), &arg1));
+	CuAssertTrue(tc, set_contains(block_use(block), &arg2));
+
+	symbol_destruct(&arg2);
+	symbol_destruct(&arg1);
+	symbol_destruct(&dest);
+
+	type_destruct(&type);
+
+	cfg_destruct(&cfg);
+}
+
 CuSuite* CfgGetSuite(void) {
 	CuSuite* suite = CuSuiteNew();
 	SUITE_ADD_TEST(suite, CreateNewBlock);
 	SUITE_ADD_TEST(suite, ComputeBranchDestination);
 	SUITE_ADD_TEST(suite, RemoveUnreachableBlock);
+	SUITE_ADD_TEST(suite, ComputeBlockUseDef);
 	return suite;
 }

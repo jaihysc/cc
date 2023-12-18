@@ -67,3 +67,8 @@ Symbol* symbol_ptr_index(Symbol* sym) {
 	ASSERT(sym != NULL, "Symbol is null");
 	return sym->ptr_idx;
 }
+
+int symbol_is_constant(Symbol* sym) {
+	ASSERT(sym != NULL, "Symbol is null");
+	return '0' <= sym->token[0] && sym->token[0] <= '9';
+}

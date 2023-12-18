@@ -1,19 +1,29 @@
 #include "cfg.h"
 
 #include "common.h"
+#include "symtab.h"
 
 ErrorCode block_construct(Block* blk) {
 	ASSERT(blk != NULL, "Block is null");
+	ErrorCode ecode;
+
 	vec_construct(&blk->labels);
 	vec_construct(&blk->il_stats);
 	blk->next[0] = NULL;
 	blk->next[1] = NULL;
 	blk->data = 0;
+
+	if ((ecode = set_construct(&blk->use)) != ec_noerr) return ecode;
+	if ((ecode = set_construct(&blk->def)) != ec_noerr) return ecode;
+
 	return ec_noerr;
 }
 
 void block_destruct(Block* blk) {
 	ASSERT(blk != NULL, "Block is null");
+	set_destruct(&blk->def);
+	set_destruct(&blk->use);
+
 	vec_destruct(&blk->il_stats);
 	vec_destruct(&blk->labels);
 }
@@ -62,6 +72,47 @@ int block_data(Block* blk) {
 void block_set_data(Block* blk, int data) {
 	ASSERT(blk != NULL, "Block is null");
 	blk->data = data;
+}
+
+/* Set of variables used by the block */
+Set* block_use(Block* blk) {
+	ASSERT(blk != NULL, "Block is null");
+	return &blk->use;
+}
+
+/* Set of variables defined at the end of this block */
+Set* block_def(Block* blk) {
+	ASSERT(blk != NULL, "Block is null");
+	return &blk->def;
+}
+
+ErrorCode block_compute_use_def(Block* blk) {
+	ErrorCode ecode;
+	for (int i = block_ilstat_count(blk) - 1; i >= 0; --i) {
+		IL2Statement* stat = block_ilstat(blk, i);
+
+		Symbol* syms[MAX_IL2_ARGS]; /* Buffer to hold symbols */
+
+		/* Add 'def'ed symbol from statement to 'def' for block
+		   Remove occurrences of 'def'd symbol from 'use' for block */
+		int def_count = il2stat_def(stat, syms);
+		for (int j = 0; j < def_count; ++j) {
+			ASSERT(!symbol_is_constant(syms[j]), "Defined symbol should not be constant");
+
+			if ((ecode = set_add(&blk->def, syms[j])) != ec_noerr) return ecode;
+			if ((ecode = set_remove(&blk->use, syms[j])) != ec_noerr) return ecode;
+		}
+
+		/* Add 'use'd symbols from statement to 'use' for block */
+		int use_count = il2stat_use(stat, syms);
+		for (int j = 0; j < use_count; ++j) {
+			if (symbol_is_constant(syms[j])) {
+				continue;
+			}
+			if ((ecode = set_add(&blk->use, syms[j])) != ec_noerr) return ecode;
+		}
+	}
+	return ec_noerr;
 }
 
 void block_link(Block* blk, Block* next) {
@@ -255,6 +306,16 @@ ErrorCode cfg_remove_unreachable(Cfg* cfg) {
 	free(blk_buffer);
 exit:
 	return ecode;
+}
+
+ErrorCode cfg_compute_block_use_def(Cfg* cfg) {
+	for (int i = 0; i < cfg_block_count(cfg); ++i) {
+		Block* blk = cfg_block(cfg, i);
+
+		ErrorCode ecode = block_compute_use_def(blk);
+		if (ecode != ec_noerr) return ecode;
+	}
+	return ec_noerr;
 }
 
 void debug_print_cfg(Cfg* cfg) {

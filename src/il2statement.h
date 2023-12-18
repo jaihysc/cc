@@ -87,4 +87,12 @@ Symbol* il2stat_arg(const IL2Statement* stat, int i);
 /* Returns the number of arguments in IL statement */
 int il2stat_argc(const IL2Statement* stat);
 
+/* Determines the variables which are used by the IL2 instruction stored in provided buffer
+   Returns the number of symbols stored in provided buffer, maximum length MAX_IL2_ARGS */
+int il2stat_use(const IL2Statement* stat, Symbol** used_symbols);
+
+/* Determines the variables which are defined by the IL2 instruction stored in provided buffer
+   Returns the number of symbols stored in provided buffer, maximum length MAX_IL2_ARGS */
+int il2stat_def(const IL2Statement* stat, Symbol** defined_symbols);
+
 #endif

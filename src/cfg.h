@@ -3,6 +3,7 @@
 #define CFG_H
 
 #include "il2statement.h"
+#include "set.h"
 #include "symbol.h"
 #include "vec.h"
 
@@ -26,6 +27,12 @@ typedef struct Block
 
 	/* Used for temporarily holding data when performing analysis on blocks */
 	int data;
+
+	/* Liveness analysis */
+
+	/* Symbols used, defined by this bock */
+	Set use;
+	Set def;
 } Block;
 
 ErrorCode block_construct(Block* blk);
@@ -62,6 +69,19 @@ int block_data(Block* blk);
 /* Sets an integer on the block, for temporarily holding data, such as when analyzing the cfg */
 void block_set_data(Block* blk, int data);
 
+/* Liveness analysis */
+
+/* Set of variables used by the block */
+Set* block_use(Block* blk);
+
+/* Set of variables defined at the end of this block */
+Set* block_def(Block* blk);
+
+/* Computes the variables used and defined within this block */
+ErrorCode block_compute_use_def(Block* blk);
+
+
+/* Control Flow Graph */
 typedef struct
 {
 	vec_t(Block*) blocks;
@@ -88,11 +108,16 @@ Block* cfg_block(Cfg* cfg, int i);
    Returns null if not found */
 Block* cfg_find_labelled(Cfg* cfg, Symbol* lab);
 
+/* Analysis */
+
 /* For each branch instruction at end of a block, add block link to the block of branch target */
 void cfg_link_branch_dest(Cfg* cfg);
 
 /* Remove blocks which cannot be reached from the first block in cfg */
 ErrorCode cfg_remove_unreachable(Cfg* cfg);
+
+/* Computes the variables used defined within all blocks in the CFG */
+ErrorCode cfg_compute_block_use_def(Cfg* cfg);
 
 void debug_print_cfg(Cfg* cfg);
 

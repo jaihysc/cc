@@ -190,19 +190,20 @@ ErrorCode symtab_add(Symtab* stab, Symbol** sym_ptr, const char* token, Type* ty
 	ASSERT(stab != NULL, "Symtab is null");
 	ASSERT(token != NULL, "token is null");
 
-	/* Constants should not be added to symbol table */
-	ASSERT(token[0] < '0' || '9' < token[0], "Attempted to add constant to symbol table");
-
 	/* Add new symbol to current scope */
 	ASSERT(stab->scopes_size > 0, "No scope exists");
 	int curr_scope = stab->scopes_size - 1;
-	return symtab_add_scoped(stab, sym_ptr, curr_scope, token, type);
+	ErrorCode ecode = symtab_add_scoped(stab, sym_ptr, curr_scope, token, type);
+	if (ecode != ec_noerr) return ecode;
+
+	/* Constants should not be added to this symbol table */
+	ASSERT(!symbol_is_constant(*sym_ptr), "Attempted to add constant to symbol table");
+	return ec_noerr;
 }
 
 ErrorCode symtab_add_constant(Symtab* stab, Symbol** sym_ptr, const char* token, Type* type) {
 	ASSERT(stab != NULL, "Symtab is null");
 	ASSERT(token != NULL, "token is null");
-	ASSERT('0' <= token[0] && token[0] <= '9', "Attempted to add non-constant to symbol table");
 
 	ErrorCode ecode;
 	if (!hvec_push_backu(&stab->constant)) return ec_badalloc;
@@ -210,6 +211,8 @@ ErrorCode symtab_add_constant(Symtab* stab, Symbol** sym_ptr, const char* token,
 	Symbol* sym = &hvec_back(&stab->constant);
 	if ((ecode = symbol_construct(sym, token, type)) != ec_noerr) return ecode;
 	*sym_ptr = sym;
+
+	ASSERT(symbol_is_constant(sym), "Attempted to add non-constant to symbol table");
 	return ec_noerr;
 }
 
